@@ -115,8 +115,73 @@ def s_res_cosine(W_unit: torch.Tensor) -> torch.Tensor:
     return _nan_diag(W @ W.transpose(0, 1))
 
 
+def fit_probe_directions(fit_h: torch.Tensor, fit_labels: torch.Tensor,
+                         constants: dict) -> tuple[torch.Tensor, torch.Tensor]:
+    """Fit one linear probe per child on `fit_h`, returning `(P, available)`.
+
+    `P` is `[R, d]`, row `c` being child c's probe direction in the residual basis (or zeros
+    where no probe exists); `available` is `[R]` bool. Separating this from the scoring step
+    makes "freeze the fitted directions before computing scores" STRUCTURAL rather than a
+    comment, and makes the directions a first-class object that can be persisted and hashed.
+
+    The support gate reads `fit_labels`, because that is what the probe trains on. Reading the
+    SCORING labels here would let a child with plenty of scoring-draw positives but almost none
+    in the fitting draw produce a direction fitted on nothing.
+
+    A child with too few positives, or one whose probe fails to train, gets `available[c] =
+    False` and an all-NaN column downstream -- never a fake 0. Seed is the recovered position
+    `c`, so the fit is deterministic.
+    """
+    from metrics.sres import train_probe
+
+    R = int(fit_labels.shape[1])
+    d = int(fit_h.shape[1])
+    P = torch.zeros((R, d), dtype=DT, device=fit_h.device)
+    available = torch.zeros(R, dtype=torch.bool, device=fit_h.device)
+    min_pos = int(constants["sres_min_probe_pos"])
+    fire_thresh = constants["fire_thresh"]            # same firing convention as compute_all
+    for c in range(R):
+        pos = fit_labels[:, c] > fire_thresh
+        if int(pos.sum()) < min_pos:
+            continue                                  # untestable child -> column NaN
+        probe = train_probe(
+            fit_h, pos, seed=c,
+            neg_ratio=int(constants["sres_neg_ratio"]),
+            max_tokens=int(constants["sres_max_probe_tokens"]),
+            steps=int(constants["sres_steps"]),
+            lr=float(constants["sres_lr"]),
+            min_neg=int(constants["sres_min_neg"]),
+        )
+        if probe is None:
+            continue                                  # too few negatives -> column NaN
+        P[c] = probe.to(P.device).double()
+        available[c] = True
+    return P, available
+
+
+def s_res_from_directions(P: torch.Tensor, available: torch.Tensor,
+                          W_unit: torch.Tensor) -> torch.Tensor:
+    """Score FROZEN probe directions against unit decoders. A pure function of its arguments.
+
+    `out[p, c] = min(corr[p], corr[c])` where `corr = W_unit @ P[c]`, asymmetric because column
+    `c` uses child c's probe. Correlating against UNIT decoders is what makes `corr` a cosine
+    (bounded by 1). The corpus is not reachable from here, which is the point of the split.
+    """
+    Wu = W_unit.double()
+    R = int(Wu.shape[0])
+    out = torch.full((R, R), _NAN, dtype=DT, device=Wu.device)   # inherit device (GPU-safe)
+    for c in range(R):
+        if not bool(available[c]):
+            continue
+        corr = Wu @ P[c].to(Wu.device).double()       # [R] cosine of each decoder with the probe
+        out[:, c] = torch.minimum(corr, corr[c])
+    return _nan_diag(out)
+
+
 def s_res_probe(acts_rec: torch.Tensor, h: torch.Tensor, W_unit: torch.Tensor,
-                constants: dict, label_acts: torch.Tensor | None = None) -> torch.Tensor:
+                constants: dict, label_acts: torch.Tensor | None = None,
+                fit_h: torch.Tensor | None = None,
+                fit_labels: torch.Tensor | None = None) -> torch.Tensor:
     """Probe-based s_res (Tree-SAE's probe metric). Trains a linear probe per child on the
     residual stream to predict its firing, then returns
     s_res(p,c) = min over {parent, child} of the probe's cosine with that latent's unit decoder.
@@ -129,35 +194,27 @@ def s_res_probe(acts_rec: torch.Tensor, h: torch.Tensor, W_unit: torch.Tensor,
     then `out[p,c] = min(corr[p], corr[c])`, asymmetric since column c uses child-c's probe.
     Seed is the recovered position c, so it's deterministic.
 
+    `fit_h` / `fit_labels` select a SEPARATE FITTING DRAW (`PRECOMMIT.md` s6 step 2). They
+    DEFAULT TO `h` / the scoring labels, i.e. to the unseparated behaviour, so all 13 existing
+    call sites -- `compute_all` and `training/score_trained.py` among them -- stay byte-identical
+    and the pilot reference and harness gate remain valid. Only the benchmark opts in.
+
+    What the separation removes is the shared sampling noise between the fitted probe and both
+    the co-firing clauses it is conjoined with and the `S_res` null quantile calibrated on the
+    same draw. It does NOT remove the self-LABEL circularity (`probe_self_W` training on the
+    SAE's own firing), which is untouched, and it does not make `S_res` held out the way `pmi`
+    is: `S_res` is never evaluated on tokens at all.
+
     Note: this scores a normalized min-cosine signal, not gemma's raw-dot top-k rule — the
     two are not yet aligned.
     """
-    from metrics.sres import train_probe
-
-    n, R = acts_rec.shape
     labels = acts_rec if label_acts is None else label_acts
-    Wu = W_unit.double()
-    out = torch.full((R, R), _NAN, dtype=DT, device=Wu.device)   # inherit device (GPU-safe)
-    min_pos = int(constants["sres_min_probe_pos"])
-    fire_thresh = constants["fire_thresh"]                        # same firing convention as compute_all
-    for c in range(R):
-        pos = labels[:, c] > fire_thresh
-        if int(pos.sum()) < min_pos:
-            continue                                        # untestable child -> column NaN
-        probe = train_probe(
-            h, pos, seed=c,
-            neg_ratio=int(constants["sres_neg_ratio"]),
-            max_tokens=int(constants["sres_max_probe_tokens"]),
-            steps=int(constants["sres_steps"]),
-            lr=float(constants["sres_lr"]),
-            min_neg=int(constants["sres_min_neg"]),
-        )
-        if probe is None:
-            continue                                        # too few negatives -> column NaN
-        probe = probe.to(Wu.device)                         # train_probe returns on h's device; align
-        corr = Wu @ probe.double()                          # [R] cosine of each decoder with the probe
-        out[:, c] = torch.minimum(corr, corr[c])
-    return _nan_diag(out)
+    P, available = fit_probe_directions(
+        h if fit_h is None else fit_h,
+        labels if fit_labels is None else fit_labels,
+        constants,
+    )
+    return s_res_from_directions(P, available, W_unit)
 
 
 def s_res_variants(acts_rec: torch.Tensor, h: torch.Tensor, W_unit: torch.Tensor,

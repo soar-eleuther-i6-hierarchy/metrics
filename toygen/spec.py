@@ -66,7 +66,7 @@ class ToyConfig:
 
     # --- confounds (enabled by confounds=True; off in backbone) ---
     confounds: bool = False          # master switch for all the distractor confounds below
-    n_superparent: int = 1           # always-on wide parents -- the base-rate confound
+    n_superparent: int = 3           # always-on wide parents -- the base-rate confound; canonical count, balances pair-mass against L0 inflation
     n_broad_parent: int = 1          # genuine wide parents -- the superparent's honest foil
     broad_children: int = 5          # children under each broad parent
     broad_alpha: float = 0.48        # is_a overlap for a broad parent's children; kept equal to `alpha` to stay above the unrelated ceiling
@@ -116,8 +116,68 @@ def only_isa_config() -> ToyConfig:
                      alpha_zero_every=0, confounds=False)
 
 
+def only_firing_config() -> ToyConfig:
+    """Pure firing_only world: co-firing with NO geometry (the is_a null / hard negative).
+
+    Identical shape to `only_isa` (branching=1 removes siblings, depth=1 removes transitive,
+    confounds=False removes the distractors), but `alpha_zero_every=1` sets alpha=0 on EVERY edge,
+    so a child's direction is orthogonal to its parent (cos=0) while still firing nested inside it
+    (child => parent). The only pair classes are firing_only, its reversed flip, and the unrelated
+    null. n_roots=120 gives F=240 and ~120 firing_only edges, well clear of the N>=10 floor. Paired
+    against `only_isa`: same firing structure, geometry switched off — so any is_a detector that
+    scores high here (rather than only on `only_isa`) is responding to co-firing, not to hierarchy.
+    """
+    return ToyConfig(name="only_firing", n_roots=120, branching=1, depth=1,
+                     alpha_zero_every=1, confounds=False)
+
+
+def _confound_backbone(**kw) -> ToyConfig:
+    """Shared base for the single-confound toys: `depth=0` (roots only ⇒ NO is_a/firing_only tree at
+    all, so no is_a floor to censor), `confounds=True`, and EVERY confound family zeroed. Each toy
+    then re-enables exactly one family. 120 independent roots supply the `unrelated` null population.
+    """
+    return ToyConfig(name="_confound", n_roots=120, branching=1, depth=0, confounds=True,
+                     n_superparent=0, n_broad_parent=0, broad_children=0,
+                     n_token_bound_pairs=0, n_topical_pairs=0, **kw)
+
+
+def only_superparent_config() -> ToyConfig:
+    """Pure superparent world: an always-on wide parent (base-rate confound) + unrelated null.
+
+    `n_superparent=3` always-on nodes (root_p=0.85) each pair with every other feature (both
+    orderings ⇒ the `superparent` class), against 120 independent roots. depth=0 ⇒ no is_a/firing_only.
+    Verified: F=123, superparent≈726 pairs, unrelated≈14280. The foil for coverage / out-degree /
+    frequency-survival detectors, which a high-base-rate distractor can spuriously satisfy.
+    """
+    return replace(_confound_backbone(), name="only_superparent", n_superparent=3)
+
+
+def only_frequency_config() -> ToyConfig:
+    """Pure frequency world: token-frequency co-activation + unrelated null.
+
+    `n_token_bound_pairs=8` (16 features) sharing one top-frequency id set (`n_bind_ids=2`), so any
+    token-bound pair co-fires via shared token ids ⇒ the `frequency` class; depth=0 ⇒ no is_a floor.
+    Verified: F=136, frequency=240 pairs, unrelated≈18120; clears `_assert_confounds_powered`.
+    """
+    return replace(_confound_backbone(), name="only_frequency", n_token_bound_pairs=8, n_bind_ids=2)
+
+
+def only_topical_config() -> ToyConfig:
+    """Pure topical world: shared-topic co-firing ("lobes") + unrelated null.
+
+    `n_topical_pairs=12` (24 features) lifted by a shared topic (round-robin over `Z=8`,
+    `kappa=7.2`) ⇒ the `topical` class; depth=0 ⇒ no is_a floor. Verified: F=144, topical=56 pairs,
+    unrelated≈20536; clears `_assert_confounds_powered` (kappa must stay ≤ ~7.2 for admissibility).
+    """
+    return replace(_confound_backbone(), name="only_topical", n_topical_pairs=12, kappa=7.2, Z=8)
+
+
 CONFIGS = {
     "backbone": backbone_config,
     "full": full_config,
     "only_isa": only_isa_config,
+    "only_firing": only_firing_config,
+    "only_superparent": only_superparent_config,
+    "only_frequency": only_frequency_config,
+    "only_topical": only_topical_config,
 }
