@@ -198,3 +198,87 @@ The diagnostic scripts that produced the pilot-comparison tables (`regdiff.py`, 
 been removed; they would need their path updated to `SEED0-PREFREEZE` before they would run
 again.
 Every number above reproduces against the current `SEED0-PREFREEZE` artifacts.
+
+---
+
+# Phase B2: the second gate, SEED0-CORRECTED against SEED0-PREFREEZE
+
+Everything above describes the FIRST gate, which compared this package against the pilot scratch
+evaluator under **report schema 1**.
+Two of its findings were reversed by B2 and the section stays as written, as the record of what
+was true then:
+
+- the `recall_given_recovery` denominator moved from `N_recovered` to `N_scorable` in phase B, and
+  B2.3 moved it back to `N_recovered`, where it now carries the bar.
+  The pilot's original 236/240 and 18/56 figures are therefore restored.
+- the `fpr` key is now `fpr_given_scorable`, with `fpr_over_half` beside it.
+
+`registry.REPORT_SCHEMA` exists so the two contracts cannot be pooled by accident.
+
+## What B2 changed, and what it was allowed to move
+
+Five freeze blockers, found by an external review and all reproduced:
+
+1. `oracle_read` left geometry at seed 0 whatever seed was requested, so oracle reads at seeds
+   1/2/3 would have used seed-0 geometry against trained reads that used the real geometry, both
+   labelled the same seed. The existing test passed because it asserted on `pmi`, which moves
+   with the token draw; only an assertion on `g` or on `G` can see it.
+2. `--verify-manifest` rebuilt the manifest instead of loading it, so it verified the evaluator
+   against itself and passed on a tree with no `MANIFEST.json` at all.
+3. the recall bar rode on a denominator whose name did not match it.
+4. the support floor guarded only the target, not the negative evidence.
+5. the probe was fitted on the same draw it scored.
+
+## The predicted-difference list, written before the run
+
+| Prediction | Outcome |
+| --- | --- |
+| every trained non-`s_res` array holds | HELD: 22 arrays identical in all five toys, 0 moved |
+| harness gate unchanged | HELD: identical to every printed digit, 81 keys, all five toys |
+| oracle `G` holds (pure geometry, `cfg.seed` is 0 either way at seed 0) | HELD in all five toys |
+| oracle co-firing detectors move (new scoring draw) | MOVED in all five toys |
+| `S_res` moves on BOTH reads (separate fitting draw) | MOVED, all ten reads |
+| `null_split_sha256`, `n_pairs`, `F`, class populations hold | HELD |
+| exactly two trained recall cells move, no verdict flips | HELD: `frequency_v6` 1.000 -> 0.983 and `topical_v6` 0.333 -> 0.321, `N_pass` unchanged on both |
+| named flip risk: a bar-adjacent oracle FPR may cross 0.01 | HAPPENED: `only_topical/oracle/topical_v6` MET -> DID NOT MEET, FPR 0.00818 -> 0.01091 |
+
+`tests_local/corrected_diff.py` checks both directions and reports GATE PASSED: every difference is
+on the list and every prediction held.
+The one verdict that moved was called in advance, so it is a reportable coin-flip on a
+bar-adjacent number rather than a regression.
+
+## The bridge run, which is the only gate B2.2 gets
+
+`harness_gate` deliberately excludes `s_res`, so nothing in a normal run would catch a mistake in
+the probe rewiring.
+`SEED0-BRIDGE` was run with the fitting draw set EQUAL to the scoring draw:
+
+- all five TRAINED `S_res` arrays came back **bit-identical** to the pilot, max diff exactly 0.0;
+- `PRECOMMIT.md` s11's `probe_orthogonal_v3` count on `firing_only` held at 13/120.
+
+The ORACLE side is deliberately NOT compared to the pilot, and claiming otherwise would be false:
+B2.1 moved the oracle scoring draw, so its probe is fitted and scored on a different corpus than
+the pilot's, and s11's 0/120 oracle figure is no longer a valid comparison.
+The oracle rewiring is pinned instead by
+`test_benchmark_probe_draw.py::test_fitting_on_the_scoring_draw_reproduces_the_old_behaviour_exactly`,
+which proves the split is the identity when fit == score, whichever draw that is.
+
+## What the cross-world verdict shows
+
+A rule's target lives in one world and its leakage in the others, so no within-world verdict can
+see it. On the trained read, three rules disagree with their own within-world verdict, and only
+`frequency_v6` survives benchmark-wide - which is what `PRECOMMIT.md` s3 already said in prose.
+
+## Reproduce
+
+```
+cd ..                                  # soar/, where exp0_remote.sh lives
+./exp0_remote.sh push
+ssh soar-gpu 'cd ~/exp0-chidaksh && bash scoring/benchmark/run_seed0_tagged.sh SEED0-BRIDGE --probe-fit-seed 10000'
+ssh soar-gpu 'cd ~/exp0-chidaksh && ~/.local/bin/uv run python tests_local/bridge_check.py'
+ssh soar-gpu 'cd ~/exp0-chidaksh && bash scoring/benchmark/run_seed0_tagged.sh SEED0-CORRECTED'
+ssh soar-gpu 'cd ~/exp0-chidaksh && ~/.local/bin/uv run python tests_local/corrected_diff.py'
+```
+
+`bridge_check.py` and `corrected_diff.py` live in `tests_local/`, which is deliberately not
+tracked, so they reach the server by rsync rather than by git.
