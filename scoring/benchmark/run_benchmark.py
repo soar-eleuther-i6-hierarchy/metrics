@@ -313,6 +313,65 @@ def _manifest_main(args) -> None:
         raise SystemExit(1)
 
 
+def _cross_world_main(args) -> None:
+    """Build the benchmark-wide table from artifacts already on disk.
+
+    Reads the tree rather than recomputing anything: the rollup must describe the run that was
+    actually written, not a fresh evaluation that might differ from it.
+    """
+    from scoring.benchmark import aggregate as AG
+
+    seeds = [int(x) for x in args.seeds.split(",")] if args.seeds else [0]
+    toys = tuple(args.toys.split(",")) if args.toys else TOYS
+    root = Path(args.out) / args.tag
+    wrote = []
+    for seed in seeds:
+        for read in ("oracle", "trained"):
+            worlds = []
+            for toy in toys:
+                js = root / f"seed{seed}" / toy / read / "expressions.json"
+                if not js.exists():
+                    continue
+                blob = json.loads(js.read_text())
+                meta = blob.get("__meta__") or {}
+                worlds.append({
+                    "toy": blob.get("toy", toy), "seed": blob.get("seed", seed),
+                    "read": blob.get("read", read),
+                    "freeze_tag": meta.get("freeze_tag"),
+                    "git_sha": meta.get("git_sha"),
+                    "report_schema": meta.get("report_schema"),
+                    # Pooling across differing settings would mix incomparable numbers, so the
+                    # settings that decide a verdict are fingerprinted and required to match.
+                    "settings_sha256": hashlib.sha256(json.dumps(
+                        {k: meta.get(k) for k in ("tau_surv", "q", "min_cal_support",
+                                                  "min_scorable_support", "cal_split_seed")},
+                        sort_keys=True, default=str).encode()).hexdigest()[:16],
+                    "expressions": blob.get("expressions") or {},
+                })
+            if not worlds:
+                continue
+            rows = AG.combine_all(worlds, list(EXPRESSIONS), expected_toys=tuple(toys))
+            d = root / "tables"
+            d.mkdir(parents=True, exist_ok=True)
+            md = d / f"cross_world_seed{seed}_{read}.md"
+            md.write_text(AG.format_cross_world_md(rows, seed, read), encoding="utf-8")
+            csvp = AG.write_cross_world_csv(rows, d / f"cross_world_seed{seed}_{read}.csv",
+                                            seed, read)
+            wrote += [md, csvp]
+            print(f"[cross-world] seed {seed} {read}: {len(worlds)}/{len(toys)} worlds -> {md}")
+            for name, r in rows.items():
+                flag = "  <-- DISAGREES with the within-world verdict" if \
+                    r["disagrees_with_within_world"] else ""
+                over = ", ".join(f"{k}={v:.3f}" for k, v in
+                                 sorted((r.get("leak_exceedances") or {}).items()))
+                print(f"    {name:<22} {r['verdict']:<22} "
+                      f"worst-FPR {AG._f(r['eval_null_fpr_worst'])} "
+                      f"({r['eval_null_fpr_worst_world'] or '--'})"
+                      + (f"  LEAKS {over}" if over else "") + flag)
+    if not wrote:
+        raise SystemExit(f"no artifacts found under {root}; nothing to roll up")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--toy", choices=list(TOYS))
@@ -342,10 +401,17 @@ def main() -> None:
     ap.add_argument("--seeds", default=None, help="comma-separated seed plan, e.g. 1,2,3")
     ap.add_argument("--toys", default=None, help="comma-separated toy plan")
     ap.add_argument("--notes", default="", help="free text recorded in the manifest")
+    ap.add_argument("--cross-world", action="store_true",
+                    help=("build the benchmark-wide verdict table from an existing tag tree and "
+                          "write it to <out>/<tag>/tables/. A rule's target lives in one world "
+                          "and its leakage in the others, so no per-world verdict can see it."))
     args = ap.parse_args()
 
     if args.write_manifest or args.verify_manifest:
         _manifest_main(args)
+        return
+    if args.cross_world:
+        _cross_world_main(args)
         return
     if not args.toy or not args.read:
         raise SystemExit("--toy and --read are required unless writing/verifying a manifest")
