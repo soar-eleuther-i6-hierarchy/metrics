@@ -248,3 +248,88 @@ def test_hungarian_recovery_drop_with_probe():
     # probe columns line up on the reduced frame: children are all kept, so their S_res
     # columns must carry finite values
     assert torch.isfinite(syn.vals["S_res"]).any()
+
+
+# --------------------------------------------------------------------------
+# clean acts mode (the firing-preserving construct; user decision 2026-09-06)
+# --------------------------------------------------------------------------
+def test_clean_mode_preserves_planted_firing_exactly():
+    # THE property the mode exists for: beta cannot move any firing decision.
+    # Under the ridge mode this fails (parent recall ~0.85 at beta=0.6, eta=0).
+    import dataclasses as _dc
+
+    from scoring.core.world import regenerate_world
+    from synthdict.corruptions import absorb
+    from synthdict.read import resolved_config, synth_encode
+
+    rc = resolved_config(TOY, 0, SMALL)
+    w = regenerate_world(rc, sample_seed=7, n_tokens=N_TOK)
+    d = _dials(beta=0.8, eta=0.6)
+    corruption = absorb(w.g, w.CONT, d, world_seed=0)
+    acts, support, _ = synth_encode(w, corruption, 0, 7, acts_mode="clean")
+    assert torch.equal(acts > 0, support)                 # firing == holed planted support, exactly
+
+
+def test_clean_mode_uncorrupted_latents_keep_true_magnitudes():
+    from scoring.core.world import regenerate_world
+    from synthdict.corruptions import absorb
+    from synthdict.read import resolved_config, synth_encode
+
+    rc = resolved_config(TOY, 0, SMALL)
+    w = regenerate_world(rc, sample_seed=7, n_tokens=N_TOK)
+    d = _dials(beta=0.8, eta=0.6, f=0.5)
+    corruption = absorb(w.g, w.CONT, d, world_seed=0)
+    acts, support, _ = synth_encode(w, corruption, 0, 7, acts_mode="clean")
+    cc = {c for _, c in corruption.corrupted_edges}
+    others = [j for j in range(w.g.shape[0]) if j not in cc]
+    oi = torch.tensor(others, dtype=torch.long)
+    assert torch.equal(acts[:, oi], w.A[:, oi].double() * support[:, oi].double())
+
+
+def test_clean_mode_hole_still_applies():
+    # eta must keep its bite in clean mode: the parent is zeroed exactly where holed
+    from scoring.core.world import regenerate_world
+    from synthdict.corruptions import absorb
+    from synthdict.read import resolved_config, synth_encode
+
+    rc = resolved_config(TOY, 0, SMALL)
+    w = regenerate_world(rc, sample_seed=7, n_tokens=N_TOK)
+    corruption = absorb(w.g, w.CONT, _dials(beta=0.0, eta=1.0), world_seed=0)
+    acts, support, _ = synth_encode(w, corruption, 0, 7, acts_mode="clean")
+    for (p, c) in corruption.corrupted_edges:
+        child_fires = w.A[:, c] > 0
+        assert float(acts[child_fires, p].abs().max()) == 0.0
+    # Magnitude honesty is checked at eta=0 (NO holes): the residual is A_c*g_c + noise, so
+    # the fit must return ~A_c; fitting against the FULL h instead adds ~alpha*A_p (0.48
+    # here). At eta=1 the parent mass flows into the child BY DESIGN (absorption's story),
+    # so that regime cannot discriminate - first version of this test asserted it there and
+    # failed on the designed behavior, not a bug.
+    c2 = absorb(w.g, w.CONT, _dials(beta=0.0, eta=0.0), world_seed=0)
+    acts2, _s2, _h2 = synth_encode(w, c2, 0, 7, acts_mode="clean")
+    cc = torch.tensor(sorted({c for _, c in c2.corrupted_edges}), dtype=torch.long)
+    on = w.A[:, cc] > 0
+    rel = (acts2[:, cc][on] - w.A[:, cc].double()[on]).abs() / w.A[:, cc].double()[on].clamp_min(1e-9)
+    assert float(rel.median()) < 0.1
+
+
+def test_clean_mode_no_corruption_is_true_A():
+    from scoring.core.world import regenerate_world
+    from synthdict.read import resolved_config, synth_encode
+
+    rc = resolved_config(TOY, 0, SMALL)
+    w = regenerate_world(rc, sample_seed=7, n_tokens=N_TOK)
+    acts, _s, _h = synth_encode(w, None, 0, 7, acts_mode="clean")
+    assert torch.equal(acts, w.A.double())
+
+
+def test_clean_read_beta_only_keeps_cofiring_clean():
+    # The read-level consequence: at (beta=0.6, eta=0) coverage on corrupted edges is
+    # EXACTLY 1.0 under clean mode (it was ~0.85 under ridge - the review's CRITICAL).
+    syn = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=0.0), match_mode="identity",
+                         n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL,
+                         acts_mode="clean")
+    mask = syn.extra["corrupted_pair"]
+    cov = syn.vals["coverage_R"][mask]
+    assert float(cov.min()) == 1.0
+    assert syn.extra["support_flip_rate"]["scoring"] == 0.0
+    assert syn.extra["acts_mode"] == "clean"

@@ -61,14 +61,15 @@ def dial_dirname(dials: AbsorptionDials) -> str:
 def run_dial_point(toy: str, seed: int, dials: AbsorptionDials, n_tokens: int,
                    out: Path, tag: str, match_modes=("identity", "hungarian"),
                    with_probe: bool = True, with_census: bool = True,
-                   force: bool = False, cfg_overrides: dict | None = None) -> list[Path]:
+                   force: bool = False, cfg_overrides: dict | None = None,
+                   acts_mode: str = "ridge") -> list[Path]:
     """Score one (toy, seed, dials) under each match mode; write the three artifacts each."""
     written = []
     rc = resolved_config(toy, seed, cfg_overrides)
     for mode in match_modes:
         t0 = time.time()
         read = synthetic_read(toy, seed, dials, mode, n_tokens, with_probe=with_probe,
-                              cfg_overrides=cfg_overrides)
+                              cfg_overrides=cfg_overrides, acts_mode=acts_mode)
         report, arrays = run_read(read)
         report["secs"] = round(time.time() - t0, 1)
 
@@ -113,7 +114,8 @@ def run_dial_point(toy: str, seed: int, dials: AbsorptionDials, n_tokens: int,
             world = regenerate_world(rc, sample_seed=held_out_sample_seed(int(seed)),
                                      n_tokens=n_tokens)
             corruption = absorb(world.g, world.CONT, dials, world_seed=int(seed))
-            cen = run_census(rc, corruption, seed, n_tokens=n_tokens, match_mode=mode)
+            cen = run_census(rc, corruption, seed, n_tokens=n_tokens, match_mode=mode,
+                             acts_mode=acts_mode)
             (d / "census.json").write_text(json.dumps(cen, indent=2), encoding="utf-8")
         print(f"[{toy} seed{seed} {dial_dirname(dials)} {mode}] wrote {d} "
               f"({report['secs']}s, sev_med={ex['realized_severity_median']:.3f}, "
@@ -132,6 +134,7 @@ def main() -> None:
     ap.add_argument("--tag", default="SYNTH-R1")
     ap.add_argument("--out", default="outputs_local/synthdict")
     ap.add_argument("--match-modes", default="identity,hungarian")
+    ap.add_argument("--acts-mode", default="ridge", choices=("ridge", "clean"))
     ap.add_argument("--no-probe", action="store_true")
     ap.add_argument("--no-census", action="store_true")
     ap.add_argument("--force", action="store_true")
@@ -141,7 +144,7 @@ def main() -> None:
     run_dial_point(args.toy, args.seed, dials, args.n_tokens, Path(args.out), args.tag,
                    match_modes=tuple(args.match_modes.split(",")),
                    with_probe=not args.no_probe, with_census=not args.no_census,
-                   force=args.force)
+                   force=args.force, acts_mode=args.acts_mode)
 
 
 if __name__ == "__main__":

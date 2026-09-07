@@ -67,10 +67,33 @@ def synth_encode(bundle: WorldBundle, corruption: Corruption | None, world_seed:
             raise ValueError("acts_mode='true_A' is the passthrough anchor; it cannot carry "
                              "a corruption (the hole would be silently ignored)")
         return bundle.A, support, 0
-    if acts_mode != "ridge":
-        raise ValueError(f"unknown acts_mode {acts_mode!r}")
     W_raw = corruption.W_raw if corruption is not None else bundle.g.double()
-    return ridge_acts(bundle.h, W_raw, support), support, n_holed
+    if acts_mode == "ridge":
+        # Deployed-encoder-like: joint least squares over the whole support. Beta carry lets
+        # the corrupted child EXPLAIN AWAY the parent on co-firing tokens (nonpositive parent
+        # coefficients = extra firing holes beyond eta) - absorption's own reconstruction
+        # mechanism, but a measured LEAK of beta into the firing channel (review finding;
+        # measured parent recall ~0.85 at beta=0.6, eta=0). Read against `support_flip_rate`.
+        return ridge_acts(bundle.h, W_raw, support), support, n_holed
+    if acts_mode == "clean":
+        # Firing-preserving: the dial-independent construct SYNTH_PRECOMMIT promised.
+        # Uncorrupted latents keep their TRUE magnitudes on the (holed) planted support, so
+        # beta cannot move any firing decision; only the corrupted children re-fit, against
+        # the residual. Where the hole removed the parent, the parent's mass sits in that
+        # residual and flows into the child's carry term (absorption's story); on un-holed
+        # tokens the carried g_p component double-counts the parent, so reconstruction
+        # degrades with beta (hedging's story). The FVU column records that price.
+        A_masked = bundle.A.double() * support.double()
+        if corruption is None:
+            return A_masked, support, n_holed
+        cc = sorted({c for _, c in corruption.corrupted_edges})
+        acts = A_masked.clone()
+        acts[:, cc] = 0.0
+        residual = bundle.h.double() - acts @ bundle.g.double()   # uncorrupted rows ARE g rows
+        idx = torch.tensor(cc, dtype=torch.long)
+        acts[:, idx] = ridge_acts(residual, W_raw[idx], support[:, idx])
+        return acts, support, n_holed
+    raise ValueError(f"unknown acts_mode {acts_mode!r}")
 
 
 def synthetic_read(toy: str, seed: int, dials: AbsorptionDials | None, match_mode: str,

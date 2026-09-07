@@ -179,6 +179,16 @@ MUTATIONS = [
     # features, which holds at every reachable round-1 state (verified at the grid extremes and
     # in the recovery-drop test, where drops occur but kept features still match themselves).
     # The routed form is kept for correctness the moment a future corruption permutes matches.
+    Mutation("clean mode ignores the hole (masks by raw firing)",
+             "synthdict/read.py",
+             "A_masked = bundle.A.double() * support.double()",
+             "A_masked = bundle.A.double() * (bundle.A > 0).double()",
+             "synthdict/tests/test_read.py::test_clean_mode_preserves_planted_firing_exactly"),
+    Mutation("clean mode fits corrupted children against h, not the residual",
+             "synthdict/read.py",
+             "residual = bundle.h.double() - acts @ bundle.g.double()",
+             "residual = bundle.h.double()",
+             "synthdict/tests/test_read.py::test_clean_mode_hole_still_applies"),
     # ---------------- report.py ----------------
     Mutation("intact side leaks corrupted pairs (mask not excluded)",
              "synthdict/report.py",

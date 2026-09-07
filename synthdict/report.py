@@ -50,6 +50,7 @@ def collect_point(d: Path) -> dict:
 
     row = {
         "toy": meta["toy"], "seed": meta["seed"], "mode": meta["match_mode"],
+        "acts": meta.get("acts_mode", "ridge"),
         "beta": meta["dials"]["beta"], "eta": meta["dials"]["eta"],
         "f": meta["dials"]["edge_fraction"],
         "severity": meta["realized_severity_median"],

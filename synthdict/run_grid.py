@@ -40,6 +40,7 @@ def point_cmd(toy: str, beta: float, eta: float, f: float, args) -> list[str]:
            "--seed", str(args.seed), "--beta", str(beta), "--eta", str(eta),
            "--edge-fraction", str(f), "--n-tokens", str(args.n_tokens),
            "--tag", args.tag, "--out", args.out]
+    cmd += ["--acts-mode", args.acts_mode]
     if args.no_probe:
         cmd.append("--no-probe")
     if args.force:
@@ -55,6 +56,9 @@ def main() -> None:
     ap.add_argument("--n-tokens", type=int, default=200_000)
     ap.add_argument("--n-jobs", type=int, default=8)
     ap.add_argument("--threads-per-job", type=int, default=8)
+    ap.add_argument("--acts-mode", default="ridge", choices=("ridge", "clean"))
+    ap.add_argument("--only-f01", action="store_true",
+                    help="the f=0.1 subset + the bridge point (the approved clean-mode re-run)")
     ap.add_argument("--no-probe", action="store_true")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
@@ -63,6 +67,8 @@ def main() -> None:
     args = ap.parse_args()
 
     pts = grid_points()
+    if args.only_f01:
+        pts = [p for p in pts if p[3] != 1.0]
     if args.timed_pilot:
         pts = [("only_firing", 0.6, 0.6, 0.1)]
     if args.dry_run:
