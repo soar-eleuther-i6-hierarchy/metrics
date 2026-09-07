@@ -102,6 +102,27 @@ MUTATIONS = [
              "flipped = (acts[support] <= 0.0).sum()",
              "flipped = (acts[support] < 0.0).sum()",
              "synthdict/tests/test_activations.py::test_support_flip_rate_counts_nonpositive_on_support"),
+    # ---------------- read.py ----------------
+    Mutation("scoring draw not held out (scores on the matching draw)",
+             "synthdict/read.py",
+             "score_seed = held_out_sample_seed(int(seed))\n    score = regenerate_world(",
+             "score_seed = int(seed)\n    score = regenerate_world(",
+             "synthdict/tests/test_read.py::test_provenance_fields_present"),
+    Mutation("corrupted-pair mask transposed to (child, parent)",
+             "synthdict/read.py",
+             "[(feats[a], feats[b]) in corrupted for a, b in pairs]",
+             "[(feats[b], feats[a]) in corrupted for a, b in pairs]",
+             "synthdict/tests/test_read.py::test_corrupted_pair_mask_marks_exactly_the_ordered_edges"),
+    Mutation("probe fitted on TRUE firing instead of the self label",
+             "synthdict/read.py",
+             "P, avail = fit_probe_directions(fw.h, acts_f[:, idx], CONSTANTS)",
+             "P, avail = fit_probe_directions(fw.h, fw.A[:, idx], CONSTANTS)",
+             "synthdict/tests/test_read.py::test_probe_labels_are_self_not_truth"),
+    Mutation("hole never applied to the scoring draw",
+             "synthdict/read.py",
+             "acts_ho, support_ho, holed_ho = synth_encode(score, corruption, seed, score_seed, acts_mode)",
+             "acts_ho, support_ho, holed_ho = synth_encode(score, None, seed, score_seed, acts_mode)",
+             "synthdict/tests/test_read.py::test_eta_starves_parent_matching"),
 ]
 
 
