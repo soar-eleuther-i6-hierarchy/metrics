@@ -107,6 +107,6 @@ def test_collect_and_write(tmp_path):
         got = list(csv.DictReader(fh))
     assert len(got) == 3
     md = (tag / "REPORT.md").read_text()
-    assert "only_firing — identity match" in md
-    assert "only_isa — identity match" in md
+    assert "only_firing — ridge acts — identity match" in md
+    assert "only_isa — ridge acts — identity match" in md
     assert "Reading rules" in md

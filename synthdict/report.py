@@ -93,7 +93,7 @@ def collect_point(d: Path) -> dict:
 
 def collect(tag_dir: Path) -> list[dict]:
     rows = [collect_point(p.parent) for p in sorted(Path(tag_dir).rglob("scores.npz"))]
-    rows.sort(key=lambda r: (r["toy"], r["mode"], r["f"], r["eta"], r["beta"]))
+    rows.sort(key=lambda r: (r["toy"], r["acts"], r["mode"], r["f"], r["eta"], r["beta"]))
     return rows
 
 
@@ -138,12 +138,20 @@ def write_md(rows: list[dict], path: Path, tag: str) -> None:
         "severity = sin(theta_hat) on an orthogonal edge. Do not read the two as one number.",
         "- Severity on only_isa includes the DESIGNED alpha=0.48 overlap at beta=0; cross-toy "
         "curves are aligned by (beta, eta), not by raw severity.",
+        "- In CLEAN acts mode, `flip_rate` and `coverage_R__corrupted` = (1-eta) are "
+        "near-definitional (the parent channel is set by construction); comparing them "
+        "against ridge rows as evidence of 'cleanliness' is circular. The ridge-vs-clean "
+        "delta lands on coverage_R/pmi/asymmetry_R/recon_2a/fvu only; G and S_res are "
+        "byte-identical across the two modes.",
         "",
     ]
     for toy in sorted({r["toy"] for r in rows}):
-        for mode in sorted({r["mode"] for r in rows if r["toy"] == toy}):
-            sub = [r for r in rows if r["toy"] == toy and r["mode"] == mode]
-            lines += [f"## {toy} — {mode} match", ""]
+      for acts in sorted({r["acts"] for r in rows if r["toy"] == toy}):
+        for mode in sorted({r["mode"] for r in rows
+                            if r["toy"] == toy and r["acts"] == acts}):
+            sub = [r for r in rows if r["toy"] == toy and r["mode"] == mode
+                   and r["acts"] == acts]
+            lines += [f"## {toy} — {acts} acts — {mode} match", ""]
             det_cols = ["beta", "eta", "f", "severity"] + \
                 [f"{d}__{s}" for d in ("G", "S_res", "coverage_R", "pmi")
                  for s in ("corrupted", "intact", "null")]

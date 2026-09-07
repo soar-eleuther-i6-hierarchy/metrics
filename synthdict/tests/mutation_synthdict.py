@@ -184,7 +184,15 @@ MUTATIONS = [
              "A_masked = bundle.A.double() * support.double()",
              "A_masked = bundle.A.double() * (bundle.A > 0).double()",
              "synthdict/tests/test_read.py::test_clean_mode_preserves_planted_firing_exactly"),
-    Mutation("clean mode fits corrupted children against h, not the residual",
+    Mutation("clean mode fits against the TRUE g rows instead of the corrupted decoder (MED-3a)",
+             "synthdict/read.py",
+             "acts[:, idx] = ridge_acts(residual, W_raw[idx], support[:, idx])",
+             "acts[:, idx] = ridge_acts(residual, bundle.g.double()[idx], support[:, idx])",
+             "synthdict/tests/test_read.py::test_clean_mode_corrupted_magnitudes_use_the_corrupted_decoder"),
+    # MED-3b NOT anchored - a NEAR-EQUIVALENT mutant: replacing the joint solve over the
+    # corrupted-children set with a per-child loop shifts FVU by ~1.7% and nothing
+    # claim-bearing; an exact-equality anchor would only restate the implementation.
+    Mutation("clean mode fits corrupted children against h, not the residual (kills via the magnitude-honesty check)",
              "synthdict/read.py",
              "residual = bundle.h.double() - acts @ bundle.g.double()",
              "residual = bundle.h.double()",

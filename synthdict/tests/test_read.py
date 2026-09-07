@@ -256,8 +256,6 @@ def test_hungarian_recovery_drop_with_probe():
 def test_clean_mode_preserves_planted_firing_exactly():
     # THE property the mode exists for: beta cannot move any firing decision.
     # Under the ridge mode this fails (parent recall ~0.85 at beta=0.6, eta=0).
-    import dataclasses as _dc
-
     from scoring.core.world import regenerate_world
     from synthdict.corruptions import absorb
     from synthdict.read import resolved_config, synth_encode
@@ -267,7 +265,13 @@ def test_clean_mode_preserves_planted_firing_exactly():
     d = _dials(beta=0.8, eta=0.6)
     corruption = absorb(w.g, w.CONT, d, world_seed=0)
     acts, support, _ = synth_encode(w, corruption, 0, 7, acts_mode="clean")
-    assert torch.equal(acts > 0, support)                 # firing == holed planted support, exactly
+    # Exactness is guaranteed for the UNCORRUPTED channel (corrupted children stay
+    # ridge-determined and can flip ~1e-7 of entries at 200k tokens - review LOW-1);
+    # at this size the full equality holds, and the channel-scoped one is the contract.
+    cc = sorted({c for _, c in corruption.corrupted_edges})
+    others = torch.tensor([j for j in range(w.g.shape[0]) if j not in set(cc)])
+    assert torch.equal(acts[:, others] > 0, support[:, others])
+    assert torch.equal(acts > 0, support)                 # holds at this scale (see above)
 
 
 def test_clean_mode_uncorrupted_latents_keep_true_magnitudes():
@@ -331,5 +335,28 @@ def test_clean_read_beta_only_keeps_cofiring_clean():
     mask = syn.extra["corrupted_pair"]
     cov = syn.vals["coverage_R"][mask]
     assert float(cov.min()) == 1.0
-    assert syn.extra["support_flip_rate"]["scoring"] == 0.0
+    assert syn.extra["support_flip_rate"]["scoring"] < 1e-5   # corrupted-child flips only (LOW-1)
     assert syn.extra["acts_mode"] == "clean"
+
+
+def test_clean_mode_corrupted_magnitudes_use_the_corrupted_decoder():
+    # The residual fit runs against d_c' (W_raw), NOT g_c: at eta=0 the residual is
+    # A_c*g_c + noise, so a_c ~= A_c * cos(g_c, d_c') = A_c * (1 + beta*alpha)/||g_c + beta*g_p||.
+    # Fitting against g_c instead returns a_c ~= A_c (ratio 1.0) - a surviving mutant the
+    # review measured at +10% FVU and 13.5% magnitude shift (MED-3a); this pins the basis.
+    import math
+
+    from scoring.core.world import regenerate_world
+    from synthdict.corruptions import absorb
+    from synthdict.read import resolved_config, synth_encode
+
+    beta, alpha = 0.8, 0.48
+    rc = resolved_config(TOY, 0, SMALL)
+    w = regenerate_world(rc, sample_seed=7, n_tokens=N_TOK)
+    corruption = absorb(w.g, w.CONT, _dials(beta=beta, eta=0.0), world_seed=0)
+    acts, _s, _h = synth_encode(w, corruption, 0, 7, acts_mode="clean")
+    want = (1 + beta * alpha) / math.sqrt(1 + beta ** 2 + 2 * beta * alpha)
+    cc = torch.tensor(sorted({c for _, c in corruption.corrupted_edges}), dtype=torch.long)
+    on = w.A[:, cc] > 0
+    ratio = (acts[:, cc][on] / w.A[:, cc].double()[on]).median()
+    assert abs(float(ratio) - want) < 0.02

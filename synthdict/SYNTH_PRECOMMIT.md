@@ -1,6 +1,7 @@
 # SYNTH_PRECOMMIT - synthetic-dictionary latent-side stress test, round 1 (absorption)
 
-Status: FINALIZED 2026-09-06 (all four reserved approvals settled by Chidaksh; see the plan file).
+Status: EXECUTED 2026-09-07 - results in `FINDINGS.md`; this document is the pre-registration record and its frozen sections below are NOT edited to fit the outcomes.
+Two deviations arose mid-study, both user-approved BEFORE interpretation, both recorded in `FINDINGS.md` section 6: (1) a second, firing-preserving activation model (`clean`) was added after review found the ridge lets beta leak into firing, and both models are reported; (2) the bridge conditional is reported as its pre-registered FAIL plus the audit's corrected per-population comparison.
 This is a development-stage study, separate from the benchmark freeze.
 Nothing here changes any metric, expression, threshold, or the frozen evaluator; deviations from this document require re-approval before scoring.
 

@@ -105,6 +105,16 @@ def run_dial_point(toy: str, seed: int, dials: AbsorptionDials, n_tokens: int,
         } | git_provenance(Path(__file__).resolve().parents[1])
 
         d = Path(out) / tag / f"seed{int(seed)}" / toy / "absorption" / dial_dirname(dials) / mode
+        # acts_mode is meta, not path: a --force overwrite must never silently mix two
+        # constructs under one tag (review MED-1).
+        npz = d / "scores.npz"
+        if npz.exists():
+            prev = json.loads(str(np.load(npz, allow_pickle=True)["__meta__"])).get(
+                "acts_mode", "ridge")
+            if prev != acts_mode:
+                raise FileExistsError(
+                    f"{d} holds an acts_mode={prev!r} artifact; refusing to overwrite with "
+                    f"{acts_mode!r} even under --force - one tag holds one construct.")
         write_artifacts(d, arrays, report, meta, force=force)
         written.append(d)
 

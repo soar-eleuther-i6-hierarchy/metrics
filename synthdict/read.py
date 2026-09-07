@@ -78,7 +78,9 @@ def synth_encode(bundle: WorldBundle, corruption: Corruption | None, world_seed:
     if acts_mode == "clean":
         # Firing-preserving: the dial-independent construct SYNTH_PRECOMMIT promised.
         # Uncorrupted latents keep their TRUE magnitudes on the (holed) planted support, so
-        # beta cannot move any firing decision; only the corrupted children re-fit, against
+        # beta cannot move any UNCORRUPTED latent's firing decision (a corrupted child's own
+        # coefficient is still ridge-determined and can rarely flip: measured 1.78e-7 at one
+        # hole-only dial point - review LOW-1); only the corrupted children re-fit, against
         # the residual. Where the hole removed the parent, the parent's mass sits in that
         # residual and flows into the child's carry term (absorption's story); on un-holed
         # tokens the carried g_p component double-counts the parent, so reconstruction

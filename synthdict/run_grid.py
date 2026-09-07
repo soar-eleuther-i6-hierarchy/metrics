@@ -35,6 +35,16 @@ def grid_points() -> list[tuple[str, float, float, float]]:
     return pts
 
 
+def _artifact_acts_mode(npz_path: Path) -> str:
+    """The acts_mode stamped in an artifact's meta ('ridge' for pre-acts-mode artifacts)."""
+    import json
+
+    import numpy as np
+
+    meta = json.loads(str(np.load(npz_path, allow_pickle=True)["__meta__"]))
+    return meta.get("acts_mode", "ridge")
+
+
 def point_cmd(toy: str, beta: float, eta: float, f: float, args) -> list[str]:
     cmd = [sys.executable, "-m", "synthdict.run_synth", "--toy", toy,
            "--seed", str(args.seed), "--beta", str(beta), "--eta", str(eta),
@@ -110,9 +120,18 @@ def main() -> None:
         existing = [Path(args.out) / args.tag / f"seed{args.seed}" / toy / "absorption"
                     / dial / m / "scores.npz" for m in ("identity", "hungarian")]
         if not args.force and all(p.exists() for p in existing):
-            done += 1
-            print(f"[{done}/{len(pts)}] {name}: skipped (artifacts exist)", flush=True)
-            continue
+            # Resume only PAST artifacts of the SAME construct: acts_mode is not in the path,
+            # so skipping on existence alone would let `--acts-mode clean` against a ridge tag
+            # exit 0 having run nothing (review MED-1).
+            modes = {_artifact_acts_mode(p) for p in existing}
+            if modes == {args.acts_mode}:
+                done += 1
+                print(f"[{done}/{len(pts)}] {name}: skipped (artifacts exist)", flush=True)
+                continue
+            raise SystemExit(
+                f"{name}: existing artifacts under this tag were produced with acts_mode="
+                f"{sorted(modes)}, not {args.acts_mode!r}. One tag holds ONE construct: "
+                f"use a different --tag.")
         while len(running) >= args.n_jobs:
             reap(block=True)
         log = open(logdir / f"{name}.log", "w")
