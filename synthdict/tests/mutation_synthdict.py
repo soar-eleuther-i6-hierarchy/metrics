@@ -123,6 +123,17 @@ MUTATIONS = [
              "acts_ho, support_ho, holed_ho = synth_encode(score, corruption, seed, score_seed, acts_mode)",
              "acts_ho, support_ho, holed_ho = synth_encode(score, None, seed, score_seed, acts_mode)",
              "synthdict/tests/test_read.py::test_eta_starves_parent_matching"),
+    # ---------------- report.py ----------------
+    Mutation("intact side leaks corrupted pairs (mask not excluded)",
+             "synthdict/report.py",
+             "intact = is_target & ~corr_mask",
+             "intact = is_target",
+             "synthdict/tests/test_report.py::test_collect_and_write"),
+    Mutation("corrupted side computed on the whole target class",
+             "synthdict/report.py",
+             "corrupted = is_target & corr_mask",
+             "corrupted = is_target",
+             "synthdict/tests/test_report.py::test_collect_and_write"),
 ]
 
 
