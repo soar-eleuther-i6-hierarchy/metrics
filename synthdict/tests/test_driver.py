@@ -20,7 +20,8 @@ N_TOK = 3000
 
 
 def test_dial_point_end_to_end(tmp_path):
-    dials = AbsorptionDials(beta=0.6, eta=0.6, edge_fraction=0.5)
+    # ASYMMETRIC dials on purpose: a beta/eta swap anywhere in the path must fail loudly
+    dials = AbsorptionDials(beta=0.6, eta=0.3, edge_fraction=0.5)
     written = run_dial_point("only_isa", 0, dials, N_TOK, tmp_path, "TEST",
                              match_modes=("identity", "hungarian"),
                              with_probe=False, with_census=True,
@@ -32,7 +33,7 @@ def test_dial_point_end_to_end(tmp_path):
         assert meta["read"] == "synthetic"
         assert meta["report_schema"] == 2
         assert meta["checkpoint"] == "synthetic:none"
-        assert meta["dials"]["beta"] == 0.6
+        assert meta["dials"]["beta"] == 0.6 and meta["dials"]["eta"] == 0.3
         assert meta["n_corrupted_edges"] == round(0.5 * 12)
         assert len(meta["checkpoint_weights_sha256"]) == 64
         assert len(meta["synthdict_sha256"]) == 64
@@ -45,9 +46,15 @@ def test_dial_point_end_to_end(tmp_path):
         cen = json.loads((d / "census.json").read_text())
         assert "caveat" in cen and "counts" in cen
         assert cen["n_planted_corrupted_edges"] == meta["n_corrupted_edges"]
+        # IDENTITY of the planted set, not just its count: the census rebuilds the corruption
+        # deterministically, and a rebuild under the wrong seed matches on count at any f
+        assert cen["corrupted_edges_sha256"] == meta["corrupted_edges_sha256"]
+        assert len(cen["absorption_classifier_sha256"]) == 64
 
     assert written[0].name == "identity" and written[1].name == "hungarian"
-    assert written[0].parent.name == dial_dirname(dials) == "beta0.6-eta0.6-f0.5"
+    # the literal, not dial_dirname(dials): comparing the path against the function that
+    # built it can never fail (audit: half compare-with-self)
+    assert written[0].parent.name == "beta0.6-eta0.3-f0.5"
 
 
 def test_census_counts_planted_absorption_at_high_dials(firing_world):

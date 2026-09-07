@@ -142,8 +142,13 @@ def synthetic_read(toy: str, seed: int, dials: AbsorptionDials | None, match_mod
         acts_f, support_f, holed_f = synth_encode(fw, corruption, seed, fit_seed, acts_mode)
         # SELF-label: the synthetic SAE's own activations, restricted to the scored universe —
         # the deployed `probe_self_W` convention (trained_read does the same with L.encode).
-        idx = torch.tensor(feats, dtype=torch.long)
-        P, avail = fit_probe_directions(fw.h, acts_f[:, idx], CONSTANTS)
+        # Columns are routed THROUGH THE MATCH: position k of the scored frame is latent
+        # `match[feats[k]]` (reduce_to_recovered's convention), so its fitting label must be
+        # that latent's activation column, not feature feats[k]'s. Identical when the match is
+        # the identity — which is every round-1 grid point (verified) — but silently wrong the
+        # moment recovery permutes (found by review; anchored by test).
+        lat = match_t[torch.tensor(feats, dtype=torch.long)]
+        P, avail = fit_probe_directions(fw.h, acts_f[:, lat], CONSTANTS)
         probe = s_res_from_directions(P, avail, di.W_unit)
         fvu["probe_fit"] = reconstruction_fvu(fw.h, acts_f, W_raw)
         flips["probe_fit"] = support_flip_rate(acts_f, support_f)

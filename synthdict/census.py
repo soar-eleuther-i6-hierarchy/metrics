@@ -13,6 +13,10 @@ directions and the calibrated eps shifts — counts at high f can undercount pla
 
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
+
 import torch
 
 from scoring.core.recovery import activation_corr, match_features
@@ -53,8 +57,19 @@ def run_census(rc: dict, corruption: Corruption | None, seed: int, n_tokens: int
     corrupted = set(corruption.corrupted_edges) if corruption is not None else set()
     absorbed_edges = cls.get("absorbed_edges", [])
     absorbed_set = {(int(e["parent"]), int(e["child"])) for e in absorbed_edges}
+    # Provenance the driver's meta can be cross-checked against: WHICH planted set this census
+    # counted against (a rebuild with the wrong seed matches on count but not on identity),
+    # and WHICH classifier source produced the counts (scoring/trained is outside both
+    # evaluator_sha256 and synthdict_sha256, and the server copy has no git).
+    import scoring.trained.absorption as _absorption_mod
+    edges_list = list(corruption.corrupted_edges) if corruption is not None else []
+    edges_sha = hashlib.sha256(json.dumps(edges_list).encode()).hexdigest()  # == the driver's form
+    classifier_sha = hashlib.sha256(
+        Path(_absorption_mod.__file__).read_bytes()).hexdigest()
     return {
         "caveat": CAVEAT,
+        "corrupted_edges_sha256": edges_sha,
+        "absorption_classifier_sha256": classifier_sha,
         "match_mode": match_mode,
         "counts": cls["counts"],
         "absorbed_by_relation": cls["absorbed_by_relation"],

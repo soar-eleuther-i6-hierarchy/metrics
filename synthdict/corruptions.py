@@ -91,6 +91,13 @@ def absorb(g: torch.Tensor, cont_edges, dials: AbsorptionDials, world_seed: int)
     EXACTLY (`torch.equal`), so beta=0 or an unselected edge changes nothing at all.
     """
     edges = select_edges(cont_edges, dials.edge_fraction, world_seed)
+    children = [c for _, c in edges]
+    if len(set(children)) != len(children):
+        # Each iteration rebuilds the child row FROM g[c], so a second corrupted parent would
+        # silently discard the first carry and orphan its recorded severity. Impossible in the
+        # round-1 depth-1 worlds; guarded for the registry's future pathologies.
+        raise ValueError("absorb: a child appears on more than one corrupted edge; "
+                         "multi-parent carry is not defined for this corruption")
     W = g.double().clone()
     sev = torch.empty(len(edges), dtype=torch.float64)
     for i, (p, c) in enumerate(edges):

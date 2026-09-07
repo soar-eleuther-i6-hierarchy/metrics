@@ -65,6 +65,15 @@ def collect_point(d: Path) -> dict:
         row[f"{det}__corrupted"] = _median(v[corrupted])
         row[f"{det}__intact"] = _median(v[intact])
         row[f"{det}__null"] = _median(v[null_eval])
+    # The fitted null thresholds, surfaced per dial point: the evaluator refits them from THIS
+    # read's own calibration null, so a corrupted dictionary moves the bar as well as the
+    # target (measured: at f=1.0 the G null q99 moves +28% and coverage_R q99 -30%). A
+    # threshold-crossing read without its threshold column conflates the two.
+    for m in ("G", "coverage_R", "pmi", "abs_asymmetry_R", "S_res"):
+        th = report["thresholds"].get(m, {})
+        row[f"{m}__q99"] = th.get("q99")
+        if m == "G":
+            row["G__q01"] = th.get("q01")            # IN-BAND(G) reads both ends
     for name in EXPRESSIONS:
         e = report["expressions"][name]
         roll = e["target_rollup"]
@@ -110,6 +119,26 @@ def write_md(rows: list[dict], path: Path, tag: str) -> None:
               "median-over-pairs or a rate, split corrupted vs intact within the target class. "
               "Predictions P1-P5 and the claim wording are frozen in synthdict/SYNTH_PRECOMMIT.md; "
               "a flat curve is a result, not a bug.", ""]
+    lines += ["Reading rules (instrument-audit findings, recorded before the grid was read):", ""]
+    lines += [
+        "- `G__corrupted` vs severity is DEFINITIONALLY y=x in identity mode (the generator sets "
+        "that cosine); it is a manipulation check anchoring the dose axis, not evidence a metric "
+        "'responds'. The informative G content is the calibrated threshold crossings "
+        "(HIGH/IN-BAND against `G__q99`/`G__q01`), the intact and null columns, and hungarian mode. "
+        "`coverage_R__corrupted ~ (1-eta)` is likewise the manipulation check for the hole.",
+        "- f=1.0 rows: the per-read calibration null is itself corrupted (thresholds move "
+        "materially; see the `__q99` columns) and the intact control is empty. f=0.1 rows are "
+        "the primary dose-response; f=1.0 rows characterize the instrument-as-deployed on a "
+        "fully corrupted dictionary.",
+        "- `token_freq_survival` cannot inform an absorption claim here: random holes are "
+        "frequency-uniform by construction and these worlds have no token-frequency structure. "
+        "Its flatness licenses nothing about real (systematic) holes.",
+        "- Units: census `theta_hat` is RADIANS (atan2), `severity` is a COSINE; "
+        "severity = sin(theta_hat) on an orthogonal edge. Do not read the two as one number.",
+        "- Severity on only_isa includes the DESIGNED alpha=0.48 overlap at beta=0; cross-toy "
+        "curves are aligned by (beta, eta), not by raw severity.",
+        "",
+    ]
     for toy in sorted({r["toy"] for r in rows}):
         for mode in sorted({r["mode"] for r in rows if r["toy"] == toy}):
             sub = [r for r in rows if r["toy"] == toy and r["mode"] == mode]

@@ -128,6 +128,7 @@ def test_eta_starves_parent_matching():
                         n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
     hi = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=1.0), match_mode="hungarian",
                         n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
+    assert lo.extra["matching_sample_seed"] == 0          # the matching draw, never the scoring one
     parents = sorted({p for p, _ in lo.extra["corrupted_edges"]})
     c_lo = lo.extra["matched_corr"][parents].mean()
     c_hi = hi.extra["matched_corr"][parents].mean()
@@ -195,3 +196,55 @@ def test_probe_labels_are_self_not_truth():
     truth_probe = s_res_from_directions(P_true, avail_true, syn.W_unit)
     pa = _t.tensor([a for a, _ in syn.pairs]); pb = _t.tensor([b for _, b in syn.pairs])
     assert not _bit_equal(syn.vals["S_res"], truth_probe[pa, pb].double())
+
+
+def test_resolved_config_carries_the_seed():
+    # ToyConfig.seed defaults to 0, so dropping the override is invisible to every seed-0 test
+    from synthdict.read import resolved_config
+
+    assert resolved_config("only_isa", 3)["seed"] == 3
+
+
+def test_hungarian_matches_on_the_matching_draw():
+    # Independent rederivation of the match from the MATCHING draw (sample_seed = seed).
+    # Feeding the matcher the scoring draw instead survived the whole old suite (audit M1).
+    from scoring.core.recovery import activation_corr, match_features
+    from scoring.core.registry import CONSTANTS
+    from scoring.core.world import regenerate_world, signed_normalized_decoder
+    from synthdict.corruptions import absorb
+    from synthdict.read import resolved_config, synth_encode
+
+    d = _dials(beta=0.6, eta=1.0)
+    syn = synthetic_read(TOY, seed=0, dials=d, match_mode="hungarian",
+                         n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
+    rc = resolved_config(TOY, 0, SMALL)
+    inw = regenerate_world(rc, sample_seed=0, n_tokens=N_TOK)
+    corruption = absorb(inw.g, inw.CONT, d, world_seed=0)
+    acts_in, _s, _h = synth_encode(inw, corruption, 0, 0)
+    oriented_in = signed_normalized_decoder(corruption.W_raw, acts_in, inw.h)
+    res = match_features(activation_corr(inw.A, acts_in), inw.g, oriented_in,
+                         rho=CONSTANTS["rho_star"])
+    assert torch.equal(syn.extra["matched_corr"], res.matched_corr)
+    assert torch.equal(syn.extra["match"], res.match)
+
+
+def test_hungarian_recovery_drop_with_probe():
+    # The regime every old hungarian test missed: recovery actually DROPS features.
+    # child_p_edge=0.9 + eta=1.0 starves each parent to ~10% of its firing, putting its
+    # activation corr below rho_star=0.5. Exercises reduce_to_recovered with real drops,
+    # the reduced corrupted_pair mask, and the probe on a reduced universe.
+    DROP = {"n_roots": 12, "child_p_edge": 0.9}
+    syn = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=1.0), match_mode="hungarian",
+                         n_tokens=N_TOK, with_probe=True, cfg_overrides=DROP)
+    assert syn.n_recovered < syn.F
+    dropped = set(range(syn.F)) - set(syn.feats)
+    parents = {p for p, _ in syn.extra["corrupted_edges"]}
+    assert dropped and dropped <= parents                 # only starved parents drop
+    kept = set(syn.feats)
+    mask = syn.extra["corrupted_pair"]
+    marked = {(syn.feats[a], syn.feats[b]) for i, (a, b) in enumerate(syn.pairs) if mask[i]}
+    assert marked == {(p, c) for (p, c) in syn.extra["corrupted_edges"]
+                      if p in kept and c in kept}
+    # probe columns line up on the reduced frame: children are all kept, so their S_res
+    # columns must carry finite values
+    assert torch.isfinite(syn.vals["S_res"]).any()
