@@ -15,6 +15,7 @@ runs ONE representative point first — the plan's "time one dial point before t
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -53,6 +54,7 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--n-tokens", type=int, default=200_000)
     ap.add_argument("--n-jobs", type=int, default=8)
+    ap.add_argument("--threads-per-job", type=int, default=8)
     ap.add_argument("--no-probe", action="store_true")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
@@ -95,12 +97,25 @@ def main() -> None:
                 time.sleep(2.0)
 
     for toy, beta, eta, f in pts:
+        name = f"{toy}-beta{beta:g}-eta{eta:g}-f{f:g}"
+        dial = f"beta{beta:g}-eta{eta:g}-f{f:g}"
+        # Idempotent resume: a point whose artifacts exist was produced by this same code
+        # (content-hash stamped in its meta); rerunning would only trip the overwrite guard.
+        existing = [Path(args.out) / args.tag / f"seed{args.seed}" / toy / "absorption"
+                    / dial / m / "scores.npz" for m in ("identity", "hungarian")]
+        if not args.force and all(p.exists() for p in existing):
+            done += 1
+            print(f"[{done}/{len(pts)}] {name}: skipped (artifacts exist)", flush=True)
+            continue
         while len(running) >= args.n_jobs:
             reap(block=True)
-        name = f"{toy}-beta{beta:g}-eta{eta:g}-f{f:g}"
         log = open(logdir / f"{name}.log", "w")
+        # Cap BLAS threads per child: n_jobs x default-all-cores oversubscribes the box.
+        env = dict(os.environ,
+                   OMP_NUM_THREADS=str(args.threads_per_job),
+                   MKL_NUM_THREADS=str(args.threads_per_job))
         proc = subprocess.Popen(point_cmd(toy, beta, eta, f, args),
-                                stdout=log, stderr=subprocess.STDOUT)
+                                stdout=log, stderr=subprocess.STDOUT, env=env)
         running.append((proc, name, time.time()))
     while running:
         reap(block=True)
