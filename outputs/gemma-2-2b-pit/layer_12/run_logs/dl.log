@@ -1,0 +1,3 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+got latest_ckpt.pt 4332 MB
+got conf.yaml 0 MB

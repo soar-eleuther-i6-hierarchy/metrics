@@ -1,0 +1,45 @@
+{
+    "trainer": {
+        "trainer_class": "TemporalMatryoshkaBatchTopKTrainer",
+        "dict_class": "TemporalMatryoshkaBatchTopKSAE",
+        "lr": 0.0003,
+        "steps": 200000,
+        "auxk_alpha": 0.03125,
+        "warmup_steps": 1000,
+        "decay_start": null,
+        "threshold_beta": 0.999,
+        "threshold_start_step": 1000,
+        "top_k_aux": 1152,
+        "seed": null,
+        "activation_dim": 2304,
+        "dict_size": 16384,
+        "group_fractions": [
+            0.2,
+            0.8
+        ],
+        "group_weights": [
+            0.2,
+            0.8
+        ],
+        "group_sizes": [
+            3276,
+            13108
+        ],
+        "k": 20,
+        "temporal": "p",
+        "device": "cuda:0",
+        "layer": 12,
+        "lm_name": "google/gemma-2-2b",
+        "wandb_name": "google/gemma-2-2b-L12-gemma_temporal_prev_full_trainer_0",
+        "submodule_name": null
+    },
+    "buffer": {
+        "d_submodule": 2304,
+        "io": "out",
+        "n_ctxs": 1000,
+        "ctx_len": 256,
+        "refresh_batch_size": 512,
+        "out_batch_size": 8192,
+        "device": "cuda:0"
+    }
+}

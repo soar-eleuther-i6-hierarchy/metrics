@@ -35,9 +35,6 @@ import torch
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-from validation.calibrate_on_trained_toy import (   # noqa: E402
-    build_tree, true_edges, n_features, sample, load_sae, encode_decode, match_latents,
-)
 from metrics import (                                # noqa: E402
     coverage_legs, keep_edges, edge_reconstruction_condition,
     frequency_controlled_coverage, frequency_buckets,
@@ -57,7 +54,14 @@ GRIDS = {
 
 
 def build_tensors(n: int = 200_000):
-    """Everything the gates consume. Mirrors calibrate_on_trained_toy.main up to the gates."""
+    """Everything the gates consume. Mirrors calibrate_on_trained_toy.main up to the gates.
+
+    Imported here rather than at module load: only the toy mode needs these helpers, and an
+    older checkout that lacks one of them would otherwise break the cached-stats mode too.
+    """
+    from validation.calibrate_on_trained_toy import (   # noqa: E402
+        build_tree, true_edges, n_features, sample, load_sae, encode_decode, match_latents,
+    )
     torch.manual_seed(0)
     gen = torch.Generator().manual_seed(0)
     tree = build_tree()
@@ -156,14 +160,28 @@ def sweep_cached_stats(stats_path: Path) -> dict:
     problem the gate removes. The two numbers bound it rather than measure it.
     """
     import torch as _t
-    from run_metrics import block_selector                             # noqa: E402
     from metrics import independence_scores                            # noqa: E402
-    import config as C                                                 # noqa: E402
 
     stats = _t.load(stats_path, map_location="cpu", weights_only=False)
     fire = stats["fire_count"].double()
     total = int(stats["total_tokens"])
-    sel = block_selector(stats)
+
+    # Block boundaries are read from the stats file itself rather than imported from
+    # run_metrics. The helper there is newer than some checkouts, and a sweep that cannot run
+    # on an older copy of the repository is a sweep nobody can reproduce on the node.
+    cfg = stats.get("config") or {}
+    ranges = cfg.get("block_ranges")
+    if ranges is None:
+        steps = cfg.get("matryoshka_steps")
+        if steps is None:
+            raise SystemExit(f"{stats_path}: no block_ranges or matryoshka_steps in config")
+        ranges, prev = [], 0
+        for st_ in steps:
+            ranges.append((prev, st_)); prev = st_
+    ranges = [(int(a), int(b)) for a, b in ranges]
+
+    def sel(b):
+        return slice(*ranges[b])
     out = []
     for (p_blk, c_blk) in stats["pairs"]:
         key = f"{p_blk}->{c_blk}"

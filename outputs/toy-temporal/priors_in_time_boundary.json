@@ -1,0 +1,106 @@
+{
+  "predictions_stated_before_the_run": [
+    "novel-code activity is higher at parent-state changes than between them",
+    "the difference is absent under --persistence 0, where the data carries no events"
+  ],
+  "n_sequences": 256,
+  "seq_len": 16,
+  "cells": {
+    "pit_temporal": [
+      {
+        "n_boundary": 130,
+        "n_within": 3710,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.11751709133386612,
+        "novel_mag_within": 0.07980594784021378,
+        "pred_cos_at": 0.8020903468132019,
+        "pred_cos_within": 0.9494401812553406
+      },
+      {
+        "n_boundary": 130,
+        "n_within": 3710,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 1.999191403388977,
+        "novel_mag_at": 0.11087093502283096,
+        "novel_mag_within": 0.08037912100553513,
+        "pred_cos_at": 0.9991523027420044,
+        "pred_cos_within": 0.9999008774757385
+      },
+      {
+        "n_boundary": 130,
+        "n_within": 3710,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.09906157106161118,
+        "novel_mag_within": 0.07679295539855957,
+        "pred_cos_at": 0.991439938545227,
+        "pred_cos_within": 0.9992693066596985
+      }
+    ],
+    "pit_decorr": [
+      {
+        "n_boundary": 40,
+        "n_within": 3800,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.1354529857635498,
+        "novel_mag_within": 0.05749130994081497,
+        "pred_cos_at": 0.3834669589996338,
+        "pred_cos_within": 0.41104134917259216
+      },
+      {
+        "n_boundary": 40,
+        "n_within": 3800,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.1366611272096634,
+        "novel_mag_within": 0.050479546189308167,
+        "pred_cos_at": 0.9764738082885742,
+        "pred_cos_within": 0.9938620328903198
+      },
+      {
+        "n_boundary": 40,
+        "n_within": 3800,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.14820830523967743,
+        "novel_mag_within": 0.07409218698740005,
+        "pred_cos_at": 0.9363983869552612,
+        "pred_cos_within": 0.9912853837013245
+      }
+    ],
+    "pit_null": [
+      {
+        "n_boundary": 2266,
+        "n_within": 1574,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.11977912485599518,
+        "novel_mag_within": 0.06960450857877731,
+        "pred_cos_at": 0.13475054502487183,
+        "pred_cos_within": 0.775836706161499
+      },
+      {
+        "n_boundary": 2266,
+        "n_within": 1574,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.11627724021673203,
+        "novel_mag_within": 0.0773177370429039,
+        "pred_cos_at": 0.9899540543556213,
+        "pred_cos_within": 0.999608039855957
+      },
+      {
+        "n_boundary": 2266,
+        "n_within": 1574,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.11856383830308914,
+        "novel_mag_within": 0.07209156453609467,
+        "pred_cos_at": 0.15642477571964264,
+        "pred_cos_within": 0.9108394384384155
+      }
+    ]
+  }
+}

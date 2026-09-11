@@ -1,0 +1,6 @@
+[02] loading /mnt/ssd-2/soar-hierarchy/ruqiya/experiment_0/outputs/layer_12/exp0_stats.pt
+[02] wrote /mnt/ssd-2/soar-hierarchy/ruqiya/tsae-gemma-l12/msae_rerun/metrics_report.json
+[02] wrote /mnt/ssd-2/soar-hierarchy/ruqiya/tsae-gemma-l12/msae_rerun/metrics_report.md
+[02]   0->1: 3260 edges, 533 recon-pass, 5 superparents
+[02]   1->2: 34061 edges, 132 recon-pass, 0 superparents
+[02]   2->3: 430547 edges, 119 recon-pass, 0 superparents

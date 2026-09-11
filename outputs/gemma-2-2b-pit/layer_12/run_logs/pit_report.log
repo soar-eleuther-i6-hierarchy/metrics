@@ -1,0 +1,5 @@
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]Loading weights:   0%|          | 1/288 [00:00<01:14,  3.84it/s]Loading weights:  21%|██        | 60/288 [00:00<00:01, 209.69it/s]Loading weights:  36%|███▌      | 104/288 [00:00<00:00, 284.35it/s]Loading weights:  51%|█████     | 147/288 [00:00<00:00, 318.37it/s]Loading weights:  67%|██████▋   | 192/288 [00:00<00:00, 353.47it/s]Loading weights:  82%|████████▏ | 236/288 [00:00<00:00, 374.41it/s]Loading weights:  97%|█████████▋| 279/288 [00:00<00:00, 386.20it/s]Loading weights: 100%|██████████| 288/288 [00:00<00:00, 322.88it/s]
+Using the latest cached version of the dataset since NeelNanda/pile-10k couldn't be found on the Hugging Face Hub (offline mode is enabled).
+Found the latest cached dataset configuration 'default' at /home/ruqiya/.cache/huggingface/datasets/NeelNanda___pile-10k/default/0.0.0/127bfedcd5047750df5ccf3a12979a47bfa0bafa (last modified on Fri Jul 17 15:28:04 2026).
+wrote /mnt/ssd-2/soar-hierarchy/ruqiya/pit-gemma-l12/pit_gemma_results.json
+best depth hidden_states[13], FVE 0.7924, predictive share 0.904

@@ -1,0 +1,32 @@
+WARNING:root:You tried to specify center_unembed=True for a model using logit softcap, but this can't be done! Softcapping is not invariant upon adding a constant Setting center_unembed=False instead.
+T-SAE  d_sae 16384  k 20  threshold 7.30089
+blocks [3276, 13108] -> ranges [(0, 3276), (3276, 16384)]
+reading blocks.12.hook_resid_post of google/gemma-2-2b
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]Loading weights: 100%|██████████| 288/288 [00:00<00:00, 11530.07it/s]
+Using the latest cached version of the dataset since NeelNanda/pile-10k couldn't be found on the Hugging Face Hub (offline mode is enabled).
+WARNING:datasets.load:Using the latest cached version of the dataset since NeelNanda/pile-10k couldn't be found on the Hugging Face Hub (offline mode is enabled).
+Found the latest cached dataset configuration 'default' at /home/ruqiya/.cache/huggingface/datasets/NeelNanda___pile-10k/default/0.0.0/127bfedcd5047750df5ccf3a12979a47bfa0bafa (last modified on Fri Jul 17 15:28:04 2026).
+WARNING:datasets.packaged_modules.cache.cache:Found the latest cached dataset configuration 'default' at /home/ruqiya/.cache/huggingface/datasets/NeelNanda___pile-10k/default/0.0.0/127bfedcd5047750df5ccf3a12979a47bfa0bafa (last modified on Fri Jul 17 15:28:04 2026).
+Loaded pretrained model google/gemma-2-2b into HookedTransformer
+400 sequences, context 128
+[01]   bucket 0: 194 token ids
+[01]   bucket 1: 6298 token ids
+[01]   bucket 2: 249508 token ids
+[01] block pairs: [(0, 1)]
+[01] batch 1/50 | tokens=966 | 2.1s | 453 tok/s
+[01] batch 6/50 | tokens=5861 | 11.9s | 491 tok/s
+[01] batch 11/50 | tokens=10679 | 21.6s | 494 tok/s
+[01] batch 16/50 | tokens=15437 | 31.2s | 495 tok/s
+[01] batch 21/50 | tokens=20157 | 40.7s | 496 tok/s
+[01] batch 26/50 | tokens=25014 | 50.4s | 496 tok/s
+[01] batch 31/50 | tokens=29964 | 60.4s | 496 tok/s
+[01] batch 36/50 | tokens=34829 | 70.1s | 497 tok/s
+[01] batch 41/50 | tokens=39761 | 80.0s | 497 tok/s
+[01] batch 46/50 | tokens=44507 | 89.6s | 497 tok/s
+[01] batch 50/50 | tokens=48571 | 97.7s | 497 tok/s
+[01] token cache: 48571 tokens, 1 shards -> exp0/token_cache
+
+[01] saved -> exp0/exp0_stats.pt
+[01] total tokens: 48571
+[01] alive features: 12236/16384 (74.7%)
+wrote exp0/exp0_stats.pt
