@@ -352,4 +352,4 @@ python3 -m validation.audit_comparability --json /tmp/audit.json
 ```
 
 It does not check block width, seed or architecture. Those are still matched by hand, and
-`research-log/DECISIONS.md` section 7 says why that matters.
+the project's design notes say why that matters.
