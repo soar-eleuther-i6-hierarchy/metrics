@@ -55,13 +55,30 @@ def _pair(report, name="0->1"):
     return next((p for p in report["pairs"] if p["pair"] == name), None)
 
 
-def gemma_layers():
+def gemma_layers(merge: bool = True):
+    """The graded layers, with any variant run of the same layer folded in.
+
+    Pass ``merge=False`` for any table whose columns are whole-run totals. B3->B4 was
+    graded at layer 12 alone, so a merged layer 12 pools four pairs where every other
+    gemma layer pools three. That is not a measurement moving: the reconstruction column
+    fell from 30% to 19% purely because a fourth pair with a 5% pass rate joined the pool
+    at one row and nowhere else. Per-pair tables want the merge; whole-run totals must not
+    have it, or the rows stop being comparable with each other.
+
+    This file kept its own loader, and when B3->B4 was graded in a separate run the
+    figures picked it up and the tables did not. One document then said the pair was
+    never computed while the figure beside it printed its numbers. The merge is imported
+    rather than copied so the two cannot drift apart again; its agreement check is
+    documented there.
+    """
+    from .make_report_figures import _merge_variant_pairs
     G = C.OUT_DIR / C.SOURCE_NAME
     out = []
     for L in C.NAV_LAYERS:
-        r = _json(G / f"layer_{L:02d}" / "metrics_report.json")
+        d = G / f"layer_{L:02d}"
+        r = _json(d / "metrics_report.json")
         if r:
-            out.append((L, r))
+            out.append((L, _merge_variant_pairs(d, r) if merge else r))
     return out
 
 
@@ -449,9 +466,8 @@ def t_gemma(layers, second, has_bos=True, pcfg=()):
     def block_pairs(report):
         """Adjacent pairs the run's own block structure declares, not the ones it filled.
 
-        A pair the run never computed is a row carrying the reason. Dropping it
-        would let the table read as if the block structure ended where the
-        memory budget did.
+        A pair no layer here graded is a row carrying the reason. Dropping it would let
+        the table read as if the block structure ended where the runs did.
         """
         return list(range(len(report.get("block_ranges") or []) - 1))
 
@@ -486,8 +502,8 @@ def t_gemma(layers, second, has_bos=True, pcfg=()):
                 P = ranges[k][1] - ranges[k][0]
                 Cn = ranges[k + 1][1] - ranges[k + 1][0]
                 out.append([name, "---",
-                            rf"\multicolumn{{{NC - 2}}}{{c}}{{\emph{{not computed: "
-                            rf"{P:,}$\times${Cn:,} exceeds the memory budget}}}}"])
+                            rf"\multicolumn{{{NC - 2}}}{{c}}{{\emph{{not graded at any "
+                            rf"layer shown: {P:,}$\times${Cn:,}}}}}"])
                 continue
             for i, (lab, r) in enumerate(filled):
                 q = _pair(r, pr)
@@ -539,10 +555,11 @@ def t_gemma(layers, second, has_bos=True, pcfg=()):
         "frequency control instead. Multi-parenting is the measure that does not depend on "
         "the candidate set and the only one of the project's original four claims to survive "
         r"BOS exclusion"
-        + (r" (Table~\ref{tab:bos})" if has_bos else "") + ". A pair the run never computed "
-        "carries its reason rather than being dropped, and a pair that proposed nothing "
-        "shows a candidate count of zero with the columns downstream of it blank: neither is "
-        "the same statement as a clean pair." + sres_note,
+        + (r" (Table~\ref{tab:bos})" if has_bos else "") + ". A pair no layer here "
+        "graded carries its reason rather than being dropped, a layer that did not run a "
+        "pair others ran shows a dash, and a pair that proposed nothing shows a candidate "
+        "count of zero with the columns downstream of it blank: none of the three is the "
+        "same statement as a clean pair." + sres_note,
         ["Pair", "Layer", "Candidates", "Recon.", "At chance", "Freq.-driven",
          r"$\geq 2$ parents", r"$S_\mathrm{res}$"],
         rows, align="ll" + "r" * 6, star=True, size="footnotesize")
@@ -552,6 +569,7 @@ def t_gemma(layers, second, has_bos=True, pcfg=()):
 # 7. Cross-source (appendix).
 # ---------------------------------------------------------------------------
 def t_sources(layers, second, pcfg):
+    # layers is replaced below with the unmerged set: see gemma_layers(merge=...).
     """One row per graded RUN, summed over every block pair that run graded.
 
     It carried gemma's layer 6 against the PCFG runs, at B0->B1 only, which made
@@ -583,6 +601,10 @@ def t_sources(layers, second, pcfg):
                 rf"{100 * recon / cand:.0f}\%" if cand else "---",
                 rf"{sres_pass}/{sres_n:,}" if sres_n else "---"]
 
+    # Whole-run totals only pool pairs every row could have. A variant run graded one
+    # extra pair at one layer; including it here would move that row's percentages
+    # without any measurement having changed.
+    layers = gemma_layers(merge=False)
     rows = [run_row(rf"\texttt{{gemma-2-2b}} L{L}", r, second.get(L)) for L, r in layers]
     if layers and pcfg:
         rows.append(r"\addlinespace[2pt]")
@@ -752,8 +774,12 @@ def t_null(layers, second, pcfg):
             n_scored += sr.get("n_edges_scored", 0)
         return n_pass, n_scored, n_pairs
 
+    # Whole-run rates, like t_sources: pool only pairs every row could have. The
+    # variant run that added B3->B4 at layer 12 carries no second_pass today, so this
+    # table does not move either way; it takes the unmerged set so it still will not
+    # once the probe stage is run there.
     obs = []
-    for L, r in layers:
+    for L, r in gemma_layers(merge=False):
         n_pass, n_scored, n_pairs = whole_run(r, second.get(L))
         if n_scored:
             obs.append((rf"\texttt{{gemma-2-2b}} L{L}", C.D_SAE,

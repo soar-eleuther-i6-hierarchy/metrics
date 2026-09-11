@@ -126,7 +126,12 @@ def t_gemma_sres():
     f = base / "layer_12" / "second_pass.json"
     if f.is_file():
         d = _j.loads(f.read_text())
-        for pair in ("0->1", "1->2", "2->3"):
+        # Read the pairs present rather than naming three. The probe stage runs on
+        # whatever the report graded, and B3->B4 is off by default only because of
+        # memory, so a fourth pair can appear without this file being touched.
+        graded = sorted((k for k in d if "->" in k),
+                        key=lambda k: tuple(int(x) for x in k.split("->")))
+        for pair in graded:
             s = (d.get(pair) or {}).get("sres", {})
             if s.get("n_edges_scored"):
                 rows.append([f"Matryoshka ${pair.replace('->', chr(92)+'rightarrow')}$",
