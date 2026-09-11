@@ -42,8 +42,11 @@ def t_toy_conditions():
                      ms([x["nce_inner"] for x in r], 3)])
     return table(
         "tsae-toy-conditions",
-        TODO.format("Temporal SAE on the toy, 20/80 split, k=2, three seeds per row. "
-                    "Chance InfoNCE is $\\ln 256 = 5.545$."),
+        TODO.format("The Temporal SAE on the small made-up world. Each row is one "
+                    "setting, run three times. The last column is the time rule. It has "
+                    "a value it cannot go above, $5.545$ here, which is what it shows "
+                    "when it has learned nothing at all. A row sitting at that value "
+                    "means the rule did nothing in that setting."),
         ["condition", "$n$", "FVE", "$L_0$", "parents in $B_0$",
          "InfoNCE (cos)", "InfoNCE (inner)"],
         rows, align="lcrrrrr",
@@ -67,10 +70,12 @@ def t_decorrelated():
                      ms([float(x["distractors_in_b0"]) for x in rb], 2)])
     return table(
         "tsae-decorrelated",
-        TODO.format("Parent features recovered into the first block, on two trees. "
-                    "In the original, parents are also the most frequent features; in the "
-                    "decorrelated tree they are rare and the distractors frequent. "
-                    "Expected $L_0$ is held at 1.12 and 1.11."),
+        TODO.format("How many of the three parents end up in the first block, on two "
+                    "worlds. In the first world the parents are also the features that "
+                    "fire most often. In the second we made them rare instead. "
+                    "Everything else is the same, including how many features fire at "
+                    "once. The parents are learned in both worlds. Only the first block "
+                    "changes."),
         ["condition", "parents, original", "parents, decorrelated",
          "distractors, decorrelated"],
         rows, align="lrrr",
@@ -103,8 +108,11 @@ def t_gemma_pipeline():
                      if isinstance(b.get("n_dropped_min_joint"), int) else "--"])
     return table(
         "tsae-gemma-pipeline",
-        TODO.format("\\texttt{gemma-2-2b} layer 12, both architectures through the same "
-                    "metric code on the same corpus."),
+        TODO.format("Two SAEs at layer 12 of \\texttt{gemma-2-2b}, measured the same "
+                    "way on the same text. The blocks differ a lot in size, so the "
+                    "number of links found cannot be compared directly. The density "
+                    "column can: it is the share of all possible pairs that became a "
+                    "link. The shape column gives the block sizes behind each row."),
         ["block pair", "shape", "edges", "density", "superparents",
          "joint-child cov.", "dropped by $\\MinJoint$"],
         rows, align="llrrrrr",
@@ -141,9 +149,11 @@ def t_gemma_sres():
         return None
     return table(
         "tsae-gemma-sres",
-        TODO.format("Probe test at \\texttt{gemma-2-2b} layer 12. The probe asks whether the "
-                    "parent adds information beyond the child, rather than whether the two "
-                    "co-fire."),
+        TODO.format("Our strictest test, at layer 12 of \\texttt{gemma-2-2b}. It does "
+                    "not ask whether the two features fire together. It asks whether the "
+                    "parent tells us something about the child that the child does not "
+                    "already tell us by itself. The last column is the share of tested "
+                    "links that passed."),
         ["block pair", "edges scored", "pass", "fraction"],
         rows, align="lrrr",
         note="No child was untestable in either run, so neither fraction is thinned by "
@@ -169,9 +179,12 @@ def t_threshold_reversal():
                      f"{nt:,}", "--" if ct is None else f"{ct:.2f}"])
     return table(
         "tsae-threshold-reversal",
-        TODO.format("$\\EdgeTau$ swept on \\texttt{gemma-2-2b} layer 12, one run per "
-                    "architecture. The chance share rises with $\\EdgeTau$ for Matryoshka and "
-                    "stays at zero for the Temporal SAE."),
+        TODO.format("What happens when we raise our main cut-off, at layer 12 of "
+                    "\\texttt{gemma-2-2b}. Raising a cut-off should keep only the "
+                    "stronger links. The column on the right is the share of links that "
+                    "could be explained by the two features simply being common. For "
+                    "Matryoshka that share goes up, which is the opposite of what a "
+                    "stricter cut-off should do."),
         ["$\\EdgeTau$", "MSAE edges", "chance share", "T-SAE edges", "chance share"],
         rows, align="lrrrr",
         note="Chance share is the fraction of accepted edges with PMI below 0.5. The two "
@@ -201,8 +214,10 @@ def f_decorrelated(out_dir: Path):
     p = out_dir / "tsae_decorrelated_parents.png"
     fig.savefig(p, dpi=300); plt.close(fig)
     return figure("tsae-decorrelated-parents",
-                  TODO.format("Parent recovery into the first block on the two trees. "
-                              "Error bars are the spread over three seeds."),
+                  TODO.format("How many parents land in the first block, on the two "
+                              "worlds. The bars show the average of three runs. The "
+                              "lines through them show how much the three runs differed "
+                              "from each other."),
                   "figuers/tsae_decorrelated_parents", width="0.62\\linewidth")
 
 
@@ -228,8 +243,11 @@ def f_threshold_reversal(out_dir: Path):
     p = out_dir / "tsae_threshold_reversal.png"
     fig.savefig(p, dpi=300); plt.close(fig)
     return figure("tsae-threshold-reversal",
-                  TODO.format("Chance share against $\\tau$ on \\texttt{gemma-2-2b} layer 12. "
-                              "The dashed line marks the operating value."),
+                  TODO.format("The same cut-off, drawn. Going right means a stricter "
+                              "cut-off. Going up means more of the surviving links could "
+                              "be explained by the two features simply being common. The "
+                              "dashed line is the setting we use everywhere else in this "
+                              "paper."),
                   "figuers/tsae_threshold_reversal", width="0.62\\linewidth")
 
 

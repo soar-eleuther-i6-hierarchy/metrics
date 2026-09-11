@@ -56,9 +56,12 @@ def t_gemma_quality():
     ]
     return table(
         "pit-gemma-quality",
-        TODO.format("Released Priors in Time checkpoint at \\texttt{gemma-2-2b}, output of "
-                    "block 12, on 200 documents of \\texttt{pile-10k}. Measured with the "
-                    "authors' own forward pass."),
+        TODO.format("The released Priors in Time model, at layer 12 of "
+                    "\\texttt{gemma-2-2b}, on 200 documents. We ran it through the "
+                    "authors' own code rather than rebuilding it ourselves. The last row "
+                    "is the point: this method splits each token into what its context "
+                    "already suggests and what is new. Nine parts in ten come from the "
+                    "context."),
         ["quantity", "value"], rows, align="lr",
         note="Nine parts in ten of what reconstructs a token comes from its context. No "
              "hierarchy metric is reported: this method produces no feature edges, so the "
@@ -79,8 +82,12 @@ def t_gemma_layer():
                      (r"\textbf{" + v + "}") if best else v])
     return table(
         "pit-gemma-layer",
-        TODO.format("Fraction of variance explained at seven depths. An SAE reconstructs the "
-                    "layer it was fitted to best. The checkpoint's \\texttt{conf.yaml} records "
+        TODO.format("Which layer this model was trained on. We had to check, because "
+                    "the model's own settings file and its README disagree. An SAE "
+                    "rebuilds the layer it was trained on better than any other, so the "
+                    "best row identifies the layer. A negative value means the "
+                    "reconstruction is worse than simply guessing the average. The "
+                    "settings file records "
                     rf"\texttt{{block\_id: {d['conf_block_id']}}} while the repository README "
                     rf"lists layer {d['readme_layer']}."),
         ["activation", "block output", "FVE"], rows, align="llr",
@@ -103,9 +110,11 @@ def t_toy_event():
         rows.append([name, len(r), ms([x["fve"] for x in r], 3), ms([x["l0"] for x in r], 2)])
     return table(
         "pit-toy",
-        TODO.format("Priors in Time trained on the temporal toy, three seeds per row. "
-                    "The null row uses \\texttt{--persistence 0}, which removes the temporal "
-                    "correlation while leaving the per-token distribution unchanged."),
+        TODO.format("Priors in Time trained on the small world, each row run three "
+                    "times. The last row is our control. In it we removed the link "
+                    "between one token and the next, and changed nothing else. Any "
+                    "difference between the control and the rows above it therefore "
+                    "comes from time, and not from how often features fire."),
         ["condition", "$n$", "FVE", "$L_0$"], rows, align="lcrr",
         note="$L_0$ is fixed by TopK at $k=2$ and is a setting rather than a measurement. "
              "The event-boundary measurements are in Table~\\ref{tab:pit-boundary}.")
@@ -136,10 +145,12 @@ def t_toy_boundary():
         rows.append([name, f"{at:.3f}", f"{wi:.3f}", f"{at/wi:.2f}", f(pa, 4), f"{pw:.4f}"])
     return table(
         "pit-boundary",
-        TODO.format("Novel-code magnitude and predictive-code similarity at planted "
-                    "parent-state changes, three seeds per row. Two predictions were stated "
-                    "before the run: novel activity higher at changes, and the difference "
-                    "absent in the null."),
+        TODO.format("What the two parts do at points where we changed the hidden "
+                    "state on purpose. We wrote down two predictions before running "
+                    "this. The new part would be more active at those points. That extra "
+                    "activity would disappear in the control, which has no such points "
+                    "to find. The first held. The second did not: the ratio is above one "
+                    "in the control as well."),
         ["condition", "novel at", "novel between", "ratio",
          "pred.\\ cos at", "pred.\\ cos between"],
         rows, align="lrrrrr",
@@ -176,8 +187,9 @@ def f_boundary(out_dir: Path):
     p = out_dir / "pit_boundary.png"
     fig.savefig(p, dpi=300); plt.close(fig)
     return figure("pit-boundary",
-                  TODO.format("Novel and predictive code at planted parent-state changes. "
-                              "The null condition contains no events."),
+                  TODO.format("The same measurements, drawn. The control row has no "
+                              "planted changes in it at all, so it shows what these "
+                              "measures do when there is nothing to find."),
                   "figuers/pit_boundary")
 
 

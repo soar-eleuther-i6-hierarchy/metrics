@@ -15,7 +15,7 @@
 \begin{table}[tbp]
   \centering
   \small
-  \caption{TODO(caption, human-written). Temporal SAE on the toy, 20/80 split, k=2, three seeds per row. Chance InfoNCE is $\ln 256 = 5.545$.}
+  \caption{TODO(caption, human-written). The Temporal SAE on the small made-up world. Each row is one setting, run three times. The last column is the time rule. It has a value it cannot go above, $5.545$ here, which is what it shows when it has learned nothing at all. A row sitting at that value means the rule did nothing in that setting.}
   \label{tab:tsae-toy-conditions}
   \begin{tabular}{lcrrrrr}
     \toprule
@@ -35,7 +35,7 @@
 \begin{table}[tbp]
   \centering
   \small
-  \caption{TODO(caption, human-written). Parent features recovered into the first block, on two trees. In the original, parents are also the most frequent features; in the decorrelated tree they are rare and the distractors frequent. Expected $L_0$ is held at 1.12 and 1.11.}
+  \caption{TODO(caption, human-written). How many of the three parents end up in the first block, on two worlds. In the first world the parents are also the features that fire most often. In the second we made them rare instead. Everything else is the same, including how many features fire at once. The parents are learned in both worlds. Only the first block changes.}
   \label{tab:tsae-decorrelated}
   \begin{tabular}{lrrr}
     \toprule
@@ -57,7 +57,7 @@
 \begin{table}[tbp]
   \centering
   \small
-  \caption{TODO(caption, human-written). \texttt{gemma-2-2b} layer 12, both architectures through the same metric code on the same corpus.}
+  \caption{TODO(caption, human-written). Two SAEs at layer 12 of \texttt{gemma-2-2b}, measured the same way on the same text. The blocks differ a lot in size, so the number of links found cannot be compared directly. The density column can: it is the share of all possible pairs that became a link. The shape column gives the block sizes behind each row.}
   \label{tab:tsae-gemma-pipeline}
   \begin{tabular}{llrrrrr}
     \toprule
@@ -75,7 +75,7 @@
 \begin{table}[tbp]
   \centering
   \small
-  \caption{TODO(caption, human-written). Probe test at \texttt{gemma-2-2b} layer 12. The probe asks whether the parent adds information beyond the child, rather than whether the two co-fire.}
+  \caption{TODO(caption, human-written). Our strictest test, at layer 12 of \texttt{gemma-2-2b}. It does not ask whether the two features fire together. It asks whether the parent tells us something about the child that the child does not already tell us by itself. The last column is the share of tested links that passed.}
   \label{tab:tsae-gemma-sres}
   \begin{tabular}{lrrr}
     \toprule
@@ -94,7 +94,7 @@
 \begin{table}[tbp]
   \centering
   \small
-  \caption{TODO(caption, human-written). $\EdgeTau$ swept on \texttt{gemma-2-2b} layer 12, one run per architecture. The chance share rises with $\EdgeTau$ for Matryoshka and stays at zero for the Temporal SAE.}
+  \caption{TODO(caption, human-written). What happens when we raise our main cut-off, at layer 12 of \texttt{gemma-2-2b}. Raising a cut-off should keep only the stronger links. The column on the right is the share of links that could be explained by the two features simply being common. For Matryoshka that share goes up, which is the opposite of what a stricter cut-off should do.}
   \label{tab:tsae-threshold-reversal}
   \begin{tabular}{lrrrr}
     \toprule
