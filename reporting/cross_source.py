@@ -82,8 +82,19 @@ def rows():
     normalised by its own geometry and not by gemma's.
     """
     out = []
+    # `layer_*` also matches a variant run sitting beside the layers, such as
+    # `layer_12_b3b4`, which grades the same layer with an extra block pair. Reading one
+    # as a separate layer counts layer 12 twice, and the duplicate is invisible: the
+    # figure gains a point, the caption's run count goes up by one, and both look like
+    # more evidence rather than the same evidence repeated.
+    #
+    # The name is the contract. A layer run is `layer_` plus digits and nothing else;
+    # anything with a suffix is a variant and belongs to whoever asked for it.
+    import re as _re
+    _LAYER_DIR = _re.compile(r"layer_\d+$")
     for src, fallback_n in [(C.SOURCE_NAME, C.BASE_N_LAYERS), ("pcfg-matryoshka", None)]:
-        for d in sorted((C.OUT_DIR / src).glob("layer_*")):
+        for d in sorted(q for q in (C.OUT_DIR / src).glob("layer_*")
+                        if _LAYER_DIR.fullmatch(q.name)):
             rep = _json(d / "metrics_report.json")
             pr = _pair(rep) if rep else None
             if pr is None:
