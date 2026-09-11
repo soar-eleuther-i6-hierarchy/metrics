@@ -81,16 +81,16 @@
 \begin{table}[tbp]
   \centering
   \small
-  \caption{TODO(caption, human-written). What the two parts do at points where we changed the hidden state on purpose. We wrote down two predictions before running this. The new part would be more active at those points. That extra activity would disappear in the control, which has no such points to find. The first held. The second did not: the ratio is above one in the control as well.}
+  \caption{TODO(caption, human-written). What the two parts do at points where we changed the hidden state on purpose. We wrote down two predictions before running this. The new part would be more active at those points. That extra activity would disappear in the control, which has no such points to find. The first held. The second did not. The ratio is above one in the control at every one of its eight runs, and the control is the steadiest of the three rows. The last two columns were once read as separating the control, on three runs. With eight they do not, and we no longer report them as a result.}
   \label{tab:pit-boundary}
   \begin{tabular}{lrrrrr}
     \toprule
     condition & novel at & novel between & ratio & pred.\ cos at & pred.\ cos between \\
     \midrule
-    temporal, original & 0.109 & 0.079 & 1.38 & 0.9309 & 0.9829 \\
-    temporal, decorrelated & 0.140 & 0.061 & 2.31 & 0.7654 & 0.7987 \\
-    \textbf{i.i.d. (no events)} & 0.118 & 0.073 & 1.62 & \textbf{0.4270} & 0.8954 \\
+    temporal, original & 0.124 & 0.069 & 1.79 & 0.6632 & 0.8816 \\
+    temporal, decorrelated & 0.131 & 0.062 & 2.11 & 0.7499 & 0.8327 \\
+    \textbf{i.i.d. (no events)} & 0.119 & 0.070 & \textbf{1.70} & 0.7777 & 0.9602 \\
     \bottomrule
   \end{tabular}
-  \\[2pt] \footnotesize The novel-code ratio exceeds one in the null as well, where the data carries no events. The predictive column separates the null from the other two. That measure was recorded alongside but not stated in advance.
+  \\[2pt] \footnotesize Eight runs per row. The ratio is above one in the null as well, where the data carries no events at all, and the null is the steadiest of the three rows (spread 0.139 against 0.359 and 0.408). The two predictive columns are shown for completeness. They were once read as separating the null, on three runs; on eight they do not, and they are no longer offered as a result.
 \end{table}

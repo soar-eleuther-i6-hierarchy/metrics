@@ -140,23 +140,34 @@ def t_toy_boundary():
         m = lambda k: st.mean(g[k] for g in got)
         at, wi = m("novel_mag_at"), m("novel_mag_within")
         pa, pw = m("pred_cos_at"), m("pred_cos_within")
+        # The null row is emphasised on the ratio, because the ratio is the result: it
+        # is above one where the data has no events at all. The two predictive columns
+        # were emphasised here while they appeared to separate the null on three seeds.
+        # On eight they do not, so the emphasis is gone and so is the claim.
         bold = key == "pit_null"
-        f = lambda v, p=3: (r"\textbf{" + f"{v:.{p}f}" + "}") if bold else f"{v:.{p}f}"
-        rows.append([name, f"{at:.3f}", f"{wi:.3f}", f"{at/wi:.2f}", f(pa, 4), f"{pw:.4f}"])
+        rat = f"{at/wi:.2f}"
+        rows.append([name, f"{at:.3f}", f"{wi:.3f}",
+                     (r"\textbf{" + rat + "}") if bold else rat,
+                     f"{pa:.4f}", f"{pw:.4f}"])
     return table(
         "pit-boundary",
         TODO.format("What the two parts do at points where we changed the hidden "
                     "state on purpose. We wrote down two predictions before running "
                     "this. The new part would be more active at those points. That extra "
                     "activity would disappear in the control, which has no such points "
-                    "to find. The first held. The second did not: the ratio is above one "
-                    "in the control as well."),
+                    "to find. The first held. The second did not. The ratio is above one "
+                    "in the control at every one of its eight runs, and the control is "
+                    "the steadiest of the three rows. The last two columns were once "
+                    "read as separating the control, on three runs. With eight they do "
+                    "not, and we no longer report them as a result."),
         ["condition", "novel at", "novel between", "ratio",
          "pred.\\ cos at", "pred.\\ cos between"],
         rows, align="lrrrrr",
-        note="The novel-code ratio exceeds one in the null as well, where the data carries no "
-             "events. The predictive column separates the null from the other two. That "
-             "measure was recorded alongside but not stated in advance.")
+        note="Eight runs per row. The ratio is above one in the null as well, where the data "
+             "carries no events at all, and the null is the steadiest of the three rows "
+             "(spread 0.139 against 0.359 and 0.408). The two predictive columns are shown "
+             "for completeness. They were once read as separating the null, on three runs; "
+             "on eight they do not, and they are no longer offered as a result.")
 
 
 def f_boundary(out_dir: Path):
