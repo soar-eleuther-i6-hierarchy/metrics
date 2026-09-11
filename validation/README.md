@@ -325,3 +325,31 @@ A new metric earns its place by catching a property no existing metric catches
 two halves: inject that property into `synthetic_toy_world.py`, then assert the new metric flags it **and**
 that it spares the genuine tree edges. A metric that only fires on the pathology is a detector; one
 that also kills healthy edges is a filter with a false-positive problem.
+
+## `audit_comparability.py` — what may be compared with what
+
+Added 2026-09-11, after a Temporal SAE result was compared against a Matryoshka baseline
+graded before BOS positions were excluded from the co-firing counts. Both files loaded
+without error and the ratio they produced was wrong by more than a factor of two.
+
+The script reads the settings each result file records, never the prose written about it,
+and reports four things:
+
+1. Reports whose `config` omits `bos_excluded` or `min_joint`, which means they predate
+   those guards. The test is on absence, because a key that did not exist cannot carry a
+   value.
+2. Files claiming one corpus but disagreeing on token count.
+3. Probe results (`second_pass.json`) whose shortlist is larger than the candidate set in
+   the report beside them. Those files carry no config of their own, so this is the only
+   way to tell whether the pair came from one run.
+4. The source files each finding names, resolved, with a verdict for each.
+
+Exit status is non-zero when anything is flagged.
+
+```bash
+python3 -m validation.audit_comparability
+python3 -m validation.audit_comparability --json /tmp/audit.json
+```
+
+It does not check block width, seed or architecture. Those are still matched by hand, and
+`research-log/DECISIONS.md` section 7 says why that matters.
