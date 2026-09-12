@@ -80,3 +80,43 @@ Every non-arbitrary damage level is a trained measurement, never a choice:
 - Write the `SYNTH_PRECOMMIT` round-2 section: per-cell bars, the readout policy per cell, the verdict vocabulary (SURVIVES / FAILS / INVALID), and the downstream rule (what a FAILS verdict obliges in the PCFG / Gemma stages).
 - Seeds: 2-3, only on the numbers that get quoted.
 - The sibling world config (branching 2-3, depth 1) exists only as a plan; it also revives the `sibling` and `transitive` pair classes, which have no registered expression yet.
+
+## Evidence the synthetic construction itself is sound (round 1, measured)
+
+Recorded because these are what license using synthetic dictionaries at all - separate from any finding ABOUT the metrics.
+Every item is a measurement from the round-1 artifacts or the committed test suite, not an assertion.
+
+**The undamaged synthetic read IS the benchmark pipeline.**
+The passthrough anchor (no corruption, true-A activations) reproduces the real `scoring/benchmark/reads.py::oracle_read` BIT-FOR-BIT across all 13 metrics, same pairs, same labels, same decoder rows.
+So anything the corrupted reads show is attributable to the planted damage, not to a re-implementation drifting from the pipeline it claims to test.
+It doubles as the proof that `signed_normalized_decoder` is a no-op on planted dictionaries.
+
+**The activation model is honest at zero damage.**
+Ridge magnitudes on the planted support land at the noise floor (FVU within 0.02 of true-A) with a support-flip rate under 0.005 (exactly 0 in clean mode).
+So the encoder substitute is not quietly changing the firing structure before the metrics see it.
+
+**The dials do what they say, checked against closed form.**
+`G` on corrupted edges equals the planted severity exactly (identity mode); realized severity matches beta/sqrt(1+beta^2) on orthogonal edges to 1e-6; `coverage_R` on corrupted edges equals (1-eta) exactly in clean mode (1.0, 0.8, 0.6, 0.4, 0.2, 0.0 along the diagonal).
+These are manipulation checks, not results - and they are the reason a flat or non-monotone metric response can be read as a property of the METRIC rather than a broken generator.
+
+**The corrupted/intact split is real.**
+Intact edges hold G ~ 0 while corrupted edges move with the dial, in the same world, same run, same thresholds.
+Corrupted + intact partition the recovered target class exactly in every artifact row.
+
+**An independent instrument agrees with the planting.**
+The census (`classify_dictionary`, written for trained checkpoints, not for this study) counts exactly the planted set - zero false positives outside it across all 92 artifact rows, and exactly 11/11 at the bridge point.
+Cross-check: severity = sin(theta_hat) to 2.8e-16, two quantities computed by different code paths.
+
+**The synthetic read reproduces a pre-existing, independently measured defect.**
+`topical_v6` false-fires at ~0.010 on the evaluation null at EVERY dial including zero corruption, in both toys - the same off-world FPR violation the benchmark had already recorded on trained reads (PRECOMMIT s3).
+The synthetic pipeline was not tuned to produce this; reproducing a known artifact it did not aim at is external evidence the read is faithful.
+
+**The matcher adds nothing when the map is 1-1 - the empirical basis for Decision 1.**
+Identity and Hungarian columns are byte-identical at all 46 dial points, and recovery is 240/240 at every setting including maximal damage.
+That is what makes dropping the matcher from the synthetic path a scope reduction rather than a loss of information.
+
+**Verification discipline behind all of the above.**
+51 tests and 33/33 mutation anchors killed on the committed state; three independent reviews (adversarial correctness, instrument validity, test quality) closed; the frozen `tests_local` suite unaffected and `evaluator_sha256` unchanged, so nothing in the benchmark moved.
+The review process also caught the one construct defect BEFORE any interpretation (beta leaking into the firing channel via the unconstrained ridge), which is what produced the two-activation-model design - evidence the loop works, not just the code.
+
+**What none of this establishes:** that the planted damages resemble what training produces (only the trained side can say), or that the five planted properties cover the reasons real features co-occur.
