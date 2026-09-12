@@ -19,12 +19,11 @@ from pathlib import Path
 
 import torch
 
-from scoring.core.recovery import activation_corr, match_features
-from scoring.core.registry import CONSTANTS
 from scoring.core.world import regenerate_world, signed_normalized_decoder
 from scoring.trained.absorption import classify_dictionary, tree_edges_and_siblings
 
 from synthdict.corruptions import Corruption
+from synthdict.planted import resolve_map
 from synthdict.read import synth_encode
 
 CAVEAT = ("annotation only: shares definitions with the planted pathology (manipulation "
@@ -33,22 +32,22 @@ CAVEAT = ("annotation only: shares definitions with the planted pathology (manip
 
 
 def run_census(rc: dict, corruption: Corruption | None, seed: int, n_tokens: int,
-               match_mode: str, acts_mode: str = "ridge") -> dict:
-    """Classify the synthetic dictionary against ground truth on the MATCHING draw
-    (parity with `scoring/trained/retrieval.py`'s in-sample census)."""
+               readout: str, acts_mode: str = "ridge") -> dict:
+    """Classify the synthetic dictionary against ground truth on the IN-SAMPLE draw
+    (`sample_seed = seed`), parity with `scoring/trained/retrieval.py`'s in-sample census."""
     inw = regenerate_world(rc, sample_seed=int(seed), n_tokens=n_tokens)
     acts, _support, _holed = synth_encode(inw, corruption, seed, int(seed), acts_mode)
     W_raw = corruption.W_raw if corruption is not None else inw.g.double()
     oriented = signed_normalized_decoder(W_raw, acts, inw.h)
     F = int(inw.g.shape[0])
-    if match_mode == "identity":
-        match = torch.arange(F)
-        matched_corr = torch.ones(F, dtype=torch.float64)
-        recovered = torch.ones(F, dtype=torch.bool)
-    else:
-        res = match_features(activation_corr(inw.A, acts), inw.g, oriented,
-                             rho=CONSTANTS["rho_star"])
-        match, matched_corr, recovered = res.match, res.matched_corr, res.recovered
+    # `classify_dictionary` uses `match` as a feature->latent LOOKUP (it indexes W_dec[match[c]]
+    # inside absorption_signals and excludes own-latents in conjunction_strength), so the planted
+    # map is SUPPLIED here rather than inferred. `matched_corr` is signature-only in that
+    # function - never read in its body - so a constant satisfies it honestly.
+    pmap = resolve_map(corruption, F, readout)
+    match = pmap.feature_lookup()          # FEATURE-indexed: classify_dictionary does match[c]
+    matched_corr = torch.ones(F, dtype=torch.float64)
+    recovered = pmap.recovered()
 
     cont_edges, sibling_pairs, isa_child, descendants = tree_edges_and_siblings(inw.tree)
     cls = classify_dictionary(inw.g, oriented, inw.A, acts, match, matched_corr, recovered,
@@ -70,7 +69,8 @@ def run_census(rc: dict, corruption: Corruption | None, seed: int, n_tokens: int
         "caveat": CAVEAT,
         "corrupted_edges_sha256": edges_sha,
         "absorption_classifier_sha256": classifier_sha,
-        "match_mode": match_mode,
+        "readout": readout,
+        "planted_map_sha256": pmap.sha256(),
         "counts": cls["counts"],
         "absorbed_by_relation": cls["absorbed_by_relation"],
         "n_planted_corrupted_edges": len(corrupted),

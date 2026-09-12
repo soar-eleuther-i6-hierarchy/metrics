@@ -23,10 +23,10 @@ def test_dial_point_end_to_end(tmp_path):
     # ASYMMETRIC dials on purpose: a beta/eta swap anywhere in the path must fail loudly
     dials = AbsorptionDials(beta=0.6, eta=0.3, edge_fraction=0.5)
     written = run_dial_point("only_isa", 0, dials, N_TOK, tmp_path, "TEST",
-                             match_modes=("identity", "hungarian"),
+                             readout="identity",
                              with_probe=False, with_census=True,
                              cfg_overrides=SMALL)
-    assert len(written) == 2
+    assert len(written) == 1
     for d in written:
         npz = np.load(d / "scores.npz", allow_pickle=True)
         meta = json.loads(str(npz["__meta__"]))
@@ -51,7 +51,7 @@ def test_dial_point_end_to_end(tmp_path):
         assert cen["corrupted_edges_sha256"] == meta["corrupted_edges_sha256"]
         assert len(cen["absorption_classifier_sha256"]) == 64
 
-    assert written[0].name == "identity" and written[1].name == "hungarian"
+    assert written[0].name == "identity"          # the readout, now the only path segment
     # the literal, not dial_dirname(dials): comparing the path against the function that
     # built it can never fail (audit: half compare-with-self)
     assert written[0].parent.name == "beta0.6-eta0.3-f0.5"
@@ -78,8 +78,8 @@ def test_census_counts_planted_absorption_at_high_dials(firing_world):
                  AbsorptionDials(beta=1.2, eta=0.9, edge_fraction=1.0), world_seed=0)
     cold = absorb(firing_world.g, firing_world.CONT,
                   AbsorptionDials(beta=0.0, eta=0.0, edge_fraction=1.0), world_seed=0)
-    hot_c = run_census(rc, hot, 0, n_tokens=3000, match_mode="identity")
-    cold_c = run_census(rc, cold, 0, n_tokens=3000, match_mode="identity")
+    hot_c = run_census(rc, hot, 0, n_tokens=3000, readout="identity")
+    cold_c = run_census(rc, cold, 0, n_tokens=3000, readout="identity")
     assert cold_c["counts"]["absorbed"] == 0
     assert hot_c["counts"]["absorbed"] > 0
     assert hot_c["n_census_absorbed_among_planted"] == hot_c["n_census_absorbed"]
@@ -93,3 +93,29 @@ def test_synthdict_sha_changes_with_source(tmp_path):
     (pkg / "x.py").write_text("x = 1\n")
     b = synthdict_sha256(root=tmp_path)
     assert a != b and len(a) == 64
+
+
+def test_census_handles_a_map_with_a_missing_feature(firing_world):
+    """Census must index the planted map by FEATURE id, not by scored position.
+
+    With a gap in the map the two differ in length, and the position-indexed version walks off
+    the end inside `classify_dictionary` (which does `match[c]` for a true child id). Round-1
+    identity maps cannot tell them apart, so this is the test that does.
+    """
+    import dataclasses as dc
+
+    from synthdict.census import run_census
+    from synthdict.planted import PlantedMap
+    from toygen import spec
+    from toygen.world import resolve_config
+
+    rc = dc.asdict(spec.replace(resolve_config("only_firing"), seed=0, n_roots=12))
+    base = absorb(firing_world.g, firing_world.CONT,
+                  AbsorptionDials(beta=0.6, eta=0.5, edge_fraction=1.0), world_seed=0)
+    F = int(firing_world.g.shape[0])
+    gapped = PlantedMap(
+        feature_to_latents=tuple(() if f == 1 else (f,) for f in range(F)),
+        readout="identity", n_latents=F)
+    cen = run_census(rc, dc.replace(base, planted_map=gapped), 0,
+                     n_tokens=3000, readout="identity")
+    assert cen["n_recovered"] == F - 1

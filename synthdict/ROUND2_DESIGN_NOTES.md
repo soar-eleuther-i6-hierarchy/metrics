@@ -6,6 +6,15 @@ A `SYNTH_PRECOMMIT` round-2 section must be written and approved before any of i
 
 ## Decision 1 - the synthetic path is MATCHER-FREE
 
+> **IMPLEMENTED 2026-09-12.** `synthdict/planted.py` holds `PlantedMap`; `match_mode` is now
+> `readout`; the matcher imports are gone from `read.py` and `census.py`, enforced by a
+> structural guard with a positive control (`test_planted.py`). Two accessors, deliberately
+> distinct: `columns()` is POSITION-indexed (the scored frame) and `feature_lookup()` is
+> FEATURE-indexed (what `classify_dictionary` needs) - conflating them is invisible under an
+> identity map and wrong the moment a feature is missing, so a test drives the gapped case.
+> A shared latent is refused at construction (that is a merge, and it needs its own readout).
+> Matcher grading against the planted key remains UNBUILT and is still the recorded seam.
+
 Matching solves an INVERSE problem: someone else built the dictionary and you must infer which latent corresponds to which feature.
 Synthesis has no inverse problem - we build the dictionary, so the correspondence is an INPUT, not an inference.
 

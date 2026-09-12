@@ -26,6 +26,8 @@ from dataclasses import dataclass
 
 import torch
 
+from synthdict.planted import PlantedMap
+
 _TINY = 1e-12
 
 # Dedicated seed offsets for the two private RNG streams. Chosen away from the repo's other
@@ -61,6 +63,9 @@ class Corruption:
     corrupted_edges: tuple[tuple[int, int], ...]
     W_raw: torch.Tensor
     realized_severity: torch.Tensor
+    # The planted feature->latent map, when this damage changes the correspondence (round-2
+    # splitting / merging / missing). None means 1-1, which is every round-1 damage.
+    planted_map: "PlantedMap | None" = None
 
 
 def select_edges(cont_edges, edge_fraction: float, world_seed: int

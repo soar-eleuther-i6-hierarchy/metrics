@@ -24,13 +24,13 @@ N_TOK = 3000
 def _make_tree(tmp_path):
     # asymmetric dials on only_firing (census on), plus an only_isa point (census off)
     run_dial_point("only_firing", 0, AbsorptionDials(beta=0.6, eta=0.3, edge_fraction=0.5),
-                   N_TOK, tmp_path, "T", match_modes=("identity",),
+                   N_TOK, tmp_path, "T", readout="identity",
                    with_probe=False, with_census=True, cfg_overrides=SMALL)
     run_dial_point("only_firing", 0, AbsorptionDials(beta=0.0, eta=0.0, edge_fraction=0.5),
-                   N_TOK, tmp_path, "T", match_modes=("identity",),
+                   N_TOK, tmp_path, "T", readout="identity",
                    with_probe=False, with_census=False, cfg_overrides=SMALL)
     run_dial_point("only_isa", 0, AbsorptionDials(beta=0.8, eta=0.8, edge_fraction=0.5),
-                   N_TOK, tmp_path, "T", match_modes=("identity",),
+                   N_TOK, tmp_path, "T", readout="identity",
                    with_probe=False, with_census=False, cfg_overrides=SMALL)
     return tmp_path / "T"
 
@@ -107,6 +107,6 @@ def test_collect_and_write(tmp_path):
         got = list(csv.DictReader(fh))
     assert len(got) == 3
     md = (tag / "REPORT.md").read_text()
-    assert "only_firing — ridge acts — identity match" in md
-    assert "only_isa — ridge acts — identity match" in md
+    assert "only_firing — ridge acts — identity readout" in md
+    assert "only_isa — ridge acts — identity readout" in md
     assert "Reading rules" in md

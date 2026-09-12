@@ -115,25 +115,19 @@ MUTATIONS = [
              "synthdict/tests/test_read.py::test_corrupted_pair_mask_marks_exactly_the_ordered_edges"),
     Mutation("probe fitted on TRUE firing instead of the self label",
              "synthdict/read.py",
-             "P, avail = fit_probe_directions(fw.h, acts_f[:, lat], CONSTANTS)",
-             "P, avail = fit_probe_directions(fw.h, fw.A[:, lat], CONSTANTS)",
+             "P, avail = fit_probe_directions(fw.h, acts_f[:, cols], CONSTANTS)",
+             "P, avail = fit_probe_directions(fw.h, fw.A[:, cols], CONSTANTS)",
              "synthdict/tests/test_read.py::test_probe_labels_are_self_not_truth"),
     Mutation("hole never applied to the scoring draw",
              "synthdict/read.py",
              "acts_ho, support_ho, holed_ho = synth_encode(score, corruption, seed, score_seed, acts_mode)",
              "acts_ho, support_ho, holed_ho = synth_encode(score, None, seed, score_seed, acts_mode)",
-             "synthdict/tests/test_read.py::test_eta_starves_parent_matching"),
+             "synthdict/tests/test_read.py::test_eta_reaches_the_scored_activations"),
     # ------- audit round 2: the 11 proven survivors, now anchored -------
-    Mutation("hungarian matcher fed the SCORING draw (M1)",
-             "synthdict/read.py",
-             "res = match_features(activation_corr(inw.A, acts_in), inw.g, oriented_in,",
-             "res = match_features(activation_corr(score.A, acts_ho), score.g, oriented_ho,",
-             "synthdict/tests/test_read.py::test_hungarian_matches_on_the_matching_draw"),
-    Mutation("matching seed stamped/used as the scoring seed (M9)",
-             "synthdict/read.py",
-             "matching_seed = int(seed)\n        inw = regenerate_world(",
-             "matching_seed = score_seed\n        inw = regenerate_world(",
-             "synthdict/tests/test_read.py::test_eta_starves_parent_matching"),
+    # (M1 "hungarian matcher fed the SCORING draw" and M9 "matching seed stamped as the
+    # scoring seed" are RETIRED: the matcher and its draw left the synthetic path entirely,
+    # so their subjects no longer exist. The structural guard in test_planted.py is what now
+    # prevents either from coming back.)
     Mutation("dial_dirname swaps beta and eta (M2)",
              "synthdict/run_synth.py",
              'return f"beta{dials.beta:g}-eta{dials.eta:g}-f{dials.edge_fraction:g}"',
@@ -174,11 +168,10 @@ MUTATIONS = [
              'TARGET_BY_TOY = {"only_isa": "is_a", "only_firing": "firing_only"}',
              'TARGET_BY_TOY = {"only_isa": "firing_only", "only_firing": "is_a"}',
              "synthdict/tests/test_report.py::test_collect_and_write"),
-    # NOT anchored — an EQUIVALENT MUTANT in round 1: "lat = torch.tensor(feats)" instead of
-    # "lat = match_t[...]" is behavior-identical whenever the match is the identity on the kept
-    # features, which holds at every reachable round-1 state (verified at the grid extremes and
-    # in the recovery-drop test, where drops occur but kept features still match themselves).
-    # The routed form is kept for correctness the moment a future corruption permutes matches.
+    # HISTORICAL NOTE: round 1 carried a "lat = match_t[feats]" probe gather and recorded it as
+    # an equivalent mutant (identical whenever the match is the identity, which held at every
+    # reachable state). That measurement is why the matcher could be removed outright rather
+    # than merely bypassed: the routed form never differed from the planted one.
     Mutation("clean mode ignores the hole (masks by raw firing)",
              "synthdict/read.py",
              "A_masked = bundle.A.double() * support.double()",
@@ -197,6 +190,43 @@ MUTATIONS = [
              "residual = bundle.h.double() - acts @ bundle.g.double()",
              "residual = bundle.h.double()",
              "synthdict/tests/test_read.py::test_clean_mode_hole_still_applies"),
+    # ---------------- the structural guard ----------------
+    Mutation("the no-matcher guard stops scanning imports",
+             "synthdict/tests/test_planted.py",
+             "                if node.module in BANNED_MODULES:",
+             "                if False:",
+             "synthdict/tests/test_planted.py::test_the_matcher_scanner_actually_detects_each_banned_form"),
+    # ---------------- planted.py (matcher-free correspondence) ----------------
+    Mutation("columns() ignores the declared map and returns positions",
+             "synthdict/planted.py",
+             "cols.append(int(lats[0]))",
+             "cols.append(int(f))",
+             "synthdict/tests/test_planted.py::test_columns_follow_the_declared_map_not_position"),
+    Mutation("recovered() reports every feature present regardless of its latents",
+             "synthdict/planted.py",
+             "return torch.tensor([len(lats) > 0 for lats in self.feature_to_latents],",
+             "return torch.tensor([True for lats in self.feature_to_latents],",
+             "synthdict/tests/test_planted.py::test_recovered_is_false_exactly_where_a_feature_has_no_latent"),
+    Mutation("identity readout silently picks the first shard of a multi-latent feature",
+             "synthdict/planted.py",
+             "            if len(lats) != 1:",
+             "            if False:",
+             "synthdict/tests/test_planted.py::test_identity_readout_refuses_a_multi_latent_feature"),
+    Mutation("an unimplemented readout falls back to identity instead of raising",
+             "synthdict/planted.py",
+             "        if self.readout not in _IMPLEMENTED:",
+             "        if False:",
+             "synthdict/tests/test_planted.py::test_unimplemented_readouts_raise_rather_than_guess"),
+    Mutation("census hands classify_dictionary the POSITION-indexed columns",
+             "synthdict/census.py",
+             "match = pmap.feature_lookup()",
+             "match = pmap.columns()",
+             "synthdict/tests/test_driver.py::test_census_handles_a_map_with_a_missing_feature"),
+    Mutation("a latent shared by two features passes validation",
+             "synthdict/planted.py",
+             "                if int(j) in seen:",
+             "                if False:",
+             "synthdict/tests/test_planted.py::test_a_latent_shared_by_two_features_is_rejected"),
     # ---------------- report.py ----------------
     Mutation("intact side leaks corrupted pairs (mask not excluded)",
              "synthdict/report.py",

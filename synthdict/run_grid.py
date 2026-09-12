@@ -21,6 +21,8 @@ import sys
 import time
 from pathlib import Path
 
+from synthdict.planted import READOUTS
+
 DIAG = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 TOYS = ("only_isa", "only_firing")
 BRIDGE_BETA = 0.547            # beta/sqrt(1+beta^2) = 0.48 on an orthogonal edge
@@ -35,14 +37,22 @@ def grid_points() -> list[tuple[str, float, float, float]]:
     return pts
 
 
-def _artifact_acts_mode(npz_path: Path) -> str:
-    """The acts_mode stamped in an artifact's meta ('ridge' for pre-acts-mode artifacts)."""
+def _artifact_provenance(npz_path: Path) -> tuple[str, str]:
+    """`(acts_mode, readout)` from an artifact's meta.
+
+    A pre-matcher-removal artifact stamps `match_mode` and no `readout`; it is reported as
+    `match:<mode>` so resume can refuse it. Skipping it would let a rerun exit 0 having
+    produced nothing while the report labels matcher-built rows as this code's output.
+    """
     import json
 
     import numpy as np
 
     meta = json.loads(str(np.load(npz_path, allow_pickle=True)["__meta__"]))
-    return meta.get("acts_mode", "ridge")
+    readout = meta.get("readout")
+    if readout is None:
+        readout = f"match:{meta.get('match_mode', 'unknown')}"
+    return meta.get("acts_mode", "ridge"), readout
 
 
 def point_cmd(toy: str, beta: float, eta: float, f: float, args) -> list[str]:
@@ -50,7 +60,7 @@ def point_cmd(toy: str, beta: float, eta: float, f: float, args) -> list[str]:
            "--seed", str(args.seed), "--beta", str(beta), "--eta", str(eta),
            "--edge-fraction", str(f), "--n-tokens", str(args.n_tokens),
            "--tag", args.tag, "--out", args.out]
-    cmd += ["--acts-mode", args.acts_mode]
+    cmd += ["--acts-mode", args.acts_mode, "--readout", args.readout]
     if args.no_probe:
         cmd.append("--no-probe")
     if args.force:
@@ -67,6 +77,7 @@ def main() -> None:
     ap.add_argument("--n-jobs", type=int, default=8)
     ap.add_argument("--threads-per-job", type=int, default=8)
     ap.add_argument("--acts-mode", default="ridge", choices=("ridge", "clean"))
+    ap.add_argument("--readout", default="identity", choices=READOUTS)
     ap.add_argument("--only-f01", action="store_true",
                     help="the f=0.1 subset + the bridge point (the approved clean-mode re-run)")
     ap.add_argument("--no-probe", action="store_true")
@@ -118,20 +129,21 @@ def main() -> None:
         # Idempotent resume: a point whose artifacts exist was produced by this same code
         # (content-hash stamped in its meta); rerunning would only trip the overwrite guard.
         existing = [Path(args.out) / args.tag / f"seed{args.seed}" / toy / "absorption"
-                    / dial / m / "scores.npz" for m in ("identity", "hungarian")]
+                    / dial / args.readout / "scores.npz"]
         if not args.force and all(p.exists() for p in existing):
             # Resume only PAST artifacts of the SAME construct: acts_mode is not in the path,
             # so skipping on existence alone would let `--acts-mode clean` against a ridge tag
             # exit 0 having run nothing (review MED-1).
-            modes = {_artifact_acts_mode(p) for p in existing}
-            if modes == {args.acts_mode}:
+            modes = {_artifact_provenance(p) for p in existing}
+            if modes == {(args.acts_mode, args.readout)}:
                 done += 1
                 print(f"[{done}/{len(pts)}] {name}: skipped (artifacts exist)", flush=True)
                 continue
             raise SystemExit(
-                f"{name}: existing artifacts under this tag were produced with acts_mode="
-                f"{sorted(modes)}, not {args.acts_mode!r}. One tag holds ONE construct: "
-                f"use a different --tag.")
+                f"{name}: existing artifacts under this tag are (acts_mode, readout)="
+                f"{sorted(modes)}, not {(args.acts_mode, args.readout)!r}. One tag holds ONE "
+                f"construct - a `match:` readout means they predate the matcher removal. "
+                f"Use a different --tag.")
         while len(running) >= args.n_jobs:
             reap(block=True)
         log = open(logdir / f"{name}.log", "w")

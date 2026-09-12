@@ -2,6 +2,8 @@
 
 Status: EXECUTED 2026-09-07 - results in `FINDINGS.md`; this document is the pre-registration record and its frozen sections below are NOT edited to fit the outcomes.
 Two deviations arose mid-study, both user-approved BEFORE interpretation, both recorded in `FINDINGS.md` section 6: (1) a second, firing-preserving activation model (`clean`) was added after review found the ridge lets beta leak into firing, and both models are reported; (2) the bridge conditional is reported as its pre-registered FAIL plus the audit's corrected per-population comparison.
+**Architecture note added 2026-09-12 (does NOT amend the frozen sections below).** After round 1 ran, the matcher was removed from the synthetic path: the feature->latent correspondence is now a planted lookup with a declared `readout`, so "both match modes per dial point" (section: round-1 grid) and P5's identity-vs-hungarian delta describe what round 1 DID, and are not reproducible by the current code. Round 1's artifacts and verdicts stand as recorded; see `ROUND2_DESIGN_NOTES.md` Decision 1 and `FINDINGS.md`.
+
 This is a development-stage study, separate from the benchmark freeze.
 Nothing here changes any metric, expression, threshold, or the frozen evaluator; deviations from this document require re-approval before scoring.
 

@@ -19,7 +19,6 @@ SMALL = {"n_roots": 12}          # shrink via cfg_overrides for the expensive-pr
 N_TOK = 3000
 
 
-
 def _bit_equal(a: torch.Tensor, b: torch.Tensor) -> bool:
     """Bitwise equality with NaN==NaN (torch.equal is False on identical NaN cells)."""
     if a.shape != b.shape:
@@ -34,11 +33,12 @@ def _dials(beta=0.6, eta=0.6, f=1.0):
 # --------------------------------------------------------------------------
 # gate (a): the passthrough anchor
 # --------------------------------------------------------------------------
+
 def test_passthrough_anchor_matches_oracle_read_bit_for_bit():
     from scoring.benchmark.reads import oracle_read
 
     orc = oracle_read(TOY, seed=0, n_tokens=N_TOK, with_probe=False)
-    syn = synthetic_read(TOY, seed=0, dials=None, match_mode="identity",
+    syn = synthetic_read(TOY, seed=0, dials=None, readout="identity",
                          n_tokens=N_TOK, with_probe=False, acts_mode="true_A")
     assert syn.read == "synthetic"
     assert syn.feats == orc.feats and syn.pairs == orc.pairs
@@ -56,7 +56,7 @@ def test_passthrough_anchor_probe_matches_oracle_probe():
     from synthdict.read import oracle_equivalent_read
 
     orc = oracle_equivalent_read(TOY, seed=0, n_tokens=N_TOK, cfg_overrides=SMALL)
-    syn = synthetic_read(TOY, seed=0, dials=None, match_mode="identity",
+    syn = synthetic_read(TOY, seed=0, dials=None, readout="identity",
                          n_tokens=N_TOK, with_probe=True, acts_mode="true_A",
                          cfg_overrides=SMALL)
     assert _bit_equal(syn.vals["S_res"], orc.vals["S_res"])
@@ -67,7 +67,7 @@ def test_passthrough_anchor_probe_matches_oracle_probe():
 def test_orientation_is_noop_on_planted_dictionaries():
     # W7: if the ground-truth-free sign rule ever flips a planted row, that is a finding
     # about the orientation rule and this fails loudly.
-    syn = synthetic_read(TOY, seed=0, dials=_dials(), match_mode="identity",
+    syn = synthetic_read(TOY, seed=0, dials=_dials(), readout="identity",
                          n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
     W = syn.extra["W_raw"]
     unit = W / W.norm(dim=1, keepdim=True).clamp_min(1e-12)
@@ -77,8 +77,9 @@ def test_orientation_is_noop_on_planted_dictionaries():
 # --------------------------------------------------------------------------
 # gate (b): the ridge anchor at beta = 0
 # --------------------------------------------------------------------------
+
 def test_ridge_anchor_at_zero_dials():
-    syn = synthetic_read(TOY, seed=0, dials=_dials(beta=0.0, eta=0.0), match_mode="identity",
+    syn = synthetic_read(TOY, seed=0, dials=_dials(beta=0.0, eta=0.0), readout="identity",
                          n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
     ex = syn.extra
     assert ex["support_flip_rate"]["scoring"] < 0.005          # W1 gate
@@ -89,8 +90,9 @@ def test_ridge_anchor_at_zero_dials():
 # --------------------------------------------------------------------------
 # the corrupted-pair mask and provenance
 # --------------------------------------------------------------------------
+
 def test_corrupted_pair_mask_marks_exactly_the_ordered_edges():
-    syn = synthetic_read(TOY, seed=0, dials=_dials(f=0.5), match_mode="identity",
+    syn = synthetic_read(TOY, seed=0, dials=_dials(f=0.5), readout="identity",
                          n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
     mask = syn.extra["corrupted_pair"]
     edges = set(syn.extra["corrupted_edges"])
@@ -100,54 +102,56 @@ def test_corrupted_pair_mask_marks_exactly_the_ordered_edges():
 
 
 def test_provenance_fields_present():
-    syn = synthetic_read(TOY, seed=0, dials=_dials(), match_mode="identity",
+    syn = synthetic_read(TOY, seed=0, dials=_dials(), readout="identity",
                          n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
     ex = syn.extra
     for key in ("dials", "corruption_kind", "realized_severity", "realized_severity_median",
-                "support_flip_rate", "fvu", "n_holed_total", "match_mode",
-                "scoring_sample_seed", "matching_sample_seed", "resolved_config"):
+                "support_flip_rate", "fvu", "n_holed_total", "readout", "planted_map_sha256",
+                "n_latents", "scoring_sample_seed", "resolved_config"):
         assert key in ex, key
-    assert ex["match_mode"] == "identity"
+    assert ex["readout"] == "identity"
+    # the map itself, not just that a hash was stamped
+    from synthdict.planted import PlantedMap
+    assert ex["planted_map_sha256"] == PlantedMap.identity(syn.F).sha256()
+    assert ex["n_latents"] == syn.F
+    # the matcher's provenance is gone, not renamed: nothing infers a correspondence here
+    assert "match" not in ex and "matched_corr" not in ex and "matching_sample_seed" not in ex
     assert ex["scoring_sample_seed"] == 10_000                 # held_out_sample_seed(0)
 
 
-# --------------------------------------------------------------------------
-# hungarian mode
-# --------------------------------------------------------------------------
-def test_hungarian_beta0_recovers_everything_identically():
-    syn = synthetic_read(TOY, seed=0, dials=_dials(beta=0.0, eta=0.0), match_mode="hungarian",
-                         n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
-    F = syn.F
-    assert syn.feats == list(range(F))
-    assert bool(syn.recovered.all())
-    assert torch.equal(syn.extra["match"], torch.arange(F))
+def test_resolved_config_carries_the_seed():
+    # ToyConfig.seed defaults to 0, so dropping the override is invisible to every seed-0 test
+    from synthdict.read import resolved_config
+
+    assert resolved_config("only_isa", 3)["seed"] == 3
 
 
-def test_eta_starves_parent_matching():
-    lo = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=0.0), match_mode="hungarian",
+def test_eta_reaches_the_scored_activations():
+    """The hole must show up in the SCORED draw's activations, not only where it was planted.
+
+    Formerly the second half of `test_eta_starves_parent_matching` (whose matched_corr half
+    went with the matcher). This assertion is the named killer for the "hole never applied to
+    the scoring draw" anchor, so it outlives the test it came from.
+    """
+    lo = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=0.0), readout="identity",
                         n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
-    hi = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=1.0), match_mode="hungarian",
+    hi = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=1.0), readout="identity",
                         n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
-    assert lo.extra["matching_sample_seed"] == 0          # the matching draw, never the scoring one
-    parents = sorted({p for p, _ in lo.extra["corrupted_edges"]})
-    c_lo = lo.extra["matched_corr"][parents].mean()
-    c_hi = hi.extra["matched_corr"][parents].mean()
-    assert float(c_hi) < float(c_lo)
-    # the hole must reach the SCORED activations too (catches a hole applied only at matching)
     assert hi.extra["realized_l0"] < lo.extra["realized_l0"] - 0.05
 
 
 # --------------------------------------------------------------------------
 # probe draw separation
 # --------------------------------------------------------------------------
+
 def test_probe_fit_draw_is_separate_and_recorded():
     from scoring.benchmark.registry import probe_fit_sample_seed
     from scoring.core.grid import held_out_sample_seed
 
-    default = synthetic_read(TOY, seed=0, dials=_dials(), match_mode="identity",
+    default = synthetic_read(TOY, seed=0, dials=_dials(), readout="identity",
                              n_tokens=N_TOK, with_probe=True, cfg_overrides=SMALL)
     assert default.extra["probe_fit_sample_seed"] == probe_fit_sample_seed(0)
-    bridged = synthetic_read(TOY, seed=0, dials=_dials(), match_mode="identity",
+    bridged = synthetic_read(TOY, seed=0, dials=_dials(), readout="identity",
                              n_tokens=N_TOK, with_probe=True, cfg_overrides=SMALL,
                              probe_fit_seed=held_out_sample_seed(0))
     assert not _bit_equal(default.vals["S_res"], bridged.vals["S_res"])
@@ -156,11 +160,12 @@ def test_probe_fit_draw_is_separate_and_recorded():
 # --------------------------------------------------------------------------
 # integration: the frozen evaluator accepts the read
 # --------------------------------------------------------------------------
+
 def test_run_read_evaluates_a_synthetic_read_end_to_end():
     from scoring.benchmark.registry import EXPRESSIONS
     from scoring.benchmark.run_benchmark import run_read
 
-    syn = synthetic_read(TOY, seed=0, dials=_dials(), match_mode="identity",
+    syn = synthetic_read(TOY, seed=0, dials=_dials(), readout="identity",
                          n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
     report, arrays = run_read(syn)
     assert report["read"] == "synthetic"
@@ -186,7 +191,7 @@ def test_probe_labels_are_self_not_truth():
     from scoring.core.world import regenerate_world
     from synthdict.read import resolved_config
 
-    syn = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=1.0), match_mode="identity",
+    syn = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=1.0), readout="identity",
                          n_tokens=N_TOK, with_probe=True, cfg_overrides=SMALL)
     rc = resolved_config(TOY, 0, SMALL)
     fw = regenerate_world(rc, sample_seed=probe_fit_sample_seed(0), n_tokens=N_TOK)
@@ -198,61 +203,10 @@ def test_probe_labels_are_self_not_truth():
     assert not _bit_equal(syn.vals["S_res"], truth_probe[pa, pb].double())
 
 
-def test_resolved_config_carries_the_seed():
-    # ToyConfig.seed defaults to 0, so dropping the override is invisible to every seed-0 test
-    from synthdict.read import resolved_config
-
-    assert resolved_config("only_isa", 3)["seed"] == 3
-
-
-def test_hungarian_matches_on_the_matching_draw():
-    # Independent rederivation of the match from the MATCHING draw (sample_seed = seed).
-    # Feeding the matcher the scoring draw instead survived the whole old suite (audit M1).
-    from scoring.core.recovery import activation_corr, match_features
-    from scoring.core.registry import CONSTANTS
-    from scoring.core.world import regenerate_world, signed_normalized_decoder
-    from synthdict.corruptions import absorb
-    from synthdict.read import resolved_config, synth_encode
-
-    d = _dials(beta=0.6, eta=1.0)
-    syn = synthetic_read(TOY, seed=0, dials=d, match_mode="hungarian",
-                         n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL)
-    rc = resolved_config(TOY, 0, SMALL)
-    inw = regenerate_world(rc, sample_seed=0, n_tokens=N_TOK)
-    corruption = absorb(inw.g, inw.CONT, d, world_seed=0)
-    acts_in, _s, _h = synth_encode(inw, corruption, 0, 0)
-    oriented_in = signed_normalized_decoder(corruption.W_raw, acts_in, inw.h)
-    res = match_features(activation_corr(inw.A, acts_in), inw.g, oriented_in,
-                         rho=CONSTANTS["rho_star"])
-    assert torch.equal(syn.extra["matched_corr"], res.matched_corr)
-    assert torch.equal(syn.extra["match"], res.match)
-
-
-def test_hungarian_recovery_drop_with_probe():
-    # The regime every old hungarian test missed: recovery actually DROPS features.
-    # child_p_edge=0.9 + eta=1.0 starves each parent to ~10% of its firing, putting its
-    # activation corr below rho_star=0.5. Exercises reduce_to_recovered with real drops,
-    # the reduced corrupted_pair mask, and the probe on a reduced universe.
-    DROP = {"n_roots": 12, "child_p_edge": 0.9}
-    syn = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=1.0), match_mode="hungarian",
-                         n_tokens=N_TOK, with_probe=True, cfg_overrides=DROP)
-    assert syn.n_recovered < syn.F
-    dropped = set(range(syn.F)) - set(syn.feats)
-    parents = {p for p, _ in syn.extra["corrupted_edges"]}
-    assert dropped and dropped <= parents                 # only starved parents drop
-    kept = set(syn.feats)
-    mask = syn.extra["corrupted_pair"]
-    marked = {(syn.feats[a], syn.feats[b]) for i, (a, b) in enumerate(syn.pairs) if mask[i]}
-    assert marked == {(p, c) for (p, c) in syn.extra["corrupted_edges"]
-                      if p in kept and c in kept}
-    # probe columns line up on the reduced frame: children are all kept, so their S_res
-    # columns must carry finite values
-    assert torch.isfinite(syn.vals["S_res"]).any()
-
-
 # --------------------------------------------------------------------------
 # clean acts mode (the firing-preserving construct; user decision 2026-09-06)
 # --------------------------------------------------------------------------
+
 def test_clean_mode_preserves_planted_firing_exactly():
     # THE property the mode exists for: beta cannot move any firing decision.
     # Under the ridge mode this fails (parent recall ~0.85 at beta=0.6, eta=0).
@@ -329,7 +283,7 @@ def test_clean_mode_no_corruption_is_true_A():
 def test_clean_read_beta_only_keeps_cofiring_clean():
     # The read-level consequence: at (beta=0.6, eta=0) coverage on corrupted edges is
     # EXACTLY 1.0 under clean mode (it was ~0.85 under ridge - the review's CRITICAL).
-    syn = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=0.0), match_mode="identity",
+    syn = synthetic_read(TOY, seed=0, dials=_dials(beta=0.6, eta=0.0), readout="identity",
                          n_tokens=N_TOK, with_probe=False, cfg_overrides=SMALL,
                          acts_mode="clean")
     mask = syn.extra["corrupted_pair"]

@@ -1,15 +1,17 @@
 """synthetic_read — a benchmark `Read` built from a synthetic dictionary. No SAE anywhere.
 
-Mirrors the two existing reads at their seams (`scoring/benchmark/reads.py`):
+Mirrors `scoring/benchmark/reads.py::oracle_read` at its seams, with one deliberate
+difference: NO MATCHER. Matching solves an inverse problem — whose dictionary is this? —
+and synthesis has none, because we built it. The feature->latent correspondence is the
+PLANTED map (`synthdict.planted`), and `readout` declares how a feature carried by several
+latents would be reduced to one scored column. Round-1 damages preserve one-latent-per-feature,
+so the map is the identity and the gather is a no-op.
 
-  identity mode    the oracle_read shape: every feature in the universe, positions = ids.
-  hungarian mode   the trained_read shape: matcher on the matching draw, scoring on the
-                   held-out draw, `reduce_to_recovered` for the universe.
-
-Three draws, same derivations as the benchmark: matching = `seed`, scoring =
-`held_out_sample_seed(seed)`, probe fit = `probe_fit_sample_seed(seed)`. The synthetic
-"encoder" is a deterministic function of a draw: planted support (true `A > 0` plus the
-corruption's eta-hole) -> per-token ridge magnitudes against the draw's real `h`.
+Two draws, same derivations as the benchmark: scoring = `held_out_sample_seed(seed)`, probe
+fit = `probe_fit_sample_seed(seed)`. (The benchmark's third, in-sample MATCHING draw has no
+purpose here and is not taken.) The synthetic "encoder" is a deterministic function of a draw:
+planted support (true `A > 0` plus the corruption's eta-hole) -> per-token ridge magnitudes
+against the draw's real `h`.
 
 `signed_normalized_decoder` runs on every synthetic path (parity with the trained read); on a
 planted dictionary it must be a no-op, which the passthrough anchor proves bit-for-bit
@@ -26,8 +28,7 @@ from scoring.benchmark.reads import Read, assemble_metrics
 from scoring.benchmark.registry import probe_fit_sample_seed
 from scoring.core.detectors import (DetectorInputs, compute_all, fit_probe_directions,
                                     s_res_cosine, s_res_from_directions)
-from scoring.core.grid import held_out_sample_seed, pair_frame, reduce_to_recovered
-from scoring.core.recovery import activation_corr, match_features
+from scoring.core.grid import held_out_sample_seed, pair_frame
 from scoring.core.registry import CONSTANTS
 from scoring.core.world import WorldBundle, regenerate_world, signed_normalized_decoder
 from scoring.oracle.validate_metrics import pure_inputs, reconstruction_fvu
@@ -36,6 +37,7 @@ from toygen.world import resolve_config
 
 from synthdict.activations import ridge_acts, support_flip_rate
 from synthdict.corruptions import AbsorptionDials, Corruption, absorb, apply_hole
+from synthdict.planted import READOUTS, resolve_map
 
 _TINY = 1e-12
 _NAN = float("nan")
@@ -98,18 +100,22 @@ def synth_encode(bundle: WorldBundle, corruption: Corruption | None, world_seed:
     raise ValueError(f"unknown acts_mode {acts_mode!r}")
 
 
-def synthetic_read(toy: str, seed: int, dials: AbsorptionDials | None, match_mode: str,
+def synthetic_read(toy: str, seed: int, dials: AbsorptionDials | None, readout: str,
                    n_tokens: int, with_probe: bool = True, acts_mode: str = "ridge",
                    cfg_overrides: dict | None = None,
                    probe_fit_seed: int | None = None) -> Read:
     """Build, encode, and score one synthetic dictionary as a `Read(read="synthetic")`.
 
-    `dials=None` is the uncorrupted dictionary (W = g); with `acts_mode="true_A"` and
-    identity matching that is the passthrough anchor and must reproduce `oracle_read`
-    bit-for-bit (tested).
+    `dials=None` is the uncorrupted dictionary (W = g); with `acts_mode="true_A"` that is the
+    passthrough anchor and must reproduce `oracle_read` bit-for-bit (tested).
+
+    NO MATCHER RUNS HERE. The feature->latent correspondence is the PLANTED map (see
+    `synthdict.planted`), and `readout` declares how a multi-latent feature would be reduced
+    to one scored column. Round-1 damages all preserve one-latent-per-feature, so the map is
+    the identity and `readout="identity"` is the only implemented policy.
     """
-    if match_mode not in ("identity", "hungarian"):
-        raise ValueError(f"match_mode must be 'identity' or 'hungarian', got {match_mode!r}")
+    if readout not in READOUTS:
+        raise ValueError(f"readout must be one of {READOUTS}, got {readout!r}")
     rc = resolved_config(toy, seed, cfg_overrides)
     score_seed = held_out_sample_seed(int(seed))
     score = regenerate_world(rc, sample_seed=score_seed, n_tokens=n_tokens)
@@ -131,32 +137,17 @@ def synthetic_read(toy: str, seed: int, dials: AbsorptionDials | None, match_mod
     flips = {"scoring": support_flip_rate(acts_ho, support_ho)}
     holed = {"scoring": holed_ho}
 
-    match_t = torch.arange(F)
-    matched_corr = None
-    if match_mode == "identity":
-        feats = list(range(F))
-        recovered = torch.ones(F, dtype=torch.bool)
-        di = DetectorInputs(acts_rec=acts_ho, W_unit=oriented_ho, W_raw=W_raw,
-                            h=score.h, b_dec=b_dec, tokens=score.tokens,
-                            vocab=score.cfg.vocab)
-        matching_seed = None
-    else:
-        matching_seed = int(seed)
-        inw = regenerate_world(rc, sample_seed=matching_seed, n_tokens=n_tokens)
-        acts_in, support_in, holed_in = synth_encode(inw, corruption, seed, matching_seed,
-                                                     acts_mode)
-        oriented_in = signed_normalized_decoder(W_raw, acts_in, inw.h)
-        res = match_features(activation_corr(inw.A, acts_in), inw.g, oriented_in,
-                             rho=CONSTANTS["rho_star"])
-        feats, di, _index_map = reduce_to_recovered(
-            acts_ho, oriented_ho, W_raw, res.match, res.recovered,
-            h=score.h, b_dec=b_dec, tokens=score.tokens, vocab=score.cfg.vocab)
-        recovered = torch.zeros(F, dtype=torch.bool)
-        recovered[torch.tensor(feats, dtype=torch.long)] = True
-        match_t, matched_corr = res.match, res.matched_corr
-        fvu["matching"] = reconstruction_fvu(inw.h, acts_in, W_raw)
-        flips["matching"] = support_flip_rate(acts_in, support_in)
-        holed["matching"] = holed_in
+    # The planted correspondence, not an inferred one. `cols` gathers each scored feature's
+    # latent column; for the identity map that is `arange(F)` and the gather is a no-op, which
+    # is what makes the matcher-free read bit-identical to the matched one on every round-1
+    # dial point (the regression gate checks exactly this).
+    pmap = resolve_map(corruption, F, readout)
+    feats = pmap.feats()
+    recovered = pmap.recovered()
+    cols = pmap.columns()
+    di = DetectorInputs(acts_rec=acts_ho[:, cols], W_unit=oriented_ho[cols],
+                        W_raw=W_raw[cols], h=score.h, b_dec=b_dec,
+                        tokens=score.tokens, vocab=score.cfg.vocab)
 
     dets = compute_all(di, CONSTANTS, s_res_mode="cosine")
 
@@ -167,13 +158,9 @@ def synthetic_read(toy: str, seed: int, dials: AbsorptionDials | None, match_mod
         acts_f, support_f, holed_f = synth_encode(fw, corruption, seed, fit_seed, acts_mode)
         # SELF-label: the synthetic SAE's own activations, restricted to the scored universe —
         # the deployed `probe_self_W` convention (trained_read does the same with L.encode).
-        # Columns are routed THROUGH THE MATCH: position k of the scored frame is latent
-        # `match[feats[k]]` (reduce_to_recovered's convention), so its fitting label must be
-        # that latent's activation column, not feature feats[k]'s. Identical when the match is
-        # the identity — which is every round-1 grid point (verified) — but silently wrong the
-        # moment recovery permutes (found by review; anchored by test).
-        lat = match_t[torch.tensor(feats, dtype=torch.long)]
-        P, avail = fit_probe_directions(fw.h, acts_f[:, lat], CONSTANTS)
+        # Fitting labels come from the SAME planted columns the scoring frame reads, so the
+        # fitted direction for position k belongs to the latent whose decoder row k carries.
+        P, avail = fit_probe_directions(fw.h, acts_f[:, cols], CONSTANTS)
         probe = s_res_from_directions(P, avail, di.W_unit)
         fvu["probe_fit"] = reconstruction_fvu(fw.h, acts_f, W_raw)
         flips["probe_fit"] = support_flip_rate(acts_f, support_f)
@@ -201,18 +188,17 @@ def synthetic_read(toy: str, seed: int, dials: AbsorptionDials | None, match_mod
         "realized_severity_median": (float(sev.median()) if sev.numel() else _NAN),
         "corrupted_pair": corrupted_pair,
         "acts_mode": acts_mode,
-        "match_mode": match_mode,
+        "readout": readout,
+        "planted_map_sha256": pmap.sha256(),
+        "n_latents": pmap.n_latents,
         "support_flip_rate": flips,
         "fvu": fvu,
         "fvu_true_A": reconstruction_fvu(score.h, score.A, score.g),
         "n_holed_total": holed,
         "W_raw": W_raw,
-        "match": match_t,
-        "matched_corr": matched_corr,
         "G_g_matched": g_matched[pa, pb].double(),
         "resolved_config": rc,
         "scoring_sample_seed": score_seed,
-        "matching_sample_seed": matching_seed,
         "probe_fit_sample_seed": (fit_seed if with_probe else None),
         "probe_fit_labels": ("the synthetic SAE's own activations" if with_probe else None),
         "true_l0": float(score.A.gt(0).double().sum(dim=1).mean()),

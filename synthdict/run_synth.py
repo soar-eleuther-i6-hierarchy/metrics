@@ -1,4 +1,4 @@
-"""CLI driver: score one dial point (both match modes) through the FROZEN evaluator.
+"""CLI driver: score one dial point through the FROZEN evaluator. No matcher anywhere.
 
 Ships its own CLI because the benchmark's is deliberately closed (`--read choices=
 ("oracle","trained")`, `--toy choices=TOYS`); `run_read` and `write_artifacts` themselves are
@@ -6,15 +6,15 @@ name-agnostic and are reused verbatim. Artifacts land under their own root
 (`outputs_local/synthdict/<TAG>/...`), NEVER under a benchmark tag — `verify_manifest`
 correctly rejects unknown read dirs in a benchmark tree.
 
-Layout:  <out>/<tag>/seed<N>/<toy>/absorption/beta<b>-eta<e>-f<f>/<match_mode>/
-           scores.npz         run_read arrays + corrupted_pair, realized_severity, matched_corr
+Layout:  <out>/<tag>/seed<N>/<toy>/absorption/beta<b>-eta<e>-f<f>/<readout>/
+           scores.npz         run_read arrays + corrupted_pair, realized_severity
            expressions.json   run_read report | __meta__
            census.json        annotation (manipulation check; see synthdict/census.py)
 
 Usage (one dial point, the grid launches many of these in parallel on the server):
   python -m synthdict.run_synth --toy only_isa --seed 0 --beta 0.4 --eta 0.4 \
       --edge-fraction 0.1 --tag SYNTH-R1 [--n-tokens 200000] [--no-probe] [--no-census]
-      [--match-modes identity,hungarian] [--out outputs_local/synthdict] [--force]
+      [--readout identity] [--out outputs_local/synthdict] [--force]
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ import time
 from pathlib import Path
 
 import numpy as np
-import torch
 
 from scoring.benchmark.manifest import evaluator_sha256
 from scoring.benchmark.registry import REPORT_SCHEMA
@@ -37,6 +36,7 @@ from scoring.core.world import regenerate_world
 
 from synthdict.census import run_census
 from synthdict.corruptions import AbsorptionDials, absorb
+from synthdict.planted import READOUTS
 from synthdict.read import resolved_config, synthetic_read
 
 SYNTHDICT_SOURCES = ("synthdict",)
@@ -59,77 +59,76 @@ def dial_dirname(dials: AbsorptionDials) -> str:
 
 
 def run_dial_point(toy: str, seed: int, dials: AbsorptionDials, n_tokens: int,
-                   out: Path, tag: str, match_modes=("identity", "hungarian"),
+                   out: Path, tag: str, readout: str = "identity",
                    with_probe: bool = True, with_census: bool = True,
                    force: bool = False, cfg_overrides: dict | None = None,
                    acts_mode: str = "ridge") -> list[Path]:
-    """Score one (toy, seed, dials) under each match mode; write the three artifacts each."""
+    """Score one (toy, seed, dials) under the declared readout; write its three artifacts."""
     written = []
     rc = resolved_config(toy, seed, cfg_overrides)
-    for mode in match_modes:
-        t0 = time.time()
-        read = synthetic_read(toy, seed, dials, mode, n_tokens, with_probe=with_probe,
-                              cfg_overrides=cfg_overrides, acts_mode=acts_mode)
-        report, arrays = run_read(read)
-        report["secs"] = round(time.time() - t0, 1)
+    mode = readout
+    t0 = time.time()
+    read = synthetic_read(toy, seed, dials, mode, n_tokens, with_probe=with_probe,
+                          cfg_overrides=cfg_overrides, acts_mode=acts_mode)
+    report, arrays = run_read(read)
+    report["secs"] = round(time.time() - t0, 1)
 
-        ex = read.extra
-        arrays["corrupted_pair"] = ex["corrupted_pair"].numpy()
-        arrays["realized_severity"] = ex["realized_severity"].numpy()
-        if isinstance(ex.get("matched_corr"), torch.Tensor):
-            arrays["matched_corr"] = ex["matched_corr"].numpy()
+    ex = read.extra
+    arrays["corrupted_pair"] = ex["corrupted_pair"].numpy()
+    arrays["realized_severity"] = ex["realized_severity"].numpy()
 
-        w_bytes = ex["W_raw"].numpy().tobytes()
-        meta = {
-            "toy": toy, "seed": int(seed), "read": "synthetic", "n_tokens": int(n_tokens),
-            "s_res_mode": read.s_res_mode, "report_schema": REPORT_SCHEMA,
-            "freeze_tag": tag,                      # a study tag, explicitly NOT a benchmark freeze
-            "checkpoint": "synthetic:none",
-            "checkpoint_weights_sha256": hashlib.sha256(w_bytes).hexdigest(),
-            "evaluator_sha256": evaluator_sha256(),
-            "synthdict_sha256": synthdict_sha256(),
-            "corruption": ex["corruption_kind"], "dials": ex["dials"],
-            "corrupted_edges_sha256": hashlib.sha256(
-                json.dumps(list(ex["corrupted_edges"])).encode()).hexdigest(),
-            "n_corrupted_edges": len(ex["corrupted_edges"]),
-            "realized_severity_median": ex["realized_severity_median"],
-            "support_flip_rate": ex["support_flip_rate"], "fvu": ex["fvu"],
-            "fvu_true_A": ex["fvu_true_A"], "n_holed_total": ex["n_holed_total"],
-            "match_mode": mode, "acts_mode": ex["acts_mode"],
-            "true_l0": ex["true_l0"], "realized_l0": ex["realized_l0"],
-            "scoring_sample_seed": ex["scoring_sample_seed"],
-            "matching_sample_seed": ex["matching_sample_seed"],
-            "probe_fit_sample_seed": ex["probe_fit_sample_seed"],
-            "probe_fit_labels": ex["probe_fit_labels"],
-            "cfg_overrides": cfg_overrides,
-        } | git_provenance(Path(__file__).resolve().parents[1])
+    w_bytes = ex["W_raw"].numpy().tobytes()
+    meta = {
+        "toy": toy, "seed": int(seed), "read": "synthetic", "n_tokens": int(n_tokens),
+        "s_res_mode": read.s_res_mode, "report_schema": REPORT_SCHEMA,
+        "freeze_tag": tag,                      # a study tag, explicitly NOT a benchmark freeze
+        "checkpoint": "synthetic:none",
+        "checkpoint_weights_sha256": hashlib.sha256(w_bytes).hexdigest(),
+        "evaluator_sha256": evaluator_sha256(),
+        "synthdict_sha256": synthdict_sha256(),
+        "corruption": ex["corruption_kind"], "dials": ex["dials"],
+        "corrupted_edges_sha256": hashlib.sha256(
+            json.dumps(list(ex["corrupted_edges"])).encode()).hexdigest(),
+        "n_corrupted_edges": len(ex["corrupted_edges"]),
+        "realized_severity_median": ex["realized_severity_median"],
+        "support_flip_rate": ex["support_flip_rate"], "fvu": ex["fvu"],
+        "fvu_true_A": ex["fvu_true_A"], "n_holed_total": ex["n_holed_total"],
+        "readout": mode, "acts_mode": ex["acts_mode"],
+        "planted_map_sha256": ex["planted_map_sha256"],
+        "n_latents": ex["n_latents"],
+        "true_l0": ex["true_l0"], "realized_l0": ex["realized_l0"],
+        "scoring_sample_seed": ex["scoring_sample_seed"],
+        "probe_fit_sample_seed": ex["probe_fit_sample_seed"],
+        "probe_fit_labels": ex["probe_fit_labels"],
+        "cfg_overrides": cfg_overrides,
+    } | git_provenance(Path(__file__).resolve().parents[1])
 
-        d = Path(out) / tag / f"seed{int(seed)}" / toy / "absorption" / dial_dirname(dials) / mode
-        # acts_mode is meta, not path: a --force overwrite must never silently mix two
-        # constructs under one tag (review MED-1).
-        npz = d / "scores.npz"
-        if npz.exists():
-            prev = json.loads(str(np.load(npz, allow_pickle=True)["__meta__"])).get(
-                "acts_mode", "ridge")
-            if prev != acts_mode:
-                raise FileExistsError(
-                    f"{d} holds an acts_mode={prev!r} artifact; refusing to overwrite with "
-                    f"{acts_mode!r} even under --force - one tag holds one construct.")
-        write_artifacts(d, arrays, report, meta, force=force)
-        written.append(d)
+    d = Path(out) / tag / f"seed{int(seed)}" / toy / "absorption" / dial_dirname(dials) / mode
+    # acts_mode is meta, not path: a --force overwrite must never silently mix two
+    # constructs under one tag (review MED-1).
+    npz = d / "scores.npz"
+    if npz.exists():
+        prev = json.loads(str(np.load(npz, allow_pickle=True)["__meta__"])).get(
+            "acts_mode", "ridge")
+        if prev != acts_mode:
+            raise FileExistsError(
+                f"{d} holds an acts_mode={prev!r} artifact; refusing to overwrite with "
+                f"{acts_mode!r} even under --force - one tag holds one construct.")
+    write_artifacts(d, arrays, report, meta, force=force)
+    written.append(d)
 
-        if with_census:
-            # Rebuild the same corruption the read used — deterministic in (world seed, dials),
-            # and geometry is draw-independent, so any draw's g/CONT reproduces it exactly.
-            world = regenerate_world(rc, sample_seed=held_out_sample_seed(int(seed)),
-                                     n_tokens=n_tokens)
-            corruption = absorb(world.g, world.CONT, dials, world_seed=int(seed))
-            cen = run_census(rc, corruption, seed, n_tokens=n_tokens, match_mode=mode,
-                             acts_mode=acts_mode)
-            (d / "census.json").write_text(json.dumps(cen, indent=2), encoding="utf-8")
-        print(f"[{toy} seed{seed} {dial_dirname(dials)} {mode}] wrote {d} "
-              f"({report['secs']}s, sev_med={ex['realized_severity_median']:.3f}, "
-              f"fvu={ex['fvu']['scoring']:.3f}, flips={ex['support_flip_rate']['scoring']:.2e})")
+    if with_census:
+        # Rebuild the same corruption the read used — deterministic in (world seed, dials),
+        # and geometry is draw-independent, so any draw's g/CONT reproduces it exactly.
+        world = regenerate_world(rc, sample_seed=held_out_sample_seed(int(seed)),
+                                 n_tokens=n_tokens)
+        corruption = absorb(world.g, world.CONT, dials, world_seed=int(seed))
+        cen = run_census(rc, corruption, seed, n_tokens=n_tokens, readout=mode,
+                         acts_mode=acts_mode)
+        (d / "census.json").write_text(json.dumps(cen, indent=2), encoding="utf-8")
+    print(f"[{toy} seed{seed} {dial_dirname(dials)} {mode}] wrote {d} "
+          f"({report['secs']}s, sev_med={ex['realized_severity_median']:.3f}, "
+          f"fvu={ex['fvu']['scoring']:.3f}, flips={ex['support_flip_rate']['scoring']:.2e})")
     return written
 
 
@@ -143,7 +142,7 @@ def main() -> None:
     ap.add_argument("--n-tokens", type=int, default=200_000)
     ap.add_argument("--tag", default="SYNTH-R1")
     ap.add_argument("--out", default="outputs_local/synthdict")
-    ap.add_argument("--match-modes", default="identity,hungarian")
+    ap.add_argument("--readout", default="identity", choices=READOUTS)
     ap.add_argument("--acts-mode", default="ridge", choices=("ridge", "clean"))
     ap.add_argument("--no-probe", action="store_true")
     ap.add_argument("--no-census", action="store_true")
@@ -152,7 +151,7 @@ def main() -> None:
 
     dials = AbsorptionDials(beta=args.beta, eta=args.eta, edge_fraction=args.edge_fraction)
     run_dial_point(args.toy, args.seed, dials, args.n_tokens, Path(args.out), args.tag,
-                   match_modes=tuple(args.match_modes.split(",")),
+                   readout=args.readout,
                    with_probe=not args.no_probe, with_census=not args.no_census,
                    force=args.force, acts_mode=args.acts_mode)
 

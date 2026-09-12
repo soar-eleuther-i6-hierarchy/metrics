@@ -49,7 +49,10 @@ def collect_point(d: Path) -> dict:
     intact = is_target & ~corr_mask
 
     row = {
-        "toy": meta["toy"], "seed": meta["seed"], "mode": meta["match_mode"],
+        "toy": meta["toy"], "seed": meta["seed"],
+        # Round-1 artifacts stamped `match_mode`; the matcher-free pipeline stamps
+        # `readout`. Both are read so the existing tags still collect.
+        "mode": meta.get("readout", meta.get("match_mode")),
         "acts": meta.get("acts_mode", "ridge"),
         "beta": meta["dials"]["beta"], "eta": meta["dials"]["eta"],
         "f": meta["dials"]["edge_fraction"],
@@ -125,7 +128,7 @@ def write_md(rows: list[dict], path: Path, tag: str) -> None:
         "- `G__corrupted` vs severity is DEFINITIONALLY y=x in identity mode (the generator sets "
         "that cosine); it is a manipulation check anchoring the dose axis, not evidence a metric "
         "'responds'. The informative G content is the calibrated threshold crossings "
-        "(HIGH/IN-BAND against `G__q99`/`G__q01`), the intact and null columns, and hungarian mode. "
+        "(HIGH/IN-BAND against `G__q99`/`G__q01`) and the intact and null columns. "
         "`coverage_R__corrupted ~ (1-eta)` is likewise the manipulation check for the hole.",
         "- f=1.0 rows: the per-read calibration null is itself corrupted (thresholds move "
         "materially; see the `__q99` columns) and the intact control is empty. f=0.1 rows are "
@@ -151,7 +154,7 @@ def write_md(rows: list[dict], path: Path, tag: str) -> None:
                             if r["toy"] == toy and r["acts"] == acts}):
             sub = [r for r in rows if r["toy"] == toy and r["mode"] == mode
                    and r["acts"] == acts]
-            lines += [f"## {toy} — {acts} acts — {mode} match", ""]
+            lines += [f"## {toy} — {acts} acts — {mode} readout", ""]
             det_cols = ["beta", "eta", "f", "severity"] + \
                 [f"{d}__{s}" for d in ("G", "S_res", "coverage_R", "pmi")
                  for s in ("corrupted", "intact", "null")]
