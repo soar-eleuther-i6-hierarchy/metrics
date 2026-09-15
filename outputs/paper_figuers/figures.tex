@@ -52,10 +52,11 @@
     sitting at 0.81--0.97 on gemma and 0.95--1.00 on PCFG in every pair at every layer, which
     makes it a property of the dictionary rather than of any boundary within it. The PCFG deep
     pairs rest on one to three candidate edges, so their quiet columns record emptiness, not
-    health. gemma's fourth adjacent pair B3$\rightarrow$B4 carries a reason rather than a row
-    of dashes: it was never computed, because its co-firing matrix is 6{,}144$\times$24{,}576
-    and does not fit this run's memory budget. It is drawn because a pair silently absent from
-    a grid reads as a pair with nothing in it, which is a claim the run never tested.
+    health. gemma's fourth adjacent pair B3$\rightarrow$B4 is read at layer 12 alone: its
+    co-firing matrix is 6{,}144$\times$24{,}576 and needs a 49 GB card, so it is off by
+    default and was run once. The five dashes beside it mean not run, not empty. The
+    distinction is drawn rather than left out, because a pair silently absent from a grid
+    reads as a pair with nothing in it, which is a claim the run never tested.
   }
   \label{fig:tangle-lives-in-top-block-pair}
 \end{figure}
@@ -99,14 +100,15 @@
     89--100\% of children with any parent have two or more, at every graded layer, revealing
     pervasive multi-parenting in the recovered structure. Deeper block pairs appear cleaner
     (8--57\%) on candidate sets of comparable or larger size, so the drop reflects genuinely
-    looser structure rather than a smaller sample. Gemma's B3$\rightarrow$B4 pair is marked
-    n.a.: it is not yet computed, because grading it exhausts memory (B4 alone spans 24{,}576
-    latents); a rerun is pending. Every bar prints the number of children behind its
-    percentage as $n{=}$; a 100\% computed over one child is a coin flip, not a result, and
-    the label keeps it from reading as one. The PCFG panel shows the same signature (26--100\%
-    in B0$\rightarrow$B1 across its layers), so the multi-parenting is a property of the
-    Matryoshka nesting, not of natural language; its deeper-pair bars rest on a handful of
-    children and carry their support ($n$) rather than posing as results.
+    looser structure rather than a smaller sample. Gemma's B3$\rightarrow$B4 pair is graded at
+    layer 12 alone: its co-firing matrix is 6{,}144$\times$24{,}576, which needs a 49 GB card,
+    so it is off by default and was run once. The other five layers are marked n.a. because
+    they were not run, not because they cannot be. Every bar prints the number of children
+    behind its percentage as $n{=}$; a 100\% computed over one child is a coin flip, not a
+    result, and the label keeps it from reading as one. The PCFG panel shows the same
+    signature (26--100\% in B0$\rightarrow$B1 across its layers), so the multi-parenting is a
+    property of the Matryoshka nesting, not of natural language; its deeper-pair bars rest on
+    a handful of children and carry their support ($n$) rather than posing as results.
   }
   \label{fig:multiparenting-by-layer}
 \end{figure}

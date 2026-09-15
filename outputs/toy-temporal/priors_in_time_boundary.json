@@ -1,0 +1,281 @@
+{
+  "predictions_stated_before_the_run": [
+    "novel-code activity is higher at parent-state changes than between them",
+    "the difference is absent under --persistence 0, where the data carries no events"
+  ],
+  "n_sequences": 256,
+  "seq_len": 16,
+  "eval_sampling_seed": 123,
+  "cells": {
+    "pit_temporal": [
+      {
+        "seed": 0,
+        "n_boundary": 130,
+        "n_within": 3710,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.11751709133386612,
+        "novel_mag_within": 0.07980594784021378,
+        "pred_cos_at": 0.8020903468132019,
+        "pred_cos_within": 0.9494401812553406
+      },
+      {
+        "seed": 1,
+        "n_boundary": 130,
+        "n_within": 3710,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 1.999191403388977,
+        "novel_mag_at": 0.11087093502283096,
+        "novel_mag_within": 0.08037912100553513,
+        "pred_cos_at": 0.9991523027420044,
+        "pred_cos_within": 0.9999008774757385
+      },
+      {
+        "seed": 2,
+        "n_boundary": 130,
+        "n_within": 3710,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.09906157106161118,
+        "novel_mag_within": 0.07679295539855957,
+        "pred_cos_at": 0.991439938545227,
+        "pred_cos_within": 0.9992693066596985
+      },
+      {
+        "seed": 3,
+        "n_boundary": 130,
+        "n_within": 3710,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 1.989487886428833,
+        "novel_mag_at": 0.1411770135164261,
+        "novel_mag_within": 0.06393687427043915,
+        "pred_cos_at": 0.30521073937416077,
+        "pred_cos_within": 0.9373095035552979
+      },
+      {
+        "seed": 4,
+        "n_boundary": 130,
+        "n_within": 3710,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.12587164342403412,
+        "novel_mag_within": 0.06195235252380371,
+        "pred_cos_at": 0.9932358860969543,
+        "pred_cos_within": 0.9975398182868958
+      },
+      {
+        "seed": 5,
+        "n_boundary": 130,
+        "n_within": 3710,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.14603732526302338,
+        "novel_mag_within": 0.07314332574605942,
+        "pred_cos_at": -0.058660801500082016,
+        "pred_cos_within": 0.7261868119239807
+      },
+      {
+        "seed": 6,
+        "n_boundary": 130,
+        "n_within": 3710,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.11500820517539978,
+        "novel_mag_within": 0.05452531576156616,
+        "pred_cos_at": 0.9951587319374084,
+        "pred_cos_within": 0.9985774159431458
+      },
+      {
+        "seed": 7,
+        "n_boundary": 130,
+        "n_within": 3710,
+        "novel_l0_at": 1.9461538791656494,
+        "novel_l0_within": 1.9223719835281372,
+        "novel_mag_at": 0.1367785930633545,
+        "novel_mag_within": 0.06299123913049698,
+        "pred_cos_at": 0.27757686376571655,
+        "pred_cos_within": 0.44433215260505676
+      }
+    ],
+    "pit_decorr": [
+      {
+        "seed": 0,
+        "n_boundary": 40,
+        "n_within": 3800,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.1354529857635498,
+        "novel_mag_within": 0.05749130994081497,
+        "pred_cos_at": 0.3834669589996338,
+        "pred_cos_within": 0.41104134917259216
+      },
+      {
+        "seed": 1,
+        "n_boundary": 40,
+        "n_within": 3800,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.1366611272096634,
+        "novel_mag_within": 0.050479546189308167,
+        "pred_cos_at": 0.9764738082885742,
+        "pred_cos_within": 0.9938620328903198
+      },
+      {
+        "seed": 2,
+        "n_boundary": 40,
+        "n_within": 3800,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.14820830523967743,
+        "novel_mag_within": 0.07409218698740005,
+        "pred_cos_at": 0.9363983869552612,
+        "pred_cos_within": 0.9912853837013245
+      },
+      {
+        "seed": 3,
+        "n_boundary": 40,
+        "n_within": 3800,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.09082084149122238,
+        "novel_mag_within": 0.03191472217440605,
+        "pred_cos_at": 0.8493452072143555,
+        "pred_cos_within": 0.9147114157676697
+      },
+      {
+        "seed": 4,
+        "n_boundary": 40,
+        "n_within": 3800,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.13263371586799622,
+        "novel_mag_within": 0.07639943808317184,
+        "pred_cos_at": 0.8398243188858032,
+        "pred_cos_within": 0.9816452264785767
+      },
+      {
+        "seed": 5,
+        "n_boundary": 40,
+        "n_within": 3800,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.15823610126972198,
+        "novel_mag_within": 0.09535505622625351,
+        "pred_cos_at": 0.6922405362129211,
+        "pred_cos_within": 0.9483612179756165
+      },
+      {
+        "seed": 6,
+        "n_boundary": 40,
+        "n_within": 3800,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.1347188800573349,
+        "novel_mag_within": 0.05522903427481651,
+        "pred_cos_at": 0.33498653769493103,
+        "pred_cos_within": 0.42959555983543396
+      },
+      {
+        "seed": 7,
+        "n_boundary": 40,
+        "n_within": 3800,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.10915632545948029,
+        "novel_mag_within": 0.05403495207428932,
+        "pred_cos_at": 0.9863179922103882,
+        "pred_cos_within": 0.9913738965988159
+      }
+    ],
+    "pit_null": [
+      {
+        "seed": 0,
+        "n_boundary": 2266,
+        "n_within": 1574,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.11977912485599518,
+        "novel_mag_within": 0.06960450857877731,
+        "pred_cos_at": 0.13475054502487183,
+        "pred_cos_within": 0.775836706161499
+      },
+      {
+        "seed": 1,
+        "n_boundary": 2266,
+        "n_within": 1574,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.11627724021673203,
+        "novel_mag_within": 0.0773177370429039,
+        "pred_cos_at": 0.9899540543556213,
+        "pred_cos_within": 0.999608039855957
+      },
+      {
+        "seed": 2,
+        "n_boundary": 2266,
+        "n_within": 1574,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.11856383830308914,
+        "novel_mag_within": 0.07209156453609467,
+        "pred_cos_at": 0.15642477571964264,
+        "pred_cos_within": 0.9108394384384155
+      },
+      {
+        "seed": 3,
+        "n_boundary": 2266,
+        "n_within": 1574,
+        "novel_l0_at": 1.998676061630249,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.11450938880443573,
+        "novel_mag_within": 0.06352955847978592,
+        "pred_cos_at": 0.9859536290168762,
+        "pred_cos_within": 0.9978170990943909
+      },
+      {
+        "seed": 4,
+        "n_boundary": 2266,
+        "n_within": 1574,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.12885132431983948,
+        "novel_mag_within": 0.07517583668231964,
+        "pred_cos_at": 0.9731574654579163,
+        "pred_cos_within": 0.9987949728965759
+      },
+      {
+        "seed": 5,
+        "n_boundary": 2266,
+        "n_within": 1574,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.11963900923728943,
+        "novel_mag_within": 0.059764470905065536,
+        "pred_cos_at": 0.9964779615402222,
+        "pred_cos_within": 0.9993762969970703
+      },
+      {
+        "seed": 6,
+        "n_boundary": 2266,
+        "n_within": 1574,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.12415912002325058,
+        "novel_mag_within": 0.07596240937709808,
+        "pred_cos_at": 0.9912607073783875,
+        "pred_cos_within": 0.9994609951972961
+      },
+      {
+        "seed": 7,
+        "n_boundary": 2266,
+        "n_within": 1574,
+        "novel_l0_at": 2.0,
+        "novel_l0_within": 2.0,
+        "novel_mag_at": 0.10998838394880295,
+        "novel_mag_within": 0.06801380962133408,
+        "pred_cos_at": 0.993695855140686,
+        "pred_cos_within": 0.9997233748435974
+      }
+    ]
+  }
+}

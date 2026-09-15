@@ -187,12 +187,49 @@ def _layer_name(dirname: str) -> str:
     return f"layer {int(m.group(1))}" if m else dirname.replace("_", " ")
 
 
+def _merge_variant_pairs(layer_dir, rep):
+    """Fold pairs graded in a variant run of the same layer into that layer's report.
+
+    B3->B4 is off by default in `config.py` because its 6144 x 24576 accumulators do not
+    fit on a small card, so it was graded in a separate run, `layer_12_b3b4/`. The figure
+    that draws every block pair printed "not computed: exceeds the memory budget" for it.
+    That sentence became false the moment the pair was graded, and a figure asserting a
+    limit that has been lifted is worse than one with a gap.
+
+    A variant run rebuilds the statistics cache from scratch, so it regrades every pair,
+    not only the new one. Merging is therefore only sound if the pairs both runs share
+    came out identical. That is checked here rather than assumed: the token count must
+    match, and every shared pair must report the same candidate-edge count. A variant that
+    fails either test is ignored, because then its extra pair was measured on something
+    else and putting it in this layer's row would compare two corpora in one table.
+    """
+    base = {q["pair"]: q for q in rep.get("pairs", [])}
+    for var_dir in sorted(layer_dir.parent.glob(f"{layer_dir.name}_*")):
+        var = _json(var_dir / "metrics_report.json")
+        if not var:
+            continue
+        if var.get("total_tokens") != rep.get("total_tokens"):
+            continue
+        vp = {q["pair"]: q for q in var.get("pairs", [])}
+        shared = set(base) & set(vp)
+        if not shared or any(base[k]["n_candidate_edges"] != vp[k]["n_candidate_edges"]
+                             for k in shared):
+            continue
+        extra = [vp[k] for k in sorted(set(vp) - set(base),
+                                       key=lambda k: tuple(int(x) for x in k.split("->")))]
+        if extra:
+            rep = dict(rep, pairs=rep["pairs"] + extra)
+            base.update({q["pair"]: q for q in extra})
+    return rep
+
+
 def gemma_layers() -> list[tuple[int, dict]]:
     out = []
     for L in C.NAV_LAYERS:
-        r = _json(C.OUT_DIR / C.SOURCE_NAME / f"layer_{L:02d}" / "metrics_report.json")
+        d = C.OUT_DIR / C.SOURCE_NAME / f"layer_{L:02d}"
+        r = _json(d / "metrics_report.json")
         if r:
-            out.append((L, r))
+            out.append((L, _merge_variant_pairs(d, r)))
     return out
 
 
@@ -453,8 +490,28 @@ def funnel_coverage_to_sres(layers, second, pcfg=None, pair="0->1", where=""):
 #    control. This is the withdrawn kill-rate view, rebuilt from committed
 #    reports -- the condition on which a withdrawn result was allowed back.
 # ---------------------------------------------------------------------------
+def _pairs_in(layers):
+    """The block pairs actually graded, in block order, across every layer given.
+
+    This used to be the literal list ["0->1", "1->2", "2->3"]. B3->B4 is disabled by
+    default in config.py because its accumulators do not fit on a small card, so for a
+    long time three was all there was. A hardcoded list does not fail when a fourth pair
+    appears: the figure keeps drawing three bars and looks finished.
+
+    Taking the union rather than the intersection is deliberate. A pair graded at one
+    layer and not another should show as a gap in that layer's bars, which is visible,
+    rather than disappear from the axis, which is not.
+    """
+    seen = set()
+    for _, rep in layers:
+        seen.update(q["pair"] for q in rep.get("pairs", []) if "pair" in q)
+    return sorted(seen, key=lambda k: tuple(int(x) for x in k.split("->")))
+
+
 def edge_survival_by_block_pair(layers):
-    pairs = ["0->1", "1->2", "2->3"]
+    pairs = _pairs_in(layers)
+    if not pairs:
+        return None
     fig, axes = plt.subplots(1, 2, figsize=(10.4, 3.9), sharey=False)
     x = np.arange(len(pairs))
     w = 0.15
@@ -533,9 +590,11 @@ def multiparenting_by_layer(layers, pcfg=None):
     # EVERY block pair each source's nesting defines, not a fixed prefix of
     # them: the pair list is read off block_ranges (gemma: 5 blocks -> 4 pairs,
     # PCFG: 8 blocks -> 7 pairs). A pair the pipeline never graded is drawn as
-    # an explicit "n.a." at the baseline rather than silently omitted -- gemma's
-    # B3->B4 is not yet computed (grading it OOMs: B4 alone spans 24,576
-    # latents), and the figure must say so rather than hide the column.
+    # an explicit "n.a." at the baseline rather than silently omitted. gemma's
+    # B3->B4 is graded at layer 12 only: its 6144 x 24576 accumulators need a large
+    # card, so it is off by default in config.py and was run once, on an A40. The
+    # five other layers carry n.a. because nobody ran them, not because they cannot
+    # be run, and the figure must say which of the two it means.
     # one panel per SOURCE: the claim is cross-source ("the tangle is a
     # property of the nesting, not of gemma"), so the PCFG runs stand beside
     # gemma rather than in a separate appendix figure
@@ -625,12 +684,13 @@ def multiparenting_by_layer(layers, pcfg=None):
                loc="lower center", bbox_to_anchor=(0.5, 0.062))
     fig.text(0.5, 0.042, "n = children behind the %",
              ha="center", fontsize=7.5, color=MUTED)
-    fig.text(0.5, 0.008, "n.a. = B3→B4 not yet computed (out of memory)",
+    fig.text(0.5, 0.008, "n.a. = not graded at that layer; B3→B4 needs a 49 GB card "
+                         "and was run at layer 12 only",
              ha="center", fontsize=7.5, color=MUTED)
     _title(fig, "The graph is not a tree: in the top block pair nearly every child has "
                 "several parents, on both sources",
-           "every block pair each nesting defines; n.a. = not computed yet — gemma's "
-           "B3→B4 runs out of memory (B4 alone spans 24,576 latents), rerun pending. "
+           "every block pair each nesting defines; n.a. = not run at that layer — gemma's "
+           "B3→B4 needs a 49 GB card and was run at layer 12 only. "
            "Ratio over children that already have a parent — the one measure BOS "
            "exclusion left unchanged", width=110)
     # tight_layout ignores fig.legend and would drop it onto the tick labels;
@@ -2495,7 +2555,7 @@ def tangle_lives_in_top_block_pair(layers, pcfg, name="tangle_lives_in_top_block
         """[(block pair, layer label, row values, note)] for one source, pair-major.
 
         `note` is None for a measured row. An adjacent block pair that the run
-        never computed still gets a row, carrying the reason instead of values:
+        no layer here graded still gets a row, carrying the reason instead of values:
         a pair silently missing from a grid reads as a pair with nothing in it,
         which is a different claim from one that was never attempted.
         """
@@ -2524,13 +2584,13 @@ def tangle_lives_in_top_block_pair(layers, pcfg, name="tangle_lives_in_top_block
                         vals = [0.0] + [np.nan] * (len(COLS) - 1)
                     out.append((name, lab, vals, None))
                 continue
-            # never computed: say so, and say how big the object was
+            # graded at no layer shown: say so, and say how big the object was
             P = ranges[k][1] - ranges[k][0]
             Cn = ranges[k + 1][1] - ranges[k + 1][0]
             # no layer tick: the band spans the whole row and would collide
             # with it, and "which layer" is not a question a skipped pair has
             out.append((name, "", [np.nan] * len(COLS),
-                        f"not computed: {P:,}×{Cn:,} exceeds the memory budget"))
+                        f"not graded at any layer shown: {P:,}×{Cn:,}"))
         return out
 
     gem = source_grid([(f"L{L}", r) for L, r in layers])
@@ -3465,9 +3525,11 @@ def _captions():
             rf"block pairs appear cleaner ({min(deep):.0f}--{max(deep):.0f}\%) on "
             "candidate sets of comparable or larger size, so the drop reflects "
             "genuinely looser structure rather than a smaller sample. Gemma's "
-            r"B3$\rightarrow$B4 pair is marked n.a.: it is not yet computed, because "
-            "grading it exhausts memory (B4 alone spans 24{,}576 latents); a rerun "
-            "is pending. Every bar prints the number of children behind its "
+            r"B3$\rightarrow$B4 pair is graded at layer 12 alone: its co-firing "
+            r"matrix is 6{,}144$\times$24{,}576, which needs a 49 GB card, so it is "
+            "off by default and was run once. The other five layers are marked n.a. "
+            "because they were not run, not because they cannot be. Every bar prints "
+            "the number of children behind its "
             "percentage as $n{=}$; a 100\\% computed over one child is a coin flip, "
             "not a result, and the label keeps it from reading as one.")
         pp = [100 * _pair(r, "0->1")["degree"]["poly_frac"]
@@ -4017,10 +4079,11 @@ def _captions():
             "every layer, which makes it a property of the dictionary rather than of any "
             "boundary within it. The PCFG deep pairs rest on one to three candidate edges, so "
             "their quiet columns record emptiness, not health. gemma's fourth adjacent pair "
-            "B3$\\rightarrow$B4 carries a reason rather than a row of dashes: it was never "
-            "computed, because its co-firing matrix is 6{,}144$\\times$24{,}576 and does not "
-            "fit this run's memory budget. It is drawn because a pair silently absent from a "
-            "grid reads as a pair with nothing in it, which is a claim the run never tested.")
+            "B3$\\rightarrow$B4 is read at layer 12 alone: its co-firing matrix is "
+            "6{,}144$\\times$24{,}576 and needs a 49 GB card, so it is off by default and was "
+            "run once. The five dashes beside it mean not run, not empty. The distinction is "
+            "drawn rather than left out, because a pair silently absent from a grid reads as a "
+            "pair with nothing in it, which is a claim the run never tested.")
     if _json(G / f"layer_{GRAPH_LAYER:02d}" / "metrics_report.json") or _json(
             C.OUT_DIR / "pcfg-matryoshka"
             / f"layer_{PCFG_GRAPH_LAYER:02d}" / "metrics_report.json"):

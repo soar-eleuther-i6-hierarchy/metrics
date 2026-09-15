@@ -220,6 +220,88 @@ On that 9 August checkpoint the 3 untestable edges were the same 3 children the 
 the same ceiling its recall reported. Feature splitting did show up: 3 true features recovered by two
 latents each.
 
+## The threshold sweep — what `threshold_sweep.py` does and what it found
+
+Two review comments, both on 5 September, asked the same thing about different constants. On
+`EDGE_TAU` and `MIN_JOINT`: "why these particular numbers? What would happen if we selected
+tau = 0.9?" On `FREQ_SURVIVAL_MIN`: "Again we need to either have ablations or a good reasoning
+for the any default number."
+
+`threshold_sweep.py` answers both by varying one threshold at a time and holding the rest at
+their defaults. That is the ablation proper: it attributes a change to a single constant. It
+runs in two modes, because the two settings answer different questions.
+
+    python3 validation/threshold_sweep.py                     # trained toy: ground truth
+    python3 validation/threshold_sweep.py --stats ../data/fmt # 12 PCFG runs: no ground truth
+
+On the toy the score is precision and recall against the known tree. On PCFG there is no tree,
+so the score is the accepted edge count together with the share of accepted edges whose PMI is
+below 0.5. PMI near zero means two features co-fire at about the rate their individual firing
+rates already predict, so that share estimates how much of the accepted set is frequency rather
+than structure.
+
+**The script asserts before it sweeps.** Its default point must reproduce
+`outputs/trained_toy_calibration.json` on precision, recall and the error counts, or it exits.
+Without that check this file would become a second source of truth for the same checkpoint,
+reporting its own numbers whenever the gating here drifted from `run_metrics.analyse_pair`.
+
+### What it found, and it is not a justification of the defaults
+
+**The toy cannot rank thresholds at all.** Precision 1.00 and recall 1.00 at every value of
+every threshold, except `EDGE_TAU` at or below 0.1. Any claim that these constants were
+calibrated on the toy is unsupported: the toy accepts all of them equally.
+
+**Only one of the five acceptance thresholds does any work.** On PCFG, block pair B0->B1, 12
+runs, one knob at a time:
+
+| threshold | range tested | accepted edges | share at chance |
+| --- | --- | --- | --- |
+| `EDGE_TAU` | 0.1 to 0.95 | 2027 down to 28 | 0.71 down to 0.15 |
+| `MIN_FIRE_COUNT` | 5 to 200 | 135 to 132 | 0.31 to 0.34 |
+| `MIN_JOINT` | 0 to 100 | 134 to 132 | 0.33 to 0.34 |
+| `RECON_REL_GAIN_MIN` | 0 to 0.1 | 136 to 44 | 0.33 to 0.17 |
+| `FREQ_SURVIVAL_MIN` | 0 to 0.75 | 151 to 131 | 0.33 to 0.33 |
+
+`MIN_FIRE_COUNT` moves the accepted set by 2 percent across its whole range and `MIN_JOINT` by
+1 percent. `RECON_REL_GAIN_MIN` does nothing near its default and only begins to act at 0.05,
+five times the value in use.
+
+**At the current `EDGE_TAU`, about a third of accepted edges sit at chance.** 0.5 gives
+134 +/- 151 edges at a chance share of 0.33 +/- 0.24. One step to 0.6 gives 84 +/- 130 at
+0.12 +/- 0.20. Past 0.6 nothing improves: the chance share stays between 0.09 and 0.17 through
+0.95 while the edge count falls by two thirds. The direct answer to the review question is that
+0.9 is not better than 0.6, only smaller.
+
+**`FREQ_SURVIVAL_MIN` does not reduce the chance share.** Measured before and after its own
+gate, at the default tau: 0.33 before, 0.36 after. It removes edges, but not the ones co-firing
+at chance. We report that instead of a justification, because the evidence does not support one.
+
+### Three limits on reading those numbers
+
+The PMI score is not independent of the `FREQ_SURVIVAL_MIN` gate. The paper states this about
+itself, that the gate and the independence null both shift weight away from frequent tokens, and
+that it does not correct for the overlap. The before and after numbers therefore bound the
+gate's effect rather than measure it.
+
+The spread across grammar configurations is larger than the mean. At the default, 134 +/- 151.
+Any single PCFG number is misleading, and the appendix should show the spread rather than the
+average.
+
+This covers one block pair. Deeper pairs accept too few edges to compare: B1->B2 accepts
+3 +/- 5 at the default. It also covers the toy and PCFG only. Gemma needs the GPU node, and
+would make a third source rather than a second.
+
+### What is still open
+
+No selection rule has been proposed. Showing that 0.6 dominates 0.5 on this evidence is not the
+same as a stated criterion applied consistently to every threshold and every source. Six further
+constants were not swept, because they gate other metrics rather than edge acceptance:
+`FIRE_THRESHOLD`, `FREQ_HIGH_MASS`, `SRES_RANK_TOP_K`, `SUPERPARENT_OUTDEG_FRAC`,
+`SIBLING_REDUNDANCY_FLAG` and `SHARE_ENERGY_SPLIT`.
+
+Raw numbers: `outputs/threshold_sweep.json` for the toy, `outputs/threshold_sweep_pcfg.json` for
+PCFG. The claim, with its limits, is `findings/I6-F006` in the umbrella repository.
+
 ## What is *not* here
 
 [`../tests/`](../tests/) holds unit tests of the pipeline code — they measure nothing about
@@ -243,3 +325,31 @@ A new metric earns its place by catching a property no existing metric catches
 two halves: inject that property into `synthetic_toy_world.py`, then assert the new metric flags it **and**
 that it spares the genuine tree edges. A metric that only fires on the pathology is a detector; one
 that also kills healthy edges is a filter with a false-positive problem.
+
+## `audit_comparability.py` — what may be compared with what
+
+Added 2026-09-11, after a Temporal SAE result was compared against a Matryoshka baseline
+graded before BOS positions were excluded from the co-firing counts. Both files loaded
+without error and the ratio they produced was wrong by more than a factor of two.
+
+The script reads the settings each result file records, never the prose written about it,
+and reports four things:
+
+1. Reports whose `config` omits `bos_excluded` or `min_joint`, which means they predate
+   those guards. The test is on absence, because a key that did not exist cannot carry a
+   value.
+2. Files claiming one corpus but disagreeing on token count.
+3. Probe results (`second_pass.json`) whose shortlist is larger than the candidate set in
+   the report beside them. Those files carry no config of their own, so this is the only
+   way to tell whether the pair came from one run.
+4. The source files each finding names, resolved, with a verdict for each.
+
+Exit status is non-zero when anything is flagged.
+
+```bash
+python3 -m validation.audit_comparability
+python3 -m validation.audit_comparability --json /tmp/audit.json
+```
+
+It does not check block width, seed or architecture. Those are still matched by hand, and
+the project's design notes say why that matters.

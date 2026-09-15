@@ -1,0 +1,335 @@
+{
+  "config": {
+    "layer": 12,
+    "sae_release": "gemma-2-2b-tsae",
+    "sae_source": "gemma-tsae",
+    "sae_id": "tsae_hook_resid_post_L12",
+    "matryoshka_steps": [
+      3276,
+      16384
+    ],
+    "block_ranges": [
+      [
+        0,
+        3276
+      ],
+      [
+        3276,
+        16384
+      ]
+    ],
+    "fire_threshold": 0.001,
+    "context_size": 128,
+    "sibling_blocks": [
+      1
+    ],
+    "freq_high_mass": 0.5,
+    "freq_mid_mass": 0.4,
+    "bos_excluded": true,
+    "min_joint": 30,
+    "source": "gemma-tsae",
+    "n_docs": 400,
+    "checkpoint": "alex-oesterling/temporal-saes",
+    "layer_convention": "blocks.N.hook_resid_post = output of block N; equals HF hidden_states[N+1]"
+  },
+  "total_tokens": 48571,
+  "pairs": [
+    {
+      "pair": "0->1",
+      "n_candidate_edges": 1621,
+      "n_dropped_min_joint": 2281,
+      "n_pairs_below_min_joint": 42936690,
+      "independence_null": {
+        "mean_edge_pmi": 4.154491968402535,
+        "n_chance_level": 0,
+        "frac_chance_level": 0.0
+      },
+      "joint_child": {
+        "r_supp_mean": 0.9999897951062722,
+        "r_mass_mean": 0.9999894205578996,
+        "n_share_energy_ge_09": 26
+      },
+      "degree": {
+        "n_parents_with_children": 494,
+        "n_children_with_parent": 978,
+        "n_multi_parented": 281,
+        "poly_frac": 0.28732106339468305,
+        "top1_edge_share": 0.03639728562615669,
+        "outdeg_gini": 0.9283136323543479,
+        "max_outdeg": 59
+      },
+      "joint_child_cov_mean": 0.3806275967834165,
+      "reconstruction": {
+        "n_pass": 1598,
+        "frac_pass": 0.9858112276372609
+      },
+      "freq_control": {
+        "n_testable": 1298,
+        "mean_survival": 0.9090989727229126,
+        "n_freq_driven": 107,
+        "frac_freq_driven": 0.08243451463790447
+      },
+      "sibling_redundancy": {
+        "method": "global_jaccard_confounded",
+        "n_parents_scored": 241,
+        "mean_redundancy": 0.09102345494520228,
+        "n_over_global_threshold": 0
+      },
+      "n_superparents": 0,
+      "n_superparents_strict": 0,
+      "superparents": [],
+      "top_edges": [
+        {
+          "parent": 1455,
+          "child": 9045,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.13559322033898305,
+          "pmi": 5.326950118943081,
+          "recon_parent_gain": 0.09443259927354686,
+          "recon_child_gain": 0.08178564758593633,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": null,
+          "parent_label": "terms related to electronics, telecommunications, and technical writing combined with references/citations",
+          "child_label": "the words \"clinical\" and \"preclinical\", especially when occurring together.",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/1455",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/9045"
+        },
+        {
+          "parent": 2690,
+          "child": 5847,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.12121212121212122,
+          "pmi": 4.809367712714211,
+          "recon_parent_gain": 0.29907465647625925,
+          "recon_child_gain": 0.13142386224278627,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "abbreviations, acronyms, and names that are often capitalized",
+          "child_label": "numerical references within square brackets or with a specific format",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/2690",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/5847"
+        },
+        {
+          "parent": 2690,
+          "child": 6185,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.09090909090909091,
+          "pmi": 4.809367712714211,
+          "recon_parent_gain": 0.40931580808988693,
+          "recon_child_gain": 1.040044925592977,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "abbreviations, acronyms, and names that are often capitalized",
+          "child_label": "numbers, especially those representing quantities or percentages",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/2690",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/6185"
+        },
+        {
+          "parent": 2690,
+          "child": 8353,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.15404040404040403,
+          "pmi": 4.809367712714211,
+          "recon_parent_gain": 2.0019776309870037,
+          "recon_child_gain": 96.87852605713303,
+          "recon_pass": true,
+          "freq_survival": null,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "abbreviations, acronyms, and names that are often capitalized",
+          "child_label": "the abbreviation \"TLS\"",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/2690",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/8353"
+        },
+        {
+          "parent": 1138,
+          "child": 8353,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.15404040404040403,
+          "pmi": 4.809367712714211,
+          "recon_parent_gain": 1.9904647899929166,
+          "recon_child_gain": 96.87852605713303,
+          "recon_pass": true,
+          "freq_survival": null,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "URLs",
+          "child_label": "the abbreviation \"TLS\"",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/1138",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/8353"
+        },
+        {
+          "parent": 3002,
+          "child": 8353,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.15404040404040403,
+          "pmi": 4.809367712714211,
+          "recon_parent_gain": 1.9514457971909374,
+          "recon_child_gain": 96.87852605713303,
+          "recon_pass": true,
+          "freq_survival": null,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "references to legal case numbers",
+          "child_label": "the abbreviation \"TLS\"",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/3002",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/8353"
+        },
+        {
+          "parent": 2559,
+          "child": 6185,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.0906801007556675,
+          "pmi": 4.806845643281501,
+          "recon_parent_gain": 0.3941162130020185,
+          "recon_child_gain": 1.040044925592977,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "terms related to fine particulate matter",
+          "child_label": "numbers, especially those representing quantities or percentages",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/2559",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/6185"
+        },
+        {
+          "parent": 1491,
+          "child": 8353,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.15365239294710328,
+          "pmi": 4.806845643281501,
+          "recon_parent_gain": 1.9523744881017489,
+          "recon_child_gain": 96.87852605713303,
+          "recon_pass": true,
+          "freq_survival": null,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "references to figures in research papers",
+          "child_label": "the abbreviation \"TLS\"",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/1491",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/8353"
+        },
+        {
+          "parent": 2559,
+          "child": 5847,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.12090680100755667,
+          "pmi": 4.806845643281501,
+          "recon_parent_gain": 0.2865930956894765,
+          "recon_child_gain": 0.13142386224278627,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "terms related to fine particulate matter",
+          "child_label": "numerical references within square brackets or with a specific format",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/2559",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/5847"
+        },
+        {
+          "parent": 3002,
+          "child": 6185,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.09090909090909091,
+          "pmi": 4.809367712714211,
+          "recon_parent_gain": 0.40598986273431986,
+          "recon_child_gain": 1.040044925592977,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "references to legal case numbers",
+          "child_label": "numbers, especially those representing quantities or percentages",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/3002",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/6185"
+        },
+        {
+          "parent": 3002,
+          "child": 5847,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.12121212121212122,
+          "pmi": 4.809367712714211,
+          "recon_parent_gain": 0.29185237946340337,
+          "recon_child_gain": 0.13142386224278627,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "references to legal case numbers",
+          "child_label": "numerical references within square brackets or with a specific format",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/3002",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/5847"
+        },
+        {
+          "parent": 1491,
+          "child": 6185,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.0906801007556675,
+          "pmi": 4.806845643281501,
+          "recon_parent_gain": 0.4000213434711282,
+          "recon_child_gain": 1.040044925592977,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "references to figures in research papers",
+          "child_label": "numbers, especially those representing quantities or percentages",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/1491",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/6185"
+        },
+        {
+          "parent": 1491,
+          "child": 5847,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.12090680100755667,
+          "pmi": 4.806845643281501,
+          "recon_parent_gain": 0.2904625570418688,
+          "recon_child_gain": 0.13142386224278627,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.202262266893096,
+          "parent_label": "references to figures in research papers",
+          "child_label": "numerical references within square brackets or with a specific format",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/1491",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/5847"
+        },
+        {
+          "parent": 1555,
+          "child": 6202,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.2621951219512195,
+          "pmi": 5.690915496144493,
+          "recon_parent_gain": 0.09940989592686568,
+          "recon_child_gain": 0.18166942109492665,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.1371026700419177,
+          "parent_label": "words relating to authorship of scientific papers",
+          "child_label": "the word \"to\"",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/1555",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/6202"
+        },
+        {
+          "parent": 646,
+          "child": 3782,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.08062890546260834,
+          "pmi": 2.2814193116676424,
+          "recon_parent_gain": 0.29104027661481446,
+          "recon_child_gain": 4.189253879195656,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.01383331273376292,
+          "parent_label": "instances of abbreviation \"i.e.\" and the phrase \"that is\"",
+          "child_label": "lines of code that contain functions related to memory management and closing operations",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/646",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/6-res-matryoshka-dc/3782"
+        }
+      ]
+    }
+  ],
+  "block_ranges": [
+    [
+      0,
+      3276
+    ],
+    [
+      3276,
+      16384
+    ]
+  ]
+}

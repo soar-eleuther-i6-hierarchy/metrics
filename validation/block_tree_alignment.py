@@ -3,7 +3,7 @@
 `calibrate_on_trained_toy.py` asks whether the *metrics* recover the true tree,
 and deliberately indexes by ground truth rather than by block: mixing the two
 would confound "is the metric right?" with "did Matryoshka order the features
-right?". That separation is what lets Tier 2 report recall 0.67 as the SAE's
+right?". That separation is what lets Tier 2 report its recall as the SAE's
 ceiling rather than the metrics'.
 
 This script asks the other half of that question, which nothing else does. The

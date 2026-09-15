@@ -1,0 +1,89 @@
+{
+  "checkpoint": "ekdeepslubana/temporalSAEs_gemma (temporal)",
+  "model": "google/gemma-2-2b",
+  "corpus": "NeelNanda/pile-10k",
+  "context": 128,
+  "conf_block_id": 1,
+  "readme_layer": 12,
+  "width": 9216,
+  "k": 192,
+  "sae_diff_type": "topk",
+  "scaling_factor": 0.00666666667,
+  "note": "conf.yaml records block_id 1 while the repository README lists layer 12. The depth is settled here by reconstruction: an SAE rebuilds its own layer best.",
+  "layer_sweep": [
+    {
+      "hidden_states": 1,
+      "block_output": 0,
+      "fve": -0.02074760934066444,
+      "novel_l0": 192.0,
+      "tokens": 3938,
+      "dead_features": 1390,
+      "predictive_energy_share": 0.9503551058254958
+    },
+    {
+      "hidden_states": 2,
+      "block_output": 1,
+      "fve": -0.014468345006497962,
+      "novel_l0": 192.0,
+      "tokens": 3938,
+      "dead_features": 1745,
+      "predictive_energy_share": 0.9359963389966751
+    },
+    {
+      "hidden_states": 6,
+      "block_output": 5,
+      "fve": -0.024520313903132696,
+      "novel_l0": 192.0,
+      "tokens": 3938,
+      "dead_features": 2127,
+      "predictive_energy_share": 0.8811441837296811
+    },
+    {
+      "hidden_states": 12,
+      "block_output": 11,
+      "fve": 0.7286639061603466,
+      "novel_l0": 192.0,
+      "tokens": 3938,
+      "dead_features": 56,
+      "predictive_energy_share": 0.9219916091377363
+    },
+    {
+      "hidden_states": 13,
+      "block_output": 12,
+      "fve": 0.7932437880552956,
+      "novel_l0": 192.0,
+      "tokens": 3938,
+      "dead_features": 48,
+      "predictive_energy_share": 0.9089128063970613
+    },
+    {
+      "hidden_states": 18,
+      "block_output": 17,
+      "fve": 0.5181321657588271,
+      "novel_l0": 192.0,
+      "tokens": 3938,
+      "dead_features": 101,
+      "predictive_energy_share": 0.8851232879127476
+    },
+    {
+      "hidden_states": 25,
+      "block_output": 24,
+      "fve": 0.08761191956429715,
+      "novel_l0": 192.0,
+      "tokens": 3938,
+      "dead_features": 1655,
+      "predictive_energy_share": 0.49031855965009
+    }
+  ],
+  "best_depth": 13,
+  "quality_at_best": {
+    "hidden_states": 13,
+    "block_output": 12,
+    "fve": 0.7923705988358285,
+    "novel_l0": 192.0,
+    "tokens": 24025,
+    "dead_features": 0,
+    "predictive_energy_share": 0.9040529144047321,
+    "avg_max_cos": 0.11427138083510929
+  }
+}

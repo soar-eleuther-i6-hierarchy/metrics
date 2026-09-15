@@ -1,0 +1,15 @@
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]Loading weights:  20%|██        | 58/288 [00:00<00:00, 498.82it/s]Loading weights:  39%|███▉      | 113/288 [00:00<00:00, 466.43it/s]Loading weights:  58%|█████▊    | 168/288 [00:00<00:00, 485.75it/s]Loading weights:  75%|███████▌  | 217/288 [00:00<00:00, 467.64it/s]Loading weights:  93%|█████████▎| 267/288 [00:00<00:00, 451.18it/s]Loading weights: 100%|██████████| 288/288 [00:00<00:00, 476.44it/s]
+Using the latest cached version of the dataset since NeelNanda/pile-10k couldn't be found on the Hugging Face Hub (offline mode is enabled).
+Found the latest cached dataset configuration 'default' at /home/ruqiya/.cache/huggingface/datasets/NeelNanda___pile-10k/default/0.0.0/127bfedcd5047750df5ccf3a12979a47bfa0bafa (last modified on Fri Jul 17 15:28:04 2026).
+The SAE rebuilds its own layer best. The depth with the higher FVE is the one it saw.
+
+ hidden_states   block output       FVE      L0   block-0 occupancy
+----------------------------------------------------------------------
+            11       block 10    0.5285   29.71               1.000
+            12       block 11    0.6522   19.56               1.000
+            13       block 12    0.7564   20.50               1.000
+            14       block 13    0.2103   74.39               1.000
+
+best reconstruction at hidden_states[13] = output of block 12
+margin over runner-up: 0.1042 FVE
+tokens scored: 14395 per depth, BOS excluded

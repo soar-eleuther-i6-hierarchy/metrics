@@ -133,9 +133,16 @@ MIN_FIRE_COUNT = 20       # rare-feature guard
 MIN_JOINT = 30
 
 # Which adjacent block pairs to compute. B3->B4 is the 6144 x 24576 monster;
-# it does not fit on a 4 GB GPU. On the A40 it fits (~8-10 GB extra):
-# enable with EXP0_B3B4=1. Caveat: B4 is 24576 mostly-rare features, so many
-# B3->B4 edges are unsupported (dropped by MIN_FIRE_COUNT) — a thin, noisy pair.
+# it does not fit on a 4 GB GPU. On the A40 it fits: enable with EXP0_B3B4=1.
+# Measured 2026-09-11 on one A40, peak about 26 GB of 49, collection 210 s.
+#
+# The caveat here used to predict "a thin, noisy pair", on the reasoning that B4
+# is 24576 mostly-rare features so most of its edges would be unsupported. Half
+# of that held. The pair is thin: 3,277 edges out of 151 million possible, which
+# is 0.002 percent. It is not noisy. Those 3,277 are the largest candidate set of
+# the four pairs, and B3->B4 tracks B2->B3 closely on every metric. Skipping it
+# costs the fourth point that separates a plateau from a slope.
+# See research-log/EXPERIMENT_LOG.md, 2026-09-11, "The fourth block pair".
 INCLUDE_B3_B4 = os.environ.get("EXP0_B3B4", "0") == "1"
 
 # --- Metric 2a: reconstruction-ablation contribution filter -----------------

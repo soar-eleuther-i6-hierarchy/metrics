@@ -117,9 +117,23 @@ border-radius:4px;padding:1px 4px;}
 
 
 def report_json(run_dir):
-    """`metrics_report.json` for a run, or None. The captions' only data source."""
+    """`metrics_report.json` for a run, or None. The captions' only data source.
+
+    A pair graded in a variant run of the same layer is folded in, so a page says what
+    was measured for its own layer. Without this, every layer page read "B3->B4: not
+    graded at all" while the paper figures printed layer 12's numbers for it. The merge
+    checks that the two runs agree before combining them; see
+    `make_report_figures._merge_variant_pairs`.
+    """
     p = Path(run_dir) / "metrics_report.json"
-    return json.loads(p.read_text()) if p.exists() else None
+    if not p.exists():
+        return None
+    rep = json.loads(p.read_text())
+    try:
+        from .make_report_figures import _merge_variant_pairs
+    except ImportError:
+        return rep
+    return _merge_variant_pairs(Path(run_dir), rep)
 
 
 def second_json(run_dir):
@@ -610,9 +624,10 @@ def captions_sankey(report, top_n=None):
                 "diagram. The gate is fan-out alone, at <code>SUPERPARENT_OUTDEG_FRAC = "
                 f"{100 * C.SUPERPARENT_OUTDEG_FRAC:.0f}%</code> of the child block.")
     if absent:
-        why += (f" {blocks(absent)} is a different case: not graded at all, so absent rather "
-                "than empty. It is the largest co-firing matrix in the run and is off unless "
-                "<code>EXP0_B3B4=1</code>, which needs stage 01 re-run, not just a redraw.")
+        why += (f" {blocks(absent)} is a different case: not graded at this layer, so absent "
+                "rather than empty. It is the largest co-firing matrix in the run and is off "
+                "unless <code>EXP0_B3B4=1</code>, which needs a card with room for it and a "
+                "stage 01 re-run, not just a redraw. It has been graded once, at layer 12.")
     return [
         ("Each diagram",
          f"One block pair that has a flagged superparent: {blocks(named) or 'none'} &mdash; "
