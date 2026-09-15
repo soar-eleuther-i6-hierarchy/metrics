@@ -37,11 +37,19 @@ toygen/*.html
 # OS
 .DS_Store
 
-# Local-only work: scratch runs kept out of git. Point EXP0_OUT at outputs_local/
-# to keep a scratch run from touching the published outputs/.
+toygen/DESIGN.md
+training/_fetched
 tests_local/
 outputs_local/
-toygen/DESIGN.md
+outputs_archive/pilot_seed0
+design_studies/
+synthdict/tests
+
+/KNOWN_BUGS.md
+/PRECOMMIT.md
+*.pdf
+scoring/MATCHING_METHODS.md
+synthdict/*.md
 
 # Transitional: a one-shot 5.x->6.x checkpoint-boundary probe, retired once training
 # moves to the sae-training repo. Kept local, not tracked.
