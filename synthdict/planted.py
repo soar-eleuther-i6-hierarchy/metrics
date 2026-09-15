@@ -15,9 +15,22 @@ Two things live in this record, and keeping them apart is the point:
                  That is a measurement decision, declared per run, never inferred — which is
                  what keeps this matcher-free rather than a matcher by another name.
 
-Only `identity` is implemented. `strongest_shard` and `union` are the registered names of the
-round-2 policies and raise until `SYNTH_PRECOMMIT` registers their bars; a readout that quietly
-fell back to identity would publish numbers under a policy nobody approved.
+The three policies, and what each one measures:
+
+  identity         one latent per feature; a multi-latent feature is REFUSED rather than
+                   silently reduced. Every round-1 damage.
+  strongest_shard  the feature is read on its strongest DECLARED shard — what a one-to-one
+                   pipeline effectively sees once a feature has been split.
+  union            the feature IS its whole shard set: activations sum, directions average.
+                   What the dictionary actually contains.
+
+For a split cell the gap between `strongest_shard` and `union` is the measurement of what
+splitting costs the metrics, with no matcher noise in it.
+
+The ordering of `feature_to_latents[f]` is what keeps "strongest" declarative: shards are listed
+by DESCENDING PLANTED SHARE, so `lats[0]` is strongest by construction and nothing here inspects
+an activation to decide. At an equal-share split (`skew = 0`) that ordering is a tie-break on
+lowest latent id — recorded here rather than left to be discovered.
 """
 
 from __future__ import annotations
@@ -28,10 +41,14 @@ from dataclasses import dataclass
 
 import torch
 
+# Floor on ||mean of a union group's unit rows||. Shards share a direction by construction, so
+# this sits at ~1.0 in every reachable case; anything near 0 means the group is cancelling and
+# the averaged direction is meaningless. Loose on purpose — it is a sanity floor, not a dial.
+UNION_MIN_MEAN_NORM = 0.5
+
 # The registered readout policies. Membership is checked at construction, so a typo fails at the
 # call site rather than silently selecting a default.
 READOUTS = ("identity", "strongest_shard", "union")
-_IMPLEMENTED = ("identity",)
 
 
 @dataclass(frozen=True)
@@ -78,6 +95,16 @@ class PlantedMap:
     def F(self) -> int:
         return len(self.feature_to_latents)
 
+    def is_identity(self) -> bool:
+        """Is latent id == feature id, with no row unclaimed?
+
+        Strict on purpose. The `clean` activation model indexes `bundle.A` and `bundle.g` by
+        FEATURE id, so a merely one-to-one map (a permutation, a narrower dictionary) would
+        read one feature's magnitudes onto another feature's row with nothing to notice it.
+        """
+        return (self.n_latents == self.F
+                and all(lats == (f,) for f, lats in enumerate(self.feature_to_latents)))
+
     def recovered(self) -> torch.Tensor:
         """`[F]` bool: does this feature have any latent at all.
 
@@ -93,21 +120,37 @@ class PlantedMap:
         """True feature ids in the scored frame: every feature that has a latent."""
         return [f for f, lats in enumerate(self.feature_to_latents) if lats]
 
+    def groups(self) -> tuple[tuple[int, ...], ...]:
+        """The latent ids per SCORED feature, aligned with `feats()`.
+
+        The one shared helper behind all three reductions. `feats()` skips features with no
+        latent, so this must skip exactly the same ones or every reduction sits one position
+        away from the feature it claims to describe.
+        """
+        return tuple(self.feature_to_latents[f] for f in self.feats())
+
+    def _check_latent_width(self, width: int) -> None:
+        if int(width) != self.n_latents:
+            raise ValueError(
+                f"expected a latent-wide array ({self.n_latents} latents), got {int(width)}; "
+                f"feature-space arrays must be expanded through the map before reduction")
+
     def columns(self) -> torch.Tensor:
         """The latent column each scored feature is read on, aligned with `feats()`.
 
-        Under the `identity` readout a feature carried by several latents has no single column,
-        and choosing one here (the first, the strongest) would be exactly the silent reduction
-        this module exists to prevent — so it raises instead.
+        Single-column readouts only. Under `identity` a feature carried by several latents has
+        no single column and choosing one here (the first, the strongest) would be exactly the
+        silent reduction this module exists to prevent; under `union` no single column exists
+        at all, by definition of the policy.
         """
-        if self.readout not in _IMPLEMENTED:
-            raise NotImplementedError(
-                f"readout {self.readout!r} is a registered round-2 policy with no implementation "
-                f"yet; SYNTH_PRECOMMIT must register its bars before it can produce numbers")
+        if self.readout == "union":
+            raise ValueError(
+                "the 'union' readout scores a feature on its whole shard set, so it has no "
+                "single column; reduce with reduce_acts/reduce_unit/reduce_raw instead")
         cols = []
         for f in self.feats():
             lats = self.feature_to_latents[f]
-            if len(lats) != 1:
+            if self.readout == "identity" and len(lats) != 1:
                 raise ValueError(
                     f"feature {f} is carried by {len(lats)} latents, which the 'identity' "
                     f"readout cannot reduce to one column; declare a multi-latent readout "
@@ -122,17 +165,106 @@ class PlantedMap:
         that index by feature id — `scoring.trained.absorption.classify_dictionary` does
         (`match[c]` for a true child id) — must use this one. The two coincide only while every
         feature is present, which is exactly the case that hides the bug.
+
+        Readout-keyed, like `columns()`: under `union` there is no single latent id for a
+        feature, and returning `lats[0]` here would report a union run's numbers against one
+        shard. Consumers that must name a latent anyway take `representative_lookup()` and
+        stamp the approximation.
         """
+        if self.readout == "union":
+            raise ValueError(
+                "the 'union' readout has no single latent per feature; use "
+                "representative_lookup() and record the policy beside the output")
         out = torch.full((self.F,), -1, dtype=torch.long)
         for f, lats in enumerate(self.feature_to_latents):
             if not lats:
                 continue
-            if len(lats) != 1 and self.readout not in _IMPLEMENTED:
-                raise NotImplementedError(
-                    f"feature {f} has {len(lats)} latents and readout {self.readout!r} is "
-                    f"not implemented; no single latent id can be reported for it")
+            # `> 1` rather than `!= 1`: the empty case already went to `continue` above.
+            if self.readout == "identity" and len(lats) > 1:
+                raise ValueError(
+                    f"feature {f} is carried by {len(lats)} latents, which the 'identity' "
+                    f"readout cannot reduce to one latent id")
             out[f] = int(lats[0])
         return out
+
+    def representative_lookup(self) -> torch.Tensor:
+        """`[F]` long, feature-indexed: ONE latent standing in for each feature, or -1.
+
+        The strongest declared shard, defined under every readout including `union`. This is an
+        APPROXIMATION wherever a feature has more than one shard, so every consumer records the
+        policy beside its output (`census.py` stamps `census_latent_policy`) — an approximation
+        that is visible on disk is a caveat; one that is not is a wrong number.
+        """
+        out = torch.full((self.F,), -1, dtype=torch.long)
+        for f, lats in enumerate(self.feature_to_latents):
+            if lats:
+                out[f] = int(lats[0])
+        return out
+
+    # -- the three reductions: [.., L] -> [.., R], one per channel --------
+    def reduce_acts(self, acts_L: torch.Tensor) -> torch.Tensor:
+        """`[n, L]` -> `[n, R]` activations, one column per scored feature.
+
+        Under `union` the shards SUM. Planted shards fire disjointly, so at most one term is
+        nonzero per token and the sum recovers the unsplit magnitude exactly (0 + x == x in
+        IEEE754) — which is what makes the union anchor bit-exact in the firing channel.
+        """
+        self._check_latent_width(acts_L.shape[1])
+        if self.readout != "union":
+            return acts_L[:, self.columns()]
+        groups = self.groups()
+        out = torch.zeros(acts_L.shape[0], len(groups),
+                          dtype=acts_L.dtype, device=acts_L.device)
+        for i, lats in enumerate(groups):
+            out[:, i] = acts_L[:, list(lats)].sum(dim=1)
+        return out
+
+    def reduce_unit(self, unit_L: torch.Tensor) -> torch.Tensor:
+        """`[L, D]` -> `[R, D]` geometry-channel rows: under `union`, the unit-normalized MEAN.
+
+        A ONE-SHARD group is the row itself, not the normalized mean of one row. Normalizing
+        exists to undo the averaging, and there is no averaging over a single element — while
+        re-normalizing an already-unit row moves it by ~6e-17, which would leave the readout
+        seam inert only to a tolerance instead of exactly (measured; it is what G1 caught).
+
+        REQUIRES the shards of one feature to point the same way. They share a direction by
+        construction, but `signed_normalized_decoder` orients each decoder row independently,
+        on that shard's own tokens — so a shard starved to one or two tokens can be oriented
+        against its siblings. Checked rather than assumed: cancelling rows average to nearly
+        zero and normalize to a meaningless direction, and a zero row sends `G` to 0 for every
+        pair touching that feature. That is an O(1) wrong number, not float noise, so it fails
+        loudly instead.
+        """
+        self._check_latent_width(unit_L.shape[0])
+        if self.readout != "union":
+            return unit_L[self.columns()]
+        rows = []
+        for lats in self.groups():
+            if len(lats) == 1:
+                rows.append(unit_L[lats[0]])
+                continue
+            m = unit_L[list(lats)].mean(dim=0)
+            n = float(m.norm())
+            if n < UNION_MIN_MEAN_NORM:
+                raise ValueError(
+                    f"the {len(lats)} shards reduced here do not point the same way (their "
+                    f"mean has norm {n:.3g}); the 'union' readout averages directions, so a "
+                    f"cancelling group would score a meaningless direction with every metric "
+                    f"still finite")
+            rows.append(m / m.norm())
+        return torch.stack(rows)
+
+    def reduce_raw(self, raw_L: torch.Tensor) -> torch.Tensor:
+        """`[L, D]` -> `[R, D]` reconstruction-channel rows: under `union`, a PLAIN mean.
+
+        Not renormalized, unlike `reduce_unit`. With disjoint shard firing, (sum of acts) x
+        (mean of rows) reproduces the unsplit reconstruction term exactly; renormalizing would
+        rescale every reconstruction contribution by 1/||mean||.
+        """
+        self._check_latent_width(raw_L.shape[0])
+        if self.readout != "union":
+            return raw_L[self.columns()]
+        return torch.stack([raw_L[list(lats)].mean(dim=0) for lats in self.groups()])
 
     def sha256(self) -> str:
         """Content hash of the correspondence, stamped into every artifact so two runs whose

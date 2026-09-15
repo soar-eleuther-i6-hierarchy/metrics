@@ -21,7 +21,9 @@ import sys
 import time
 from pathlib import Path
 
+from synthdict.corruptions import AbsorptionDials
 from synthdict.planted import READOUTS
+from synthdict.run_synth import point_dir
 
 DIAG = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 TOYS = ("only_isa", "only_firing")
@@ -37,12 +39,17 @@ def grid_points() -> list[tuple[str, float, float, float]]:
     return pts
 
 
-def _artifact_provenance(npz_path: Path) -> tuple[str, str]:
-    """`(acts_mode, readout)` from an artifact's meta.
+def _artifact_provenance(npz_path: Path) -> tuple:
+    """Everything about an artifact that resume must NOT differ on, from its own meta.
 
     A pre-matcher-removal artifact stamps `match_mode` and no `readout`; it is reported as
     `match:<mode>` so resume can refuse it. Skipping it would let a rerun exit 0 having
     produced nothing while the report labels matcher-built rows as this code's output.
+
+    The WORLD SHAPE (`n_tokens`, `cfg_overrides`) is in here and not in the path, which is the
+    only thing standing between a cheap `--n-roots` dry run and a silently suppressed real
+    grid: the dry run's artifacts sit at the same path, resume finds them, every point is
+    skipped, the grid exits 0, and `dose_response.csv` reports a 4-root world as the full one.
     """
     import json
 
@@ -52,7 +59,24 @@ def _artifact_provenance(npz_path: Path) -> tuple[str, str]:
     readout = meta.get("readout")
     if readout is None:
         readout = f"match:{meta.get('match_mode', 'unknown')}"
-    return meta.get("acts_mode", "ridge"), readout
+    return (meta.get("acts_mode", "ridge"), readout, meta.get("corruption", "absorption"),
+            int(meta.get("n_tokens", -1)),
+            json.dumps(meta.get("cfg_overrides"), sort_keys=True))
+
+
+def _requested_provenance(args, kind: str) -> tuple:
+    """The same tuple for the run ABOUT to happen, so the two are compared in one place."""
+    import json
+
+    overrides = {"n_roots": args.n_roots} if args.n_roots is not None else None
+    return (args.acts_mode, args.readout, kind, int(args.n_tokens),
+            json.dumps(overrides, sort_keys=True))
+
+
+def resume_npz(out, tag: str, seed: int, toy: str, dials, readout: str) -> Path:
+    """Where resume LOOKS — the same `point_dir` the driver WRITES to, never a second copy of
+    the path built here."""
+    return point_dir(out, tag, seed, toy, type(dials).KIND, dials, readout) / "scores.npz"
 
 
 def point_cmd(toy: str, beta: float, eta: float, f: float, args) -> list[str]:
@@ -61,6 +85,8 @@ def point_cmd(toy: str, beta: float, eta: float, f: float, args) -> list[str]:
            "--edge-fraction", str(f), "--n-tokens", str(args.n_tokens),
            "--tag", args.tag, "--out", args.out]
     cmd += ["--acts-mode", args.acts_mode, "--readout", args.readout]
+    if args.n_roots is not None:
+        cmd += ["--n-roots", str(args.n_roots)]
     if args.no_probe:
         cmd.append("--no-probe")
     if args.force:
@@ -78,6 +104,8 @@ def main() -> None:
     ap.add_argument("--threads-per-job", type=int, default=8)
     ap.add_argument("--acts-mode", default="ridge", choices=("ridge", "clean"))
     ap.add_argument("--readout", default="identity", choices=READOUTS)
+    ap.add_argument("--n-roots", type=int, default=None,
+                    help="shrink the world (cheap local dry runs of the real grid)")
     ap.add_argument("--only-f01", action="store_true",
                     help="the f=0.1 subset + the bridge point (the approved clean-mode re-run)")
     ap.add_argument("--no-probe", action="store_true")
@@ -125,24 +153,25 @@ def main() -> None:
 
     for toy, beta, eta, f in pts:
         name = f"{toy}-beta{beta:g}-eta{eta:g}-f{f:g}"
-        dial = f"beta{beta:g}-eta{eta:g}-f{f:g}"
+        dials = AbsorptionDials(beta=beta, eta=eta, edge_fraction=f)
         # Idempotent resume: a point whose artifacts exist was produced by this same code
         # (content-hash stamped in its meta); rerunning would only trip the overwrite guard.
-        existing = [Path(args.out) / args.tag / f"seed{args.seed}" / toy / "absorption"
-                    / dial / args.readout / "scores.npz"]
+        existing = [resume_npz(args.out, args.tag, args.seed, toy, dials, args.readout)]
         if not args.force and all(p.exists() for p in existing):
             # Resume only PAST artifacts of the SAME construct: acts_mode is not in the path,
             # so skipping on existence alone would let `--acts-mode clean` against a ridge tag
             # exit 0 having run nothing (review MED-1).
             modes = {_artifact_provenance(p) for p in existing}
-            if modes == {(args.acts_mode, args.readout)}:
+            want = _requested_provenance(args, type(dials).KIND)
+            if modes == {want}:
                 done += 1
                 print(f"[{done}/{len(pts)}] {name}: skipped (artifacts exist)", flush=True)
                 continue
             raise SystemExit(
-                f"{name}: existing artifacts under this tag are (acts_mode, readout)="
-                f"{sorted(modes)}, not {(args.acts_mode, args.readout)!r}. One tag holds ONE "
-                f"construct - a `match:` readout means they predate the matcher removal. "
+                f"{name}: existing artifacts under this tag are (acts_mode, readout, kind, "
+                f"n_tokens, cfg_overrides)={sorted(modes)}, not {want}. One tag holds ONE "
+                f"construct - a `match:` readout means they predate the matcher removal, and a "
+                f"different n_tokens/cfg_overrides means they came from a shrunken dry run. "
                 f"Use a different --tag.")
         while len(running) >= args.n_jobs:
             reap(block=True)

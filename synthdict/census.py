@@ -45,7 +45,14 @@ def run_census(rc: dict, corruption: Corruption | None, seed: int, n_tokens: int
     # map is SUPPLIED here rather than inferred. `matched_corr` is signature-only in that
     # function - never read in its body - so a constant satisfies it honestly.
     pmap = resolve_map(corruption, F, readout)
-    match = pmap.feature_lookup()          # FEATURE-indexed: classify_dictionary does match[c]
+    # FEATURE-indexed: classify_dictionary does match[c] for a true child id. The
+    # REPRESENTATIVE (strongest declared shard), because the census must name exactly one
+    # latent per feature under every readout — including `union`, where no single latent is
+    # the feature. That approximation is stamped in the output rather than left implicit:
+    # absorption carried into a SPLIT child spreads across its shards, each below eps, so a
+    # per-latent cosine test on the representative alone can miss it.
+    match = pmap.representative_lookup()
+    census_latent_policy = "representative=strongest_declared_shard"
     matched_corr = torch.ones(F, dtype=torch.float64)
     recovered = pmap.recovered()
 
@@ -70,6 +77,7 @@ def run_census(rc: dict, corruption: Corruption | None, seed: int, n_tokens: int
         "corrupted_edges_sha256": edges_sha,
         "absorption_classifier_sha256": classifier_sha,
         "readout": readout,
+        "census_latent_policy": census_latent_policy,
         "planted_map_sha256": pmap.sha256(),
         "counts": cls["counts"],
         "absorbed_by_relation": cls["absorbed_by_relation"],

@@ -21,7 +21,13 @@ import numpy as np
 from scoring.benchmark.registry import EXPRESSIONS, METRICS
 from toygen import labels
 
-TARGET_BY_TOY = {"only_isa": "is_a", "only_firing": "firing_only"}
+# The pair class each toy's expressions are aimed at. The three added for round 2 are the
+# toy's own declared property (`toygen.labels.LABELS`); a toy absent from this map still
+# collects, but without the corrupted/intact split — better an incomplete row than a KeyError
+# that loses the whole artifact, and better than inventing a target class silently.
+TARGET_BY_TOY = {"only_isa": "is_a", "only_firing": "firing_only",
+                 "only_superparent": "superparent", "only_frequency": "frequency",
+                 "only_topical": "topical"}
 KEY_DETECTORS = ("G", "S_res", "coverage_R", "asymmetry_R", "pmi", "recon_2a",
                  "token_freq_survival", "wide")
 
@@ -41,28 +47,45 @@ def collect_point(d: Path) -> dict:
 
     y = npz["y"]
     corr_mask = npz["corrupted_pair"].astype(bool)
-    target = TARGET_BY_TOY[meta["toy"]]
-    t_idx = labels._index(target)
-    is_target = y == t_idx
+    target = TARGET_BY_TOY.get(meta["toy"])
+    is_target = (y == labels._index(target)) if target else np.zeros_like(y, dtype=bool)
     null_eval = (y == labels._index("unrelated")) & (npz["split"] == 2)
     corrupted = is_target & corr_mask
     intact = is_target & ~corr_mask
 
+    dials = meta.get("dials") or {}
     row = {
         "toy": meta["toy"], "seed": meta["seed"],
+        "kind": meta.get("corruption", "absorption"),
+        # The world shape, because it is NOT in the artifact path: without these columns a
+        # shrunken `--n-roots` dry run collects into the CSV indistinguishable from a full run.
+        "n_tokens": meta.get("n_tokens"),
+        "n_roots": (meta.get("cfg_overrides") or {}).get("n_roots"),
         # Round-1 artifacts stamped `match_mode`; the matcher-free pipeline stamps
         # `readout`. Both are read so the existing tags still collect.
         "mode": meta.get("readout", meta.get("match_mode")),
         "acts": meta.get("acts_mode", "ridge"),
-        "beta": meta["dials"]["beta"], "eta": meta["dials"]["eta"],
-        "f": meta["dials"]["edge_fraction"],
+        # Each damage carries only its own dials; a missing knob is absent, not zero.
+        "beta": dials.get("beta"), "eta": dials.get("eta"),
+        "f": dials.get("edge_fraction"),
+        "k": dials.get("k"), "skew": dials.get("skew"), "sigma": dials.get("sigma"),
+        "fraction": dials.get("fraction"),
         "severity": meta["realized_severity_median"],
+        # WHAT the severity column measures and WHICH pairs the mask marks — per damage, so
+        # two rows of this CSV can hold different populations under one column name.
+        "severity_kind": meta.get("severity_kind", "edge_cos_parent"),
+        "pair_rule": meta.get("corrupted_pair_rule", "ordered_edge"),
+        "target_class": target,
         "n_corrupted_pairs": int(corrupted.sum()), "n_intact_pairs": int(intact.sum()),
         "fvu": meta["fvu"]["scoring"], "flip_rate": meta["support_flip_rate"]["scoring"],
-        "realized_l0": meta["realized_l0"],
+        # `realized_l0` is round 1's name for the latent-frame number; new artifacts stamp
+        # both, and they diverge exactly when a feature is split across shards.
+        "latent_l0": meta.get("latent_l0", meta.get("realized_l0")),
+        "feature_l0": meta.get("feature_l0"),
+        "n_latents": meta.get("n_latents"),
         "n_recovered_features": report["n_recovered_features"], "F": report["F"],
-        "target_recovered": report["class_recovered"].get(target),
-        "target_total": report["class_totals"].get(target),
+        "target_recovered": report["class_recovered"].get(target) if target else None,
+        "target_total": report["class_totals"].get(target) if target else None,
     }
     for det in KEY_DETECTORS:
         v = npz[det]
@@ -94,9 +117,21 @@ def collect_point(d: Path) -> dict:
     return row
 
 
+def _sort_key(r: dict) -> tuple:
+    """Stable ordering across damages. Each damage carries different dials, so the numeric
+    keys are None on most rows; `-inf` sorts those together instead of raising on None < float.
+    """
+    def num(v):
+        return float(v) if isinstance(v, (int, float)) else float("-inf")
+
+    return (r["toy"], r["kind"], r["acts"], r["mode"] or "",
+            num(r.get("f")), num(r.get("fraction")), num(r.get("sigma")),
+            num(r.get("k")), num(r.get("eta")), num(r.get("beta")))
+
+
 def collect(tag_dir: Path) -> list[dict]:
     rows = [collect_point(p.parent) for p in sorted(Path(tag_dir).rglob("scores.npz"))]
-    rows.sort(key=lambda r: (r["toy"], r["acts"], r["mode"], r["f"], r["eta"], r["beta"]))
+    rows.sort(key=_sort_key)
     return rows
 
 
@@ -118,13 +153,31 @@ def _fmt(v) -> str:
 
 
 def write_md(rows: list[dict], path: Path, tag: str) -> None:
-    lines = [f"# Dose-response — synthetic absorption ({tag})", ""]
-    lines += ["Severity = realized median cos(d_c', g_p); every detector/expression cell is "
-              "median-over-pairs or a rate, split corrupted vs intact within the target class. "
-              "Predictions P1-P5 and the claim wording are frozen in synthdict/SYNTH_PRECOMMIT.md; "
-              "a flat curve is a result, not a bug.", ""]
+    lines = [f"# Dose-response — synthetic dictionary damage ({tag})", ""]
+    lines += ["Every detector/expression cell is median-over-pairs or a rate, split corrupted "
+              "vs intact within the target class. Predictions P1-P5 and the claim wording are "
+              "frozen in synthdict/SYNTH_PRECOMMIT.md; a flat curve is a result, not a bug.", ""]
+    lines += ["What `severity` means depends on the damage — read the `severity_kind` column "
+              "of `dose_response.csv`, never the number alone:", ""]
+    lines += [
+        "- `edge_cos_parent` (absorption): median over corrupted EDGES of cos(d_c', g_p).",
+        "- `row_cos_true` (noise): median over decoder ROWS of cos(W'_j, g_j). A different "
+        "population in the same column.",
+        "- `none` (splitting, missing latent): the damage has no severity axis; the dose is "
+        "the dial itself (k, fraction).",
+        "",
+    ]
     lines += ["Reading rules (instrument-audit findings, recorded before the grid was read):", ""]
     lines += [
+        "- A damage that REMOVES features from the scored frame has an empty corrupted arm by "
+        "construction: a deleted feature is not in `feats()`, so no scored pair touches one and "
+        "every `__corrupted` cell is nan with `n_corrupted_pairs = 0`. That is not a silent "
+        "metric failure — the damage lands on RECOVERY, so read `target_recovered` against "
+        "`target_total`, and expect the expression recalls to be censored (`-`) once the "
+        "recovered target falls below the evaluator's scorable-support floor.",
+        "- A damage with `pair_rule = all` (noise) has an empty INTACT arm for the mirror "
+        "reason: every feature is damaged, so there is no same-world control and the "
+        "comparison is against the evaluation null only.",
         "- `G__corrupted` vs severity is DEFINITIONALLY y=x in identity mode (the generator sets "
         "that cosine); it is a manipulation check anchoring the dose axis, not evidence a metric "
         "'responds'. The informative G content is the calibrated threshold crossings "
@@ -148,29 +201,37 @@ def write_md(rows: list[dict], path: Path, tag: str) -> None:
         "byte-identical across the two modes.",
         "",
     ]
-    for toy in sorted({r["toy"] for r in rows}):
-      for acts in sorted({r["acts"] for r in rows if r["toy"] == toy}):
-        for mode in sorted({r["mode"] for r in rows
-                            if r["toy"] == toy and r["acts"] == acts}):
-            sub = [r for r in rows if r["toy"] == toy and r["mode"] == mode
-                   and r["acts"] == acts]
-            lines += [f"## {toy} — {acts} acts — {mode} readout", ""]
-            det_cols = ["beta", "eta", "f", "severity"] + \
+    # Dial columns per damage: printing every knob on every table would fill the absorption
+    # rows with "-" and hide which knobs the point actually moved.
+    dials_by_kind = {"absorption": ["beta", "eta", "f"], "split": ["k", "skew", "fraction"],
+                     "missing": ["fraction"], "noise": ["sigma"]}
+    groups = sorted({(r["toy"], r["kind"], r["acts"], r["mode"] or "") for r in rows})
+    for toy, kind, acts, mode in groups:
+            sub = [r for r in rows if r["toy"] == toy and r["kind"] == kind
+                   and r["mode"] == mode and r["acts"] == acts]
+            dial_cols = dials_by_kind.get(kind, ["beta", "eta", "f"])
+            lines += [f"## {toy} — {kind} — {acts} acts — {mode} readout", ""]
+            det_cols = dial_cols + ["severity"] + \
                 [f"{d}__{s}" for d in ("G", "S_res", "coverage_R", "pmi")
                  for s in ("corrupted", "intact", "null")]
             lines += ["| " + " | ".join(det_cols) + " |",
                       "|" + "---|" * len(det_cols)]
             lines += ["| " + " | ".join(_fmt(r.get(c)) for c in det_cols) + " |" for r in sub]
             lines += [""]
-            ex_cols = ["beta", "eta", "f"] + \
+            ex_cols = dial_cols + \
                 [f"{n}__{s}" for n in ("overlap_v6", "orthogonal_v6", "containment_baseline",
                                        "probe_overlap_v3", "probe_orthogonal_v3")
                  for s in ("recall", "pass_corrupted", "pass_intact", "fpr")]
             lines += ["| " + " | ".join(ex_cols) + " |", "|" + "---|" * len(ex_cols)]
             lines += ["| " + " | ".join(_fmt(r.get(c)) for c in ex_cols) + " |" for r in sub]
             lines += [""]
-            rec_cols = ["beta", "eta", "f", "n_recovered_features", "target_recovered",
-                        "target_total", "fvu", "flip_rate",
+            # n_corrupted_pairs / n_intact_pairs belong in the RENDERED table, not only the
+            # CSV: without them an empty arm reads as "the metric said nothing" rather than
+            # "there was nothing in this arm to say it about".
+            rec_cols = dial_cols + ["n_corrupted_pairs", "n_intact_pairs",
+                        "n_recovered_features", "target_recovered",
+                        "target_total", "n_latents", "latent_l0", "feature_l0",
+                        "fvu", "flip_rate",
                         "census_absorbed", "census_absorbed_among_planted"]
             lines += ["| " + " | ".join(rec_cols) + " |", "|" + "---|" * len(rec_cols)]
             lines += ["| " + " | ".join(_fmt(r.get(c)) for c in rec_cols) + " |" for r in sub]
