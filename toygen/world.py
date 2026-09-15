@@ -42,7 +42,7 @@ CONFOUND_OVERRIDES: tuple[str, ...] = (
     "n_superparent", "n_token_bound_pairs", "n_topical_pairs", "n_bind_ids",
 )
 
-# Short, stable abbreviations for the checkpoint-dir suffix (sp6-tp8, ...).
+# Short, stable abbreviations for the checkpoint-dir suffix (e.g. sp3-tp8).
 _OVERRIDE_ABBR: dict[str, str] = {
     "n_superparent": "sp", "n_token_bound_pairs": "tb",
     "n_topical_pairs": "tp", "n_bind_ids": "bi",

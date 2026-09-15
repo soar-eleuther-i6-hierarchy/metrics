@@ -1,0 +1,91 @@
+"""Census annotation: the standard dictionary-damage classification, run on a synthetic dictionary.
+
+ANNOTATION, NOT VALIDATION. `classify_dictionary` shares its definitions with the planted
+pathology (decoder-carry + firing hole IS absorption's operational definition), so "the census
+counts what we planted" is a manipulation check that the planting registered — never evidence
+that the metrics work. The claims of the study are about the registered expressions, which are
+a different code path (`SYNTH_PRECOMMIT.md`).
+
+Known caveat recorded with every output (W8 in the plan): the census's eps is null-calibrated
+INSIDE the decoder span, so at edge_fraction ~ 1.0 the span itself carries the parent
+directions and the calibrated eps shifts — counts at high f can undercount planted carry.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import torch
+
+from scoring.core.world import regenerate_world, signed_normalized_decoder
+from scoring.trained.absorption import classify_dictionary, tree_edges_and_siblings
+
+from synthdict.corruptions import Corruption
+from synthdict.planted import resolve_map
+from synthdict.read import synth_encode
+
+CAVEAT = ("annotation only: shares definitions with the planted pathology (manipulation "
+          "check, not validation); eps is span-calibrated, so counts at edge_fraction~1.0 "
+          "can undercount planted carry")
+
+
+def run_census(rc: dict, corruption: Corruption | None, seed: int, n_tokens: int,
+               readout: str, acts_mode: str = "ridge") -> dict:
+    """Classify the synthetic dictionary against ground truth on the IN-SAMPLE draw
+    (`sample_seed = seed`), parity with `scoring/trained/retrieval.py`'s in-sample census."""
+    inw = regenerate_world(rc, sample_seed=int(seed), n_tokens=n_tokens)
+    acts, _support, _holed = synth_encode(inw, corruption, seed, int(seed), acts_mode)
+    W_raw = corruption.W_raw if corruption is not None else inw.g.double()
+    oriented = signed_normalized_decoder(W_raw, acts, inw.h)
+    F = int(inw.g.shape[0])
+    # `classify_dictionary` uses `match` as a feature->latent LOOKUP (it indexes W_dec[match[c]]
+    # inside absorption_signals and excludes own-latents in conjunction_strength), so the planted
+    # map is SUPPLIED here rather than inferred. `matched_corr` is signature-only in that
+    # function - never read in its body - so a constant satisfies it honestly.
+    pmap = resolve_map(corruption, F, readout)
+    # FEATURE-indexed: classify_dictionary does match[c] for a true child id. The
+    # REPRESENTATIVE (strongest declared shard), because the census must name exactly one
+    # latent per feature under every readout — including `union`, where no single latent is
+    # the feature. That approximation is stamped in the output rather than left implicit:
+    # absorption carried into a SPLIT child spreads across its shards, each below eps, so a
+    # per-latent cosine test on the representative alone can miss it.
+    match = pmap.representative_lookup()
+    census_latent_policy = "representative=strongest_declared_shard"
+    matched_corr = torch.ones(F, dtype=torch.float64)
+    recovered = pmap.recovered()
+
+    cont_edges, sibling_pairs, isa_child, descendants = tree_edges_and_siblings(inw.tree)
+    cls = classify_dictionary(inw.g, oriented, inw.A, acts, match, matched_corr, recovered,
+                              cont_edges, sibling_pairs, isa_child, descendants)
+
+    corrupted = set(corruption.corrupted_edges) if corruption is not None else set()
+    absorbed_edges = cls.get("absorbed_edges", [])
+    absorbed_set = {(int(e["parent"]), int(e["child"])) for e in absorbed_edges}
+    # Provenance the driver's meta can be cross-checked against: WHICH planted set this census
+    # counted against (a rebuild with the wrong seed matches on count but not on identity),
+    # and WHICH classifier source produced the counts (scoring/trained is outside both
+    # evaluator_sha256 and synthdict_sha256, and the server copy has no git).
+    import scoring.trained.absorption as _absorption_mod
+    edges_list = list(corruption.corrupted_edges) if corruption is not None else []
+    edges_sha = hashlib.sha256(json.dumps(edges_list).encode()).hexdigest()  # == the driver's form
+    classifier_sha = hashlib.sha256(
+        Path(_absorption_mod.__file__).read_bytes()).hexdigest()
+    return {
+        "caveat": CAVEAT,
+        "corrupted_edges_sha256": edges_sha,
+        "absorption_classifier_sha256": classifier_sha,
+        "readout": readout,
+        "census_latent_policy": census_latent_policy,
+        "planted_map_sha256": pmap.sha256(),
+        "counts": cls["counts"],
+        "absorbed_by_relation": cls["absorbed_by_relation"],
+        "n_planted_corrupted_edges": len(corrupted),
+        "n_census_absorbed": len(absorbed_set),
+        "n_census_absorbed_among_planted": len(absorbed_set & corrupted),
+        "n_census_absorbed_outside_planted": len(absorbed_set - corrupted),
+        "theta_hat": sorted(float(e.get("theta_hat", float("nan"))) for e in absorbed_edges),
+        "eps": cls.get("eps"),
+        "n_recovered": int(recovered.sum()),
+    }

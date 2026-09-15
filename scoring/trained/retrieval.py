@@ -85,10 +85,10 @@ def run_retrieval(ckpt_dir: str | Path, n_tokens: int = 200_000, rho: float | No
     # in-sample match; scoring-only, firewalled from the detectors.
     from scoring.trained.absorption import (classify_dictionary, latent_pair_masks, split_readout,
                                             tree_edges_and_siblings)
-    cont_edges, sibling_pairs, isa_child = tree_edges_and_siblings(in_world.tree)
+    cont_edges, sibling_pairs, isa_child, descendants = tree_edges_and_siblings(in_world.tree)
     classification = classify_dictionary(in_world.g, oriented_in, in_world.A, acts_in,
                                          res.match, res.matched_corr, res.recovered,
-                                         cont_edges, sibling_pairs, isa_child)
+                                         cont_edges, sibling_pairs, isa_child, descendants)
     latent_masks = latent_pair_masks(classification, feats, pairs)
 
     # Property-vs-rest grid over every generative class + latent columns, scored by the firewalled
