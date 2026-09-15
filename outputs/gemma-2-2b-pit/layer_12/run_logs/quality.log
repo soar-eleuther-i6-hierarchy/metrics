@@ -1,0 +1,11 @@
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]Loading weights:  17%|█▋        | 48/288 [00:00<00:00, 444.61it/s]Loading weights:  33%|███▎      | 94/288 [00:00<00:00, 453.25it/s]Loading weights:  49%|████▊     | 140/288 [00:00<00:00, 429.42it/s]Loading weights:  64%|██████▍   | 184/288 [00:00<00:00, 403.31it/s]Loading weights:  78%|███████▊  | 225/288 [00:00<00:00, 398.90it/s]Loading weights:  93%|█████████▎| 268/288 [00:00<00:00, 406.93it/s]Loading weights: 100%|██████████| 288/288 [00:00<00:00, 421.14it/s]
+Using the latest cached version of the dataset since NeelNanda/pile-10k couldn't be found on the Hugging Face Hub (offline mode is enabled).
+Found the latest cached dataset configuration 'default' at /home/ruqiya/.cache/huggingface/datasets/NeelNanda___pile-10k/default/0.0.0/127bfedcd5047750df5ccf3a12979a47bfa0bafa (last modified on Fri Jul 17 15:28:04 2026).
+Priors in Time, gemma-2-2b, hidden_states[13] = output of block 12
+  tokens scored        24025
+  d_sae                9216
+  FVE                  0.7924
+  novel L0             192.00   (k = 192)
+  dead novel features  0 / 9216  (0.0%)
+  avg max cos          0.1143
+  predictive share of reconstruction energy  0.904

@@ -1,0 +1,22 @@
+[03] run = gemma-tsae  device = cuda
+[03] token cache: 48571 tokens
+[03] decoder: /mnt/ssd-2/soar-hierarchy/ruqiya/tsae-gemma-l12/W_dec_tsae.pt
+[03] pair 0->1
+[03]   0->1: 50/784 probes
+[03]   0->1: 100/784 probes
+[03]   0->1: 150/784 probes
+[03]   0->1: 200/784 probes
+[03]   0->1: 250/784 probes
+[03]   0->1: 300/784 probes
+[03]   0->1: 350/784 probes
+[03]   0->1: 400/784 probes
+[03]   0->1: 450/784 probes
+[03]   0->1: 500/784 probes
+[03]   0->1: 550/784 probes
+[03]   0->1: 600/784 probes
+[03]   0->1: 650/784 probes
+[03]   0->1: 700/784 probes
+[03]   0->1: 750/784 probes
+[03]   R_supp_kept mean 0.328 | R_mass_kept mean 0.408 | S_res pass 770/1318
+[03] wrote /mnt/ssd-2/soar-hierarchy/ruqiya/tsae-gemma-l12/sres_run/gemma-tsae/second_pass.json
+[03] merged summary into /mnt/ssd-2/soar-hierarchy/ruqiya/tsae-gemma-l12/sres_run/gemma-tsae/metrics_report.json

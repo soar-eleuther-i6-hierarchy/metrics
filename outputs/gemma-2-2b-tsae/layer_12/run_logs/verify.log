@@ -1,0 +1,14 @@
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+checkpoint: d_in 2304  d_sae 16384  k 20  threshold 7.30089  group_sizes [3276, 13108]  layer 12
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]Loading weights:  18%|█▊        | 51/288 [00:00<00:00, 509.00it/s]Loading weights:  35%|███▌      | 102/288 [00:00<00:00, 494.14it/s]Loading weights:  53%|█████▎    | 152/288 [00:00<00:00, 474.71it/s]Loading weights:  70%|██████▉   | 201/288 [00:00<00:00, 467.74it/s]Loading weights:  86%|████████▌ | 248/288 [00:00<00:00, 442.47it/s]Loading weights: 100%|██████████| 288/288 [00:00<00:00, 468.56it/s]
+Using the latest cached version of the dataset since NeelNanda/pile-10k couldn't be found on the Hugging Face Hub (offline mode is enabled).
+Found the latest cached dataset configuration 'default' at /home/ruqiya/.cache/huggingface/datasets/NeelNanda___pile-10k/default/0.0.0/127bfedcd5047750df5ccf3a12979a47bfa0bafa (last modified on Fri Jul 17 15:28:04 2026).
+
+k = 20. The depth whose L0 lands near k is the one the threshold was calibrated at.
+
+ hidden_states idx   block output   L0 (with BOS)   L0 (no BOS)
+------------------------------------------------------------------
+                12       block 11           19.76         19.56
+                13       block 12           20.73         20.50
+
+tokens scored: 14440 per configuration (64 docs, ctx 256)

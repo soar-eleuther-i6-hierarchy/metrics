@@ -1,0 +1,363 @@
+{
+  "architecture": "Temporal SAE (arXiv:2511.05541)",
+  "split": "latent_sizes [4, 20], i.e. 20/80, matching the released Gemma checkpoint",
+  "settings": "batch_topk, k=2, lr 0.03, 40k steps, batch 200 x seq 16, 3 seeds per cell",
+  "cells": {
+    "original_tree": {
+      "msae_temporal": [
+        {
+          "seed": 0,
+          "cell": "msae_temporal",
+          "fve": 0.9768050295340297,
+          "l0": 1.99560546875,
+          "sim": null,
+          "b0": 4,
+          "nce_cosine": 5.292160511016846,
+          "nce_inner": 5.489140033721924,
+          "b0_mass": 0.22174176573753357,
+          "parents_in_b0": 2,
+          "distractors_in_b0": 1,
+          "features_recovered": 17
+        },
+        {
+          "seed": 1,
+          "cell": "msae_temporal",
+          "fve": 0.9845298513702494,
+          "l0": 2.01025390625,
+          "sim": null,
+          "b0": 4,
+          "nce_cosine": 5.233572006225586,
+          "nce_inner": 5.4651947021484375,
+          "b0_mass": 0.32621777057647705,
+          "parents_in_b0": 3,
+          "distractors_in_b0": 1,
+          "features_recovered": 19
+        },
+        {
+          "seed": 2,
+          "cell": "msae_temporal",
+          "fve": 0.9890573875789963,
+          "l0": 1.806640625,
+          "sim": null,
+          "b0": 4,
+          "nce_cosine": 5.2204389572143555,
+          "nce_inner": 5.471696853637695,
+          "b0_mass": 0.27174487709999084,
+          "parents_in_b0": 2,
+          "distractors_in_b0": 2,
+          "features_recovered": 19
+        }
+      ],
+      "tsae_null": [
+        {
+          "seed": 0,
+          "cell": "tsae_null",
+          "fve": 0.9826867698370321,
+          "l0": 1.997314453125,
+          "sim": "cosine",
+          "b0": 4,
+          "nce_cosine": 5.577356338500977,
+          "nce_inner": 5.5451812744140625,
+          "b0_mass": 0.4106868803501129,
+          "parents_in_b0": 3,
+          "distractors_in_b0": 0,
+          "features_recovered": 19
+        },
+        {
+          "seed": 1,
+          "cell": "tsae_null",
+          "fve": 0.9855179654037626,
+          "l0": 2.0576171875,
+          "sim": "cosine",
+          "b0": 4,
+          "nce_cosine": 5.5746049880981445,
+          "nce_inner": 5.545716285705566,
+          "b0_mass": 0.3665618896484375,
+          "parents_in_b0": 3,
+          "distractors_in_b0": 1,
+          "features_recovered": 18
+        },
+        {
+          "seed": 2,
+          "cell": "tsae_null",
+          "fve": 0.9899426892375495,
+          "l0": 2.7041015625,
+          "sim": "cosine",
+          "b0": 4,
+          "nce_cosine": 5.571768760681152,
+          "nce_inner": 5.54673957824707,
+          "b0_mass": 0.2154303342103958,
+          "parents_in_b0": 2,
+          "distractors_in_b0": 2,
+          "features_recovered": 18
+        }
+      ],
+      "tsae_temporal": [
+        {
+          "seed": 0,
+          "cell": "tsae_temporal",
+          "fve": 0.9767328566066549,
+          "l0": 1.996337890625,
+          "sim": "cosine",
+          "b0": 4,
+          "nce_cosine": 5.277112007141113,
+          "nce_inner": 5.449796676635742,
+          "b0_mass": 0.2528424859046936,
+          "parents_in_b0": 2,
+          "distractors_in_b0": 1,
+          "features_recovered": 17
+        },
+        {
+          "seed": 1,
+          "cell": "tsae_temporal",
+          "fve": 0.984572393862637,
+          "l0": 2.010498046875,
+          "sim": "cosine",
+          "b0": 4,
+          "nce_cosine": 5.208464622497559,
+          "nce_inner": 5.442117691040039,
+          "b0_mass": 0.3384564220905304,
+          "parents_in_b0": 3,
+          "distractors_in_b0": 1,
+          "features_recovered": 19
+        },
+        {
+          "seed": 2,
+          "cell": "tsae_temporal",
+          "fve": 0.9869234731376373,
+          "l0": 1.395751953125,
+          "sim": "cosine",
+          "b0": 4,
+          "nce_cosine": 5.165195465087891,
+          "nce_inner": 5.411770820617676,
+          "b0_mass": 0.3523716628551483,
+          "parents_in_b0": 3,
+          "distractors_in_b0": 1,
+          "features_recovered": 19
+        }
+      ],
+      "tsaeip_null": [
+        {
+          "seed": 0,
+          "cell": "tsaeip_null",
+          "fve": 0.9826767283030923,
+          "l0": 1.99462890625,
+          "sim": "inner_product",
+          "b0": 4,
+          "nce_cosine": 5.582648277282715,
+          "nce_inner": 5.546216011047363,
+          "b0_mass": 0.325151652097702,
+          "parents_in_b0": 3,
+          "distractors_in_b0": 0,
+          "features_recovered": 19
+        },
+        {
+          "seed": 1,
+          "cell": "tsaeip_null",
+          "fve": 0.9845627180665822,
+          "l0": 2.06103515625,
+          "sim": "inner_product",
+          "b0": 4,
+          "nce_cosine": 5.590090274810791,
+          "nce_inner": 5.548748970031738,
+          "b0_mass": 0.30933883786201477,
+          "parents_in_b0": 3,
+          "distractors_in_b0": 1,
+          "features_recovered": 19
+        },
+        {
+          "seed": 2,
+          "cell": "tsaeip_null",
+          "fve": 0.9902513853967232,
+          "l0": 1.96875,
+          "sim": "inner_product",
+          "b0": 4,
+          "nce_cosine": 5.5750017166137695,
+          "nce_inner": 5.547174453735352,
+          "b0_mass": 0.1878385692834854,
+          "parents_in_b0": 2,
+          "distractors_in_b0": 2,
+          "features_recovered": 18
+        }
+      ],
+      "tsaeip_temporal": [
+        {
+          "seed": 0,
+          "cell": "tsaeip_temporal",
+          "fve": 0.9840050547501383,
+          "l0": 2.05908203125,
+          "sim": "inner_product",
+          "b0": 4,
+          "nce_cosine": 5.123563766479492,
+          "nce_inner": 4.516095161437988,
+          "b0_mass": 0.7231847047805786,
+          "parents_in_b0": 3,
+          "distractors_in_b0": 1,
+          "features_recovered": 19
+        },
+        {
+          "seed": 1,
+          "cell": "tsaeip_temporal",
+          "fve": 0.9818337886608713,
+          "l0": 1.141357421875,
+          "sim": "inner_product",
+          "b0": 4,
+          "nce_cosine": 5.230317115783691,
+          "nce_inner": 4.610318660736084,
+          "b0_mass": 0.797244131565094,
+          "parents_in_b0": 3,
+          "distractors_in_b0": 1,
+          "features_recovered": 20
+        },
+        {
+          "seed": 2,
+          "cell": "tsaeip_temporal",
+          "fve": 0.9859834780507873,
+          "l0": 1.38525390625,
+          "sim": "inner_product",
+          "b0": 4,
+          "nce_cosine": 5.213942527770996,
+          "nce_inner": 4.6092939376831055,
+          "b0_mass": 0.742769718170166,
+          "parents_in_b0": 3,
+          "distractors_in_b0": 1,
+          "features_recovered": 19
+        }
+      ]
+    },
+    "decorrelated_tree": {
+      "msae_temporal": [
+        {
+          "seed": 0,
+          "cell": "msae_temporal",
+          "fve": 0.9938038696831473,
+          "l0": 1.67041015625,
+          "sim": null,
+          "b0": 4,
+          "nce_cosine": 5.181946754455566,
+          "nce_inner": 5.473942756652832,
+          "b0_mass": 0.4423435926437378,
+          "parents_in_b0": 0,
+          "distractors_in_b0": 4,
+          "features_recovered": 17
+        },
+        {
+          "seed": 1,
+          "cell": "msae_temporal",
+          "fve": 0.9871332975548541,
+          "l0": 1.9365234375,
+          "sim": null,
+          "b0": 4,
+          "nce_cosine": 5.289997100830078,
+          "nce_inner": 5.510941505432129,
+          "b0_mass": 0.17536376416683197,
+          "parents_in_b0": 2,
+          "distractors_in_b0": 2,
+          "features_recovered": 17
+        },
+        {
+          "seed": 2,
+          "cell": "msae_temporal",
+          "fve": 0.987398301368156,
+          "l0": 1.943359375,
+          "sim": null,
+          "b0": 4,
+          "nce_cosine": 5.348480224609375,
+          "nce_inner": 5.5100603103637695,
+          "b0_mass": 0.16617949306964874,
+          "parents_in_b0": 2,
+          "distractors_in_b0": 2,
+          "features_recovered": 17
+        }
+      ],
+      "tsae_temporal": [
+        {
+          "seed": 0,
+          "cell": "tsae_temporal",
+          "fve": 0.9944610712434981,
+          "l0": 1.970947265625,
+          "sim": "cosine",
+          "b0": 4,
+          "nce_cosine": 5.257866382598877,
+          "nce_inner": 5.48548698425293,
+          "b0_mass": 0.28051242232322693,
+          "parents_in_b0": 0,
+          "distractors_in_b0": 4,
+          "features_recovered": 15
+        },
+        {
+          "seed": 1,
+          "cell": "tsae_temporal",
+          "fve": 0.988844717694266,
+          "l0": 1.8740234375,
+          "sim": "cosine",
+          "b0": 4,
+          "nce_cosine": 5.280663013458252,
+          "nce_inner": 5.486883163452148,
+          "b0_mass": 0.2071077674627304,
+          "parents_in_b0": 2,
+          "distractors_in_b0": 2,
+          "features_recovered": 18
+        },
+        {
+          "seed": 2,
+          "cell": "tsae_temporal",
+          "fve": 0.9867639197365285,
+          "l0": 1.935791015625,
+          "sim": "cosine",
+          "b0": 4,
+          "nce_cosine": 5.336986541748047,
+          "nce_inner": 5.509861946105957,
+          "b0_mass": 0.1298145204782486,
+          "parents_in_b0": 2,
+          "distractors_in_b0": 2,
+          "features_recovered": 16
+        }
+      ],
+      "tsaeip_temporal": [
+        {
+          "seed": 0,
+          "cell": "tsaeip_temporal",
+          "fve": 0.9893939269249464,
+          "l0": 1.955810546875,
+          "sim": "inner_product",
+          "b0": 4,
+          "nce_cosine": 5.21970272064209,
+          "nce_inner": 4.668210983276367,
+          "b0_mass": 0.6833318471908569,
+          "parents_in_b0": 0,
+          "distractors_in_b0": 4,
+          "features_recovered": 16
+        },
+        {
+          "seed": 1,
+          "cell": "tsaeip_temporal",
+          "fve": 0.9905231790476865,
+          "l0": 1.95947265625,
+          "sim": "inner_product",
+          "b0": 4,
+          "nce_cosine": 5.260773181915283,
+          "nce_inner": 4.731470108032227,
+          "b0_mass": 0.7544241547584534,
+          "parents_in_b0": 1,
+          "distractors_in_b0": 3,
+          "features_recovered": 16
+        },
+        {
+          "seed": 2,
+          "cell": "tsaeip_temporal",
+          "fve": 0.9847649758499136,
+          "l0": 2.4521484375,
+          "sim": "inner_product",
+          "b0": 4,
+          "nce_cosine": 5.220196723937988,
+          "nce_inner": 4.823556900024414,
+          "b0_mass": 0.7574722766876221,
+          "parents_in_b0": 1,
+          "distractors_in_b0": 3,
+          "features_recovered": 17
+        }
+      ]
+    }
+  }
+}

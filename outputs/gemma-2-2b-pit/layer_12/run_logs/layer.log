@@ -1,0 +1,17 @@
+width 9216  dimin 2304  k 192  lam 1.085e-04  scaling 0.00666666667
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]Loading weights:   0%|          | 1/288 [00:00<01:03,  4.50it/s]Loading weights:  20%|██        | 59/288 [00:00<00:01, 227.98it/s]Loading weights:  39%|███▉      | 113/288 [00:00<00:00, 317.01it/s]Loading weights:  58%|█████▊    | 168/288 [00:00<00:00, 386.44it/s]Loading weights:  74%|███████▍  | 213/288 [00:00<00:00, 404.28it/s]Loading weights:  90%|████████▉ | 258/288 [00:00<00:00, 409.78it/s]Loading weights: 100%|██████████| 288/288 [00:00<00:00, 358.14it/s]
+Using the latest cached version of the dataset since NeelNanda/pile-10k couldn't be found on the Hugging Face Hub (offline mode is enabled).
+Found the latest cached dataset configuration 'default' at /home/ruqiya/.cache/huggingface/datasets/NeelNanda___pile-10k/default/0.0.0/127bfedcd5047750df5ccf3a12979a47bfa0bafa (last modified on Fri Jul 17 15:28:04 2026).
+
+The depth with the highest FVE is the one this dictionary was fitted to.
+
+ hidden_states   block output       FVE       L0
+----------------------------------------------------
+             1        block 0   -9.6160    192.0
+             2        block 1   -9.2268    192.0
+             6        block 5   -6.6053    192.0
+            12       block 11   -4.1118    192.0
+            13       block 12   -3.6103    192.0
+            18       block 17   -2.0442    192.0
+
+best at hidden_states[18] = output of block 17; k = 192

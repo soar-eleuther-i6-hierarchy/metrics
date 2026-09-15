@@ -1,0 +1,19 @@
+width 9216  dimin 2304  k 192  type topk  scaling 0.00666666667
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]Loading weights:  17%|█▋        | 48/288 [00:00<00:00, 460.83it/s]Loading weights:  35%|███▌      | 102/288 [00:00<00:00, 452.52it/s]Loading weights:  53%|█████▎    | 154/288 [00:00<00:00, 477.96it/s]Loading weights:  70%|███████   | 202/288 [00:00<00:00, 450.50it/s]Loading weights:  86%|████████▋ | 249/288 [00:00<00:00, 457.02it/s]Loading weights: 100%|██████████| 288/288 [00:00<00:00, 457.51it/s]
+Using the latest cached version of the dataset since NeelNanda/pile-10k couldn't be found on the Hugging Face Hub (offline mode is enabled).
+Found the latest cached dataset configuration 'default' at /home/ruqiya/.cache/huggingface/datasets/NeelNanda___pile-10k/default/0.0.0/127bfedcd5047750df5ccf3a12979a47bfa0bafa (last modified on Fri Jul 17 15:28:04 2026).
+
+Full forward: novel + predictive. A valid run gives a positive FVE with a clear peak.
+
+ hidden_states   block output       FVE   novel L0
+------------------------------------------------------
+             1        block 0   -0.0207      192.0
+             2        block 1   -0.0145      192.0
+             6        block 5   -0.0245      192.0
+            12       block 11    0.7287      192.0
+            13       block 12    0.7932      192.0
+            18       block 17    0.5181      192.0
+            25       block 24    0.0876      192.0
+
+best at hidden_states[13] = output of block 12
+margin over runner-up: 0.0646 FVE

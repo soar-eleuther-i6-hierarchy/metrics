@@ -1,0 +1,76 @@
+{
+  "architecture": "Priors in Time / Temporal Feature Analysis (arXiv:2511.01836)",
+  "settings": "topk, k=2, lr 0.03, 40k steps, batch 200 x seq 16, 3 seeds per cell",
+  "note": "No block structure and no parent-child edges: this architecture has a flat dictionary. The boundary test in pit_boundary.json is what it is evaluated on instead. See findings/I6-F005 and I6-F011.",
+  "cells": {
+    "pit_decorr": [
+      {
+        "seed": 0,
+        "cell": "pit_decorr",
+        "fve": 0.9209473992320428,
+        "l0": 2.0,
+        "sim": null
+      },
+      {
+        "seed": 1,
+        "cell": "pit_decorr",
+        "fve": 0.9172135229551005,
+        "l0": 2.0,
+        "sim": null
+      },
+      {
+        "seed": 2,
+        "cell": "pit_decorr",
+        "fve": 0.9387586949920154,
+        "l0": 2.0,
+        "sim": null
+      }
+    ],
+    "pit_null": [
+      {
+        "seed": 0,
+        "cell": "pit_null",
+        "fve": 0.9656960047132149,
+        "l0": 2.0,
+        "sim": null
+      },
+      {
+        "seed": 1,
+        "cell": "pit_null",
+        "fve": 0.9733874956731838,
+        "l0": 2.0,
+        "sim": null
+      },
+      {
+        "seed": 2,
+        "cell": "pit_null",
+        "fve": 0.9569222781486552,
+        "l0": 2.0,
+        "sim": null
+      }
+    ],
+    "pit_temporal": [
+      {
+        "seed": 0,
+        "cell": "pit_temporal",
+        "fve": 0.9649106378670491,
+        "l0": 2.0,
+        "sim": null
+      },
+      {
+        "seed": 1,
+        "cell": "pit_temporal",
+        "fve": 0.9859551953510477,
+        "l0": 1.999267578125,
+        "sim": null
+      },
+      {
+        "seed": 2,
+        "cell": "pit_temporal",
+        "fve": 0.9850893427514054,
+        "l0": 2.0,
+        "sim": null
+      }
+    ]
+  }
+}
