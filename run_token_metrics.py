@@ -54,6 +54,16 @@ def blocks(stats, *blks):
     trained on the wrong features -- with no error, because every index is in
     range for the first four blocks and the numbers stay plausible.
     """
+    # This path slices by (start, end) RANGES. A non-contiguous source declares
+    # config.block_indices (run_metrics honors it via block_selector); here the range slices +
+    # `p0 + local` global ids would silently address the WRONG features (every index is in range,
+    # numbers stay plausible, no error). Refuse rather than emit silently-wrong second-pass metrics.
+    if ((stats.get("config") or {}).get("block_indices")) is not None:
+        raise ValueError(
+            "run_token_metrics does not support non-contiguous config.block_indices: its range-slice "
+            "path (rebuild_edges / sres_for_pair / conditioned redundancy / kept-union) would compute "
+            "on the WRONG feature ids with no error. Use run_metrics (first pass honors block_indices "
+            "via block_selector), or index this path by block_indices before trusting it.")
     ranges, _ = source_structure(stats)
     return [ranges[b] for b in blks]
 
