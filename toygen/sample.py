@@ -74,22 +74,26 @@ def sample_world(cfg: ToyConfig, tree: Tree, strengths: StrengthSpec, geo: Geome
     probs = _zipf_probs(cfg.vocab, cfg.zipf_s)
     tokens = torch.multinomial(probs, n, replacement=True, generator=gen)
 
-    # All token-bound features share one top-frequency id set -- disjoint ids per pair would push firing rate below target under Zipf.
-    high_ids = torch.arange(cfg.n_bind_ids, dtype=torch.long)
+    # Legacy token-bound pairs share one top-frequency id set; token groups carry their own ids.
     token_sets: dict[int, torch.Tensor] = {
-        k: high_ids for k in range(F) if tree.token_bound[k]
+        k: torch.tensor(tree.token_ids[k], dtype=torch.long) for k in range(F) if tree.token_bound[k]
     }
 
     fires = torch.zeros(n, F, dtype=torch.bool)
 
     def root_fire(k: int) -> torch.Tensor:
         p_k = float(strengths.p[k])
+        rate = tree.cause_rate.get(k)
         if tree.token_bound[k]:
             ids = token_sets[k]
             inside = torch.isin(tokens, ids)
+            if rate is not None:                          # token group: fixed rate inside the cause
+                return inside & (torch.rand(n, generator=gen, dtype=DT) < rate)
             frac = float(inside.double().mean())
             r = min(1.0, p_k / max(frac, 1e-12))
             return inside & (torch.rand(n, generator=gen, dtype=DT) < r)
+        if rate is not None:                              # topic register: fixed rate inside its topic
+            return (topics == tree.topic[k]) & (torch.rand(n, generator=gen, dtype=DT) < rate)
         if tree.kappa[k] > 0.0:
             rates = topic_rates(p_k, tree.kappa[k], tree.topic[k], strengths.topic_prior)
             return torch.rand(n, generator=gen, dtype=DT) < rates[topics]

@@ -6,6 +6,10 @@ and per-feature tags.
 a grandparent-grandchild pair is contained but not a direct edge, so it's labelled
 `transitive` and scored separately. Every feature has exactly one parent, so firing rate is
 a clean product down its chain: p_child = p_parent * p_edge.
+
+`root_p` is always a root's marginal firing rate. Roots driven by an observed or latent cause
+(token groups, topic registers) also carry `cause_rate`, their firing rate inside the cause;
+their `root_p` is the cause's design mass times that rate.
 """
 
 from __future__ import annotations
@@ -33,11 +37,13 @@ class Tree:
     ancestors: dict[int, set[int]]
     descendents: dict[int, set[int]]
     topology_ordering: list[int]
-    root_p: dict[int, float]                             # roots only
+    root_p: dict[int, float]                             # roots only; the marginal firing rate
     # --- tags -------------------------------------------------------------
     kappa: dict[int, float] = field(default_factory=dict)       # topic modulation, 0 = off
     topic: dict[int, int | None] = field(default_factory=dict)
     token_bound: dict[int, bool] = field(default_factory=dict)
+    token_ids: dict[int, tuple[int, ...]] = field(default_factory=dict)  # token-bound features: the ids they fire on
+    cause_rate: dict[int, float | None] = field(default_factory=dict)    # firing rate inside the cause; None = not cause-driven at a fixed rate
     tags: dict[int, set[str]] = field(default_factory=dict)
 
     def parent_of(self, k: int) -> int | None:
@@ -125,6 +131,8 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
     kappa: dict[int, float] = {}
     topic: dict[int, int | None] = {}
     token_bound: dict[int, bool] = {}
+    token_ids: dict[int, tuple[int, ...]] = {}
+    cause_rate: dict[int, float | None] = {}
     tags: dict[int, set[str]] = {}
 
     nxt = 0
@@ -136,6 +144,8 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
         kappa[k] = 0.0
         topic[k] = None
         token_bound[k] = False
+        token_ids[k] = ()
+        cause_rate[k] = None
         tags[k] = {tag}
         children[k] = []
         return k
@@ -152,7 +162,7 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
         # superparent: an always-on childless feature, with a broad parent as its foil.
         for _ in range(cfg.n_superparent):
             s = new("superparent")
-            root_p[s] = 0.85
+            root_p[s] = cfg.superparent_p
         for _ in range(cfg.n_broad_parent):
             b = new("broad_parent")
             root_p[b] = 0.40
@@ -161,6 +171,14 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
                 c = new("broad_child")
                 parents[c] = [(b, cfg.child_p_edge, cfg.broad_alpha)]
                 children[b].append(c)
+        # dense true parent: as dense as a superparent, with one exactly orthogonal child.
+        for _ in range(cfg.n_dense_parents):
+            d = new("dense_parent")
+            root_p[d] = cfg.superparent_p
+            exclusive[d] = False
+            c = new("dense_child")
+            parents[c] = [(d, cfg.child_p_edge, 0.0)]
+            children[d].append(c)
 
         # frequency-coincidence pairs: token-bound features co-fire only via shared high-frequency token ids, with no declared edge.
         for i in range(cfg.n_token_bound_pairs):
@@ -168,7 +186,22 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
                 k = new("token_bound")
                 root_p[k] = 0.10
                 token_bound[k] = True
+                token_ids[k] = tuple(range(cfg.n_bind_ids))
                 tags[k].add(f"tokpair{i}")
+
+        # token groups: a container and members fire only on the group's token ids, independently given the token.
+        if cfg.n_token_groups > 0:
+            group_ids, group_mass = _token_groups(cfg)
+            for i, ids in enumerate(group_ids):
+                roles = [("token_container", cfg.token_container_rate)]
+                roles += [("token_member", cfg.token_member_rate)] * cfg.token_group_members
+                for role, rate in roles:
+                    k = new("token_bound")
+                    tags[k] |= {role, f"tokgroup{i}"}
+                    token_bound[k] = True
+                    token_ids[k] = ids
+                    cause_rate[k] = rate
+                    root_p[k] = group_mass[i] * rate
 
         # topical pairs: co-occur via a shared document topic z -- correlated overall, independent once z is known.
         for i in range(cfg.n_topical_pairs):
@@ -180,14 +213,58 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
                 topic[k] = z
                 tags[k].add(f"toppair{i}")
 
+        # topic registers: a register and members fire only in documents of one topic, independently given the topic.
+        if cfg.n_topic_registers_per_topic > 0:
+            for z in range(cfg.Z):
+                roles = [("topic_register", cfg.topic_register_rate)] * cfg.n_topic_registers_per_topic
+                roles += [("topic_member", cfg.topic_member_rate)] * cfg.topic_members
+                for role, rate in roles:
+                    k = new("topical")
+                    tags[k].add(role)
+                    topic[k] = z
+                    cause_rate[k] = rate
+                    root_p[k] = rate / cfg.Z
+
     F = nxt
     ancestors, descendents, topology_ordering = _close(parents, F)
 
     return Tree(
         F=F, parents=parents, children=children, exclusive=exclusive,
         ancestors=ancestors, descendents=descendents, topology_ordering=topology_ordering,
-        root_p=root_p, kappa=kappa, topic=topic, token_bound=token_bound, tags=tags,
+        root_p=root_p, kappa=kappa, topic=topic, token_bound=token_bound,
+        token_ids=token_ids, cause_rate=cause_rate, tags=tags,
     )
+
+
+def _token_groups(cfg: ToyConfig) -> tuple[list[tuple[int, ...]], list[float]]:
+    """Split design-Zipf ids 1..n_token_groups*token_ids_per_group into equal-mass groups.
+
+    Id 0 is excluded: its mass alone exceeds a group's. Greedy: heaviest id first, into the
+    currently lightest group. Masses come from the design Zipf, never from realized counts.
+    """
+    from .sample import _zipf_probs     # lazy: sample imports tree
+    n_ids = cfg.n_token_groups * cfg.token_ids_per_group
+    if n_ids > cfg.vocab - 1:
+        raise ValueError(
+            f"token groups need ids 1..{n_ids} but vocab is {cfg.vocab}; lower n_token_groups "
+            f"or token_ids_per_group")
+    probs = _zipf_probs(cfg.vocab, cfg.zipf_s)
+    groups: list[list[int]] = [[] for _ in range(cfg.n_token_groups)]
+    mass = [0.0] * cfg.n_token_groups
+    for i in sorted(range(1, n_ids + 1), key=lambda i: (-float(probs[i]), i)):
+        j = min(range(cfg.n_token_groups), key=lambda j: (mass[j], j))
+        groups[j].append(i)
+        mass[j] += float(probs[i])
+    ids = [tuple(sorted(g)) for g in groups]
+    return ids, [token_mass(cfg, g) for g in ids]
+
+
+def token_mass(cfg: ToyConfig, ids: tuple[int, ...]) -> float:
+    """Design-Zipf probability that a token falls in `ids`."""
+    from .sample import _zipf_probs     # lazy: sample imports tree
+    if not ids:
+        return 0.0
+    return float(_zipf_probs(cfg.vocab, cfg.zipf_s)[list(ids)].sum())
 
 
 def _backbone_lattice(cfg, new, parents, children, exclusive, root_p) -> None:

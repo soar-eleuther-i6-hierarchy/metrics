@@ -9,9 +9,12 @@ Each planted property mirrors a real SAE phenomenon:
   is_a / sibling / transitive: hierarchical & categorical concept geometry -- Park et al. 2024
   firing_only: the orthogonal-geometry null / hard negative for is_a
   superparent: always-on high-base-rate distractor -- foil for coverage/out-degree metrics
+  dense_parent: a dense TRUE parent at the superparent's density -- dense latents, Sun et al. 2025
   broad_parent: a genuine wide parent, i.e. feature-splitting family -- Bricken et al. 2023
   token_bound: single-token / spurious co-activation features -- Bricken et al. 2023
+  token groups: token-caused containment (a container and members on one id set) -- Dooms & Wilhelm 2025
   topical: co-occurring feature clusters ("lobes") -- Li et al. 2024
+  topic registers: topic-caused containment (context-binding latents) -- Sun et al. 2025
 Dictionary-side properties (absorption, splitting, merging) come from SAE training, not here.
 The base activation model follows Elhage et al. 2022.
 """
@@ -67,6 +70,8 @@ class ToyConfig:
     # --- confounds (enabled by confounds=True; off in backbone) ---
     confounds: bool = False          # master switch for all the distractor confounds below
     n_superparent: int = 3           # always-on wide parents -- the base-rate confound; canonical count, balances pair-mass against L0 inflation
+    superparent_p: float = 0.85      # firing rate of superparents and of dense true parents (one shared density)
+    n_dense_parents: int = 0         # dense TRUE parents at superparent_p, each with one orthogonal child at child_p_edge
     n_broad_parent: int = 1          # genuine wide parents -- the superparent's honest foil
     broad_children: int = 5          # children under each broad parent
     broad_alpha: float = 0.48        # is_a overlap for a broad parent's children; kept equal to `alpha` to stay above the unrelated ceiling
@@ -74,6 +79,19 @@ class ToyConfig:
     n_topical_pairs: int = 12        # feature pairs lifted by a shared topic, round-robin over Z; 12 pairs = 24 features across 8 topic groups
     kappa: float = 7.2               # topic-modulation strength; higher lifts same-topic co-firing (bounded so per-topic rates stay in [0, 1])
     n_bind_ids: int = 2              # top-frequency token ids shared by token-bound features; must stay under the id set's Zipf mass
+    n_token_groups: int = 0          # token groups: one container + members, all firing only on the group's token ids
+    token_ids_per_group: int = 5     # average ids per group; ids 1..n_token_groups*this are split into equal design-Zipf mass groups of uneven size
+    token_group_members: int = 3     # members per token group
+    token_container_rate: float = 0.9  # P(container fires | token in its group)
+    token_member_rate: float = 0.32  # P(member fires | token in its group)
+    n_topic_registers_per_topic: int = 0  # 0 or 1; 1 builds one register + topic_members per topic
+    topic_members: int = 2           # topic-locked members per topic
+    topic_register_rate: float = 0.9   # P(register fires | token's document has its topic)
+    topic_member_rate: float = 0.32  # P(member fires | token's document has its topic)
+
+
+# The hierarchy-candidate cut P(parent|child) >= tau; mirrors scoring.core.registry CONSTANTS["edge_tau"].
+EDGE_TAU_REFERENCE: float = 0.5
 
 
 # --- seed-varied backbone knobs (only read when randomize_structure=True) -------------
@@ -132,9 +150,9 @@ def only_firing_config() -> ToyConfig:
 
 
 def _confound_backbone(**kw) -> ToyConfig:
-    """Shared base for the single-confound toys: `depth=0` (roots only ⇒ NO is_a/firing_only tree at
-    all, so no is_a floor to censor), `confounds=True`, and EVERY confound family zeroed. Each toy
-    then re-enables exactly one family. 120 independent roots supply the `unrelated` null population.
+    """Shared base for the single-confound toys: `depth=0` (roots only, so no is_a/firing_only
+    backbone tree), `confounds=True`, and EVERY confound family zeroed. Each toy then enables
+    exactly one family. 120 independent roots at root_p supply the `unrelated` null population.
     """
     return ToyConfig(name="_confound", n_roots=120, branching=1, depth=0, confounds=True,
                      n_superparent=0, n_broad_parent=0, broad_children=0,
@@ -142,34 +160,39 @@ def _confound_backbone(**kw) -> ToyConfig:
 
 
 def only_superparent_config() -> ToyConfig:
-    """Pure superparent world: an always-on wide parent (base-rate confound) + unrelated null.
+    """Dense world: dense TRUE parents next to dense unrelated superparents at the same density.
 
-    `n_superparent=3` always-on nodes (root_p=0.85) each pair with every other feature (both
-    orderings ⇒ the `superparent` class), against 120 independent roots. depth=0 ⇒ no is_a/firing_only.
-    Verified: F=123, superparent≈726 pairs, unrelated≈14280. The foil for coverage / out-degree /
-    frequency-survival detectors, which a high-base-rate distractor can spuriously satisfy.
+    6 childless superparents and 12 dense true parents all fire at `superparent_p=0.85`; each
+    dense parent has one child (P(child|parent)=0.32, alpha=0, so exactly orthogonal). The true
+    edges have P(parent|child)=1; every dense feature paired with a non-relative has coverage
+    0.85 from base rate alone and carries the `superparent` label in both orderings. F=150:
+    superparent=5034 pairs, firing_only=12, reversed=12, unrelated=17292; true L0 ~ 40.2.
     """
-    return replace(_confound_backbone(), name="only_superparent", n_superparent=3)
+    return replace(_confound_backbone(), name="only_superparent", n_superparent=6,
+                   n_dense_parents=12)
 
 
 def only_frequency_config() -> ToyConfig:
-    """Pure frequency world: token-frequency co-activation + unrelated null.
+    """Frequency world: token-caused containment against the unrelated null.
 
-    `n_token_bound_pairs=8` (16 features) sharing one top-frequency id set (`n_bind_ids=2`), so any
-    token-bound pair co-fires via shared token ids ⇒ the `frequency` class; depth=0 ⇒ no is_a floor.
-    Verified: F=136, frequency=240 pairs, unrelated≈18120; clears `_assert_confounds_powered`.
+    5 token groups split design-Zipf ids 1..25 into equal mass (~0.069 each, id 0 excluded, all
+    inside the top-50%-mass bucket). Per group a container fires on the group's tokens with
+    rate 0.9 and 3 members with rate 0.32, independently given the token, so
+    P(container|member)=0.9 and P(member|container)=0.32. F=140: frequency=60 pairs (within a
+    group), unrelated=19400.
     """
-    return replace(_confound_backbone(), name="only_frequency", n_token_bound_pairs=8, n_bind_ids=2)
+    return replace(_confound_backbone(), name="only_frequency", n_token_groups=5)
 
 
 def only_topical_config() -> ToyConfig:
-    """Pure topical world: shared-topic co-firing ("lobes") + unrelated null.
+    """Topical world: topic-caused containment against the unrelated null.
 
-    `n_topical_pairs=12` (24 features) lifted by a shared topic (round-robin over `Z=8`,
-    `kappa=7.2`) ⇒ the `topical` class; depth=0 ⇒ no is_a floor. Verified: F=144, topical=56 pairs,
-    unrelated≈20536; clears `_assert_confounds_powered` (kappa must stay ≤ ~7.2 for admissibility).
+    For each of Z=8 topics a register fires on tokens of that topic's documents with rate 0.9
+    and 2 members with rate 0.32, independently given the topic, so P(register|member)=0.9 and
+    P(member|register)=0.32. No detector sees the topic. F=144: topical=48 pairs (within a
+    topic), unrelated=20544.
     """
-    return replace(_confound_backbone(), name="only_topical", n_topical_pairs=12, kappa=7.2, Z=8)
+    return replace(_confound_backbone(), name="only_topical", n_topic_registers_per_topic=1)
 
 
 CONFIGS = {
