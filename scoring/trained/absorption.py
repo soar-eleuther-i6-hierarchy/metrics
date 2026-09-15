@@ -38,7 +38,12 @@ ABSORPTION_CONSTANTS: dict[str, float] = {
     "conj_min": 0.10,        # excess conjunction cos (K) above baseline to count as composition; raised from 0.05 (defense-in-depth alongside the sum-alignment + own-latent gates in conjunction_strength)
     "null_target_exceedances": 0.01,  # Bonferroni target on expected chance latents dictionary-wide
     "n_null_perm": 1000,     # random in-span directions for a stable tail quantile
-    "multiplicity_excess_min": 1.5,   # excess needed to flag genuine multiplicity over a clean latent
+    "multiplicity_excess_min": 1.5,   # excess needed to flag genuine multiplicity over a clean latent (geometry diagnostic `parent_multiplicity_excess` only)
+    # --- firing multiplicity (exclusive-support split/duplicate; the deployed orchestration test) ---
+    "mult_prec_min": 0.5,    # a candidate latent must fire mostly within the feature: P(feat | latent) >= this
+    "mult_recall_min": 0.25, # a candidate counts as a shard if it recalls this fraction of the feature's EXCLUSIVE support
+    "dup_recall_min": 0.8,   # a single shard recalling this much of the exclusive support is a duplicate (redundant), not a split
+    "split_union_min": 0.8,  # >=2 shards must jointly recall this much of the exclusive support to count as a genuine split
 }
 
 
@@ -87,7 +92,114 @@ def _expected_null_count(W_dec: torch.Tensor, eps: float, n_perm: int = 200,
 
 
 # --------------------------------------------------------------------------
-# splitting (parent multiplicity, excess over null)
+# firing multiplicity (exclusive-support split vs duplicate) -- the deployed detector
+# --------------------------------------------------------------------------
+def firing_precision(A: torch.Tensor, acts: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """`(fire_lat, prec_all)` computed once: `fire_lat` = boolean latent-firing mask `[n, S]`;
+    `prec_all[L, f] = P(f fires | L fires)` `[S, F]`. Hoisted out of the per-feature loop so the
+    large `[n, S]` cast and the `[S, F]` matmul are done a single time per dictionary.
+    """
+    fire_lat = acts > 0
+    fld = fire_lat.double()
+    lat_fire = fld.sum(0).clamp_min(1.0)                                       # [S] latent firing counts
+    prec_all = (fld.transpose(0, 1) @ (A > 0).double()) / lat_fire[:, None]    # [S, F] = P(f | L)
+    return fire_lat, prec_all
+
+
+def latent_owner(A: torch.Tensor, acts: torch.Tensor, descendants: dict[int, set[int]] | None,
+                 constants: dict, prec_all: torch.Tensor | None = None) -> torch.Tensor:
+    """`owner[L]` = the MOST SPECIFIC feature latent `L` fires mostly within.
+
+    Firing is strictly nested in the tree (child => parent), so an ancestor's precision
+    `P(ancestor | L)` is always >= a contained feature's `P(f | L)`. A plain `argmax P(f | L)` would
+    therefore attribute a child's own latent to its ancestor (worse, to the topmost root, since ties
+    break to the lowest id) and hide every genuine split of a non-root feature. Instead: among the
+    features `L` fires mostly within (`P(f | L) >= mult_prec_min`), drop any feature that has a
+    descendant also in that set (an ancestor is superseded by its more-specific descendant), then take
+    the argmax precision over what remains. This keeps a latent attributed to the child it belongs to,
+    while still sending an unrelated but higher-precision feature its own latents.
+
+    `descendants` is the tree's transitive-closure `descendents` map; with None/empty it degrades to a
+    plain argmax over the high-precision features (no tree to resolve specificity).
+    """
+    if prec_all is None:
+        _, prec_all = firing_precision(A, acts)
+    F = int(A.shape[1])
+    cand = (prec_all >= constants["mult_prec_min"]).double()                   # [S, F]
+    desc_adj = torch.zeros(F, F, dtype=prec_all.dtype)                         # desc_adj[f, d]=1 iff d descends f
+    for fparent, ds in (descendants or {}).items():
+        for d in ds:
+            if 0 <= int(fparent) < F and 0 <= int(d) < F:
+                desc_adj[int(fparent), int(d)] = 1.0
+    dominated = (cand @ desc_adj.transpose(0, 1)) > 0                          # [S, F]: f has a candidate descendant
+    eligible = (cand > 0) & (~dominated)
+    scored = torch.where(eligible, prec_all, torch.full_like(prec_all, -1.0))
+    return scored.argmax(dim=1)                                               # [S]
+
+
+def firing_multiplicity(A: torch.Tensor, acts: torch.Tensor,
+                        descendants: dict[int, set[int]] | None,
+                        f: int, constants: dict, owner: torch.Tensor | None = None,
+                        prec_all: torch.Tensor | None = None,
+                        fire_lat: torch.Tensor | None = None) -> dict:
+    """Split vs duplicate by firing recall on feature `f`'s EXCLUSIVE support.
+
+    Exclusive support = tokens where `f` fires AND every ground-truth descendant of `f` is silent.
+    A descendant's own latent is silent there, so the is-a containment confound (child => parent, so
+    a clean child's latent fires *within* the parent) is removed exactly for firing that tracks the
+    ground truth: a clean parent's child-latent scores recall ~0 on the parent's exclusive support and
+    is dropped (a leaky trained latent that fires on the parent's solo tokens can still land there).
+
+    Candidates are latents that fire mostly within `f` (`P(f | latent) >= mult_prec_min`) AND are
+    attributed to `f` by `latent_owner` (their most-specific containing feature is `f`); attribution
+    stops both an unrelated latent that incidentally co-fires inside `f` and an ancestor's latent from
+    being miscounted as a shard of `f`. The exclusive-support recall then filters: a candidate counts
+    as a shard if its recall on the exclusive support >= `mult_recall_min`. With >=2 shards:
+      - duplicate: a single shard already recalls the whole support (`best >= dup_recall_min`) --
+        redundant copies;
+      - split: no single shard covers it but the shards jointly do (`union >= split_union_min`) --
+        fragmented firing;
+      - clean: otherwise.
+    A feature with no exclusive support (`n_excl == 0`, i.e. it never fires without a descendant) is
+    NOT evaluable and returns `kind="unclassified"` -- never silently folded into clean.
+
+    `descendants` is the tree's transitive-closure `descendents` map; a feature with no descendants (a
+    leaf, or an empty/None map) uses its full firing set as the exclusive support. `owner`/`prec_all`/
+    `fire_lat` are computed once here if not supplied (the caller passes them to avoid recomputation).
+    """
+    if fire_lat is None or prec_all is None:
+        fire_lat, prec_all = firing_precision(A, acts)
+    if owner is None:
+        owner = latent_owner(A, acts, descendants, constants, prec_all=prec_all)
+    fire = A > 0
+    fire_f = fire[:, f]
+    desc = [d for d in descendants.get(f, set()) if d != f] if descendants else []
+    excl = (fire_f & ~fire[:, desc].any(dim=1)) if desc else fire_f
+    n_excl = int(excl.sum())
+    if n_excl == 0:                                                            # no exclusive support: not evaluable
+        return {"feature": int(f), "kind": "unclassified", "shards": [], "n_shards": 0,
+                "best_recall": float("nan"), "union_recall": float("nan"), "n_excl": 0}
+    cand = ((prec_all[:, f] >= constants["mult_prec_min"]) & (owner == f)).nonzero(as_tuple=True)[0].tolist()
+    recalls = {L: float(fire_lat[excl, L].double().mean()) for L in cand}      # recall on the EXCLUSIVE support
+    shards = [L for L, r in recalls.items() if r >= constants["mult_recall_min"]]
+    if len(shards) < 2:
+        return {"feature": int(f), "kind": "clean", "shards": shards, "n_shards": len(shards),
+                "best_recall": (max(recalls[L] for L in shards) if shards else float("nan")),
+                "union_recall": float("nan"), "n_excl": n_excl}
+    best = max(recalls[L] for L in shards)
+    union = torch.zeros(A.shape[0], dtype=torch.bool, device=A.device)
+    for L in shards:
+        union = union | fire_lat[:, L]
+    union_recall = float(union[excl].double().mean())
+    kind = ("duplicate" if best >= constants["dup_recall_min"]
+            else "split" if union_recall >= constants["split_union_min"] else "clean")
+    return {"feature": int(f), "kind": kind, "shards": [int(L) for L in shards],
+            "n_shards": len(shards), "best_recall": best, "union_recall": union_recall,
+            "n_excl": n_excl}
+
+
+# --------------------------------------------------------------------------
+# splitting (parent multiplicity, excess over null) -- standalone geometry diagnostic
 # --------------------------------------------------------------------------
 def parent_multiplicity_excess(g: torch.Tensor, W_dec: torch.Tensor, f: int, eps: float) -> dict:
     """`M_P = #{j : |cos(W_dec[j], g[f])| > eps AND f = argmax_f' |cos(W_dec[j], g[f'])|}`, and
@@ -208,12 +320,16 @@ def classify_dictionary(g: torch.Tensor, W_dec: torch.Tensor, A: torch.Tensor, a
                         match: torch.Tensor, matched_corr: torch.Tensor, recovered: torch.Tensor,
                         cont_edges: Sequence[tuple[int, int]],
                         sibling_pairs: Sequence[tuple[int, int]],
-                        isa_child: dict[int, bool], constants: dict | None = None) -> dict:
+                        isa_child: dict[int, bool],
+                        descendants: dict[int, set[int]] | None = None,
+                        constants: dict | None = None) -> dict:
     """Per-mechanism tallies (coexistence expected — not a forced single label per feature).
 
-    Absorption per containment edge, decoder multiplicity per feature, composition per sibling
-    pair — all null-calibrated. `cont_edges`/`sibling_pairs`/`isa_child` come from the tree
-    (identity truth); `pair_labels` is deliberately not a parameter (firewall).
+    Absorption per containment edge, firing multiplicity (split / duplicate) per feature, composition
+    per sibling pair — all null-calibrated. `cont_edges`/`sibling_pairs`/`isa_child`/`descendants`
+    come from the tree (identity truth); `pair_labels` is deliberately not a parameter (firewall).
+    `descendants` is the tree's transitive-closure `descendents` map, used to remove the is-a
+    containment confound from the multiplicity read (see `firing_multiplicity`).
     """
     constants = ABSORPTION_CONSTANTS if constants is None else constants
     F = int(g.shape[0])
@@ -258,18 +374,28 @@ def classify_dictionary(g: torch.Tensor, W_dec: torch.Tensor, A: torch.Tensor, a
     unclassified_children -= absorbed_children
     below_rho_children -= (absorbed_children | unclassified_children)
 
-    # Inline multiplicity count with the once-computed eps/expected_null; best-match attribution as in parent_multiplicity_excess.
-    cosmat = (_unit(g.double()) @ _unit(W_dec.double()).transpose(0, 1)).abs()   # [F, d_sae]
-    best_f = cosmat.argmax(dim=0)                                                # [d_sae]
-    above = cosmat > eps
-    multiplicity_features: list[dict] = []
+    # Firing multiplicity on each recovered feature's EXCLUSIVE support: split (fragmented firing) vs
+    # duplicate (redundant firing). Exclusive support removes the is-a containment confound exactly,
+    # so a clean parent is not miscounted from its child's latent (see `firing_multiplicity`).
+    descendants = {} if descendants is None else descendants
+    fire_lat, prec_all = firing_precision(A, acts)       # hoisted once: [n, S] mask + [S, F] precision
+    owner = latent_owner(A, acts, descendants, constants, prec_all=prec_all)
+    multiplicity_features: list[dict] = []      # genuine splits (fragmented firing)
+    duplicate_features: list[dict] = []         # redundant copies (full-recall shards)
+    # A recovered feature with no exclusive support can't be assessed for multiplicity; it is held
+    # out of `clean` in its own not-evaluable bucket (parity with the absorption `unclassified` path).
+    multiplicity_unclassified: set[int] = set()
     for f in range(F):
         if not bool(recovered[f]):        # recovered-gated (parity with absorbed/clean)
             continue
-        M_P = int((above[f] & (best_f == f)).sum())
-        excess = M_P - expected_null
-        if excess >= constants["multiplicity_excess_min"]:
-            multiplicity_features.append({"feature": f, "M_P": M_P, "excess": excess})
+        fm = firing_multiplicity(A, acts, descendants, f, constants,
+                                 owner=owner, prec_all=prec_all, fire_lat=fire_lat)
+        if fm["kind"] == "split":
+            multiplicity_features.append(fm)
+        elif fm["kind"] == "duplicate":
+            duplicate_features.append(fm)
+        elif fm["kind"] == "unclassified":
+            multiplicity_unclassified.add(f)
 
     composed_pairs: list[dict] = []
     for (a, b) in sibling_pairs:
@@ -280,7 +406,10 @@ def classify_dictionary(g: torch.Tensor, W_dec: torch.Tensor, A: torch.Tensor, a
         if cs["composed"]:
             composed_pairs.append({"a": int(a), "b": int(b), "K": cs["K"], "latent": cs["latent"]})
 
-    multiplicity_set = {d["feature"] for d in multiplicity_features}
+    # A feature counted as split, duplicate, or not-evaluable for multiplicity is not clean.
+    multiplicity_set = ({d["feature"] for d in multiplicity_features}
+                        | {d["feature"] for d in duplicate_features}
+                        | multiplicity_unclassified)
     clean = int(sum(1 for f in range(F)
                     if bool(recovered[f]) and f not in absorbed_children
                     and f not in multiplicity_set and f not in unclassified_children))
@@ -288,11 +417,15 @@ def classify_dictionary(g: torch.Tensor, W_dec: torch.Tensor, A: torch.Tensor, a
         "eps": eps, "expected_null": expected_null,
         "absorbed_edges": absorbed_edges,
         "decoder_multiplicity": multiplicity_features,
+        "duplicate_features": duplicate_features,
+        "multiplicity_unclassified": sorted(multiplicity_unclassified),
         "composed_pairs": composed_pairs,
         "unclassified_edges": unclassified_edges,
         "below_rho_edges": below_rho_edges,
         "counts": {"absorbed": len(absorbed_children),
                    "decoder_multiplicity": len(multiplicity_features),
+                   "duplicate": len(duplicate_features),
+                   "multiplicity_unclassified": len(multiplicity_unclassified),
                    "composed": len(composed_pairs), "clean": clean,
                    "unclassified": len(unclassified_children),
                    "below_rho": len(below_rho_children)},
@@ -331,30 +464,33 @@ def latent_pair_masks(classification: dict, feats: list[int],
 
 
 def split_readout(classification: dict, feats: list[int]) -> dict:
-    """Per-latent split readout (decoder multiplicity) — not a pair column.
+    """Per-feature split readout (firing multiplicity) — not a pair column.
 
-    `split` is per-feature, not a relation over a pair, so it's reported as a side readout: the
-    recovered features whose multiplicity excess cleared the null. Scoped to `feats` for grid parity.
+    A split is per-feature, not a relation over a pair, so it's reported as a side readout: the
+    recovered features whose firing fragments across >=2 shards on their exclusive support (genuine
+    splits; duplicates are reported separately). Scoped to `feats` for grid parity.
     """
     recovered_ids = {int(f) for f in feats}
-    out = [{"feature": int(d["feature"]), "M_P": int(d["M_P"]), "excess": float(d["excess"])}
+    out = [{"feature": int(d["feature"]), "n_shards": int(d["n_shards"]),
+            "union_recall": float(d["union_recall"]), "n_excl": int(d["n_excl"])}
            for d in classification["decoder_multiplicity"] if int(d["feature"]) in recovered_ids]
     return {"n_split": len(out), "features": out}
 
 
 def tree_edges_and_siblings(tree) -> tuple[list[tuple[int, int]], list[tuple[int, int]],
-                                           dict[int, bool]]:
-    """`(cont_edges, sibling_pairs, isa_child)` derived from the tree (identity truth).
+                                           dict[int, bool], dict[int, set[int]]]:
+    """`(cont_edges, sibling_pairs, isa_child, descendants)` derived from the tree (identity truth).
 
     Shared by `run_absorption` and `run_retrieval` so the two reports can't drift on schema changes.
     `cont_edges` are ordered (parent, child) pairs; `isa_child[c]` is True iff non-zero overlap;
-    `sibling_pairs` are unordered co-hyponym pairs.
+    `sibling_pairs` are unordered co-hyponym pairs; `descendants` is the transitive-closure
+    `descendents` map (used by the firing-multiplicity confound removal).
     """
     cont_edges = [(p, c) for c in range(tree.F) for p, _, _ in tree.parents.get(c, [])]
     isa_child = {c: (tree.alpha_of(c) > 0.0) for _, c in cont_edges}
     sibling_pairs = [(kids[i], kids[j]) for kids in tree.children.values()
                      for i in range(len(kids)) for j in range(i + 1, len(kids))]
-    return cont_edges, sibling_pairs, isa_child
+    return cont_edges, sibling_pairs, isa_child, tree.descendents
 
 
 def run_absorption(ckpt_dir, n_tokens: int = 200_000, rho: float | None = None) -> dict:
@@ -377,9 +513,9 @@ def run_absorption(ckpt_dir, n_tokens: int = 200_000, rho: float | None = None) 
     oriented = signed_normalized_decoder(loaded.W_dec, acts, world.h)
     res = match_features(activation_corr(world.A, acts), world.g, oriented, rho=rho)
 
-    cont_edges, sibling_pairs, isa_child = tree_edges_and_siblings(world.tree)
+    cont_edges, sibling_pairs, isa_child, descendants = tree_edges_and_siblings(world.tree)
     report = classify_dictionary(world.g, oriented, world.A, acts, res.match, res.matched_corr,
-                                 res.recovered, cont_edges, sibling_pairs, isa_child)
+                                 res.recovered, cont_edges, sibling_pairs, isa_child, descendants)
     report["meta"] = {k: meta[k] for k in ("config", "variant", "k", "train_seed", "overrides")
                       if k in meta}
     report["n_recovered"] = int(res.recovered.sum())
