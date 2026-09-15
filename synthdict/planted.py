@@ -107,7 +107,7 @@ class PlantedMap:
     # --------------------------------------------------------------------
     @classmethod
     def identity(cls, F: int, readout: str = "identity") -> "PlantedMap":
-        """One latent per feature, latent id == feature id — every round-1 damage."""
+        """One latent per feature, latent id == feature id (absorption, and every no-op dial)."""
         return cls(feature_to_latents=tuple((f,) for f in range(int(F))),
                    readout=readout, n_latents=int(F))
 
@@ -141,7 +141,7 @@ class PlantedMap:
         """`[F]` bool: does this feature have any latent at all.
 
         DECLARATIVE — a planted feature is present because we planted it, not because a matcher
-        cleared a correlation threshold. Only a round-2 missing-latent damage empties an entry.
+        cleared a correlation threshold. Only hedging empties an entry (the deleted child).
         Shape is fixed at `[F]` because `scoring.core.recovery.per_class_recovery` broadcasts it
         against `pair_labels`, and that stays feature-indexed even when the latent count does not.
         """
@@ -321,7 +321,7 @@ class PlantedMap:
 
 def resolve_map(corruption, F: int, readout: str = "identity") -> PlantedMap:
     """The planted map for this dictionary: the corruption's own when it declares one (a
-    round-2 damage that changes the latent count), else the identity map over `F` features."""
+    damage that changes the latent count), else the identity map over `F` features."""
     declared = getattr(corruption, "planted_map", None) if corruption is not None else None
     if declared is not None:
         if declared.readout != readout:

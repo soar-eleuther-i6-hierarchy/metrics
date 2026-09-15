@@ -56,21 +56,19 @@ def collect_point(d: Path) -> list[dict]:
 
     y = npz["y"]
     corr_mask = npz["corrupted_pair"].astype(bool)
-    # Older artifacts carry no touched mask; for them the two arms coincide.
-    touched_mask = (npz["touched_pair"].astype(bool) if "touched_pair" in npz.files
-                    else corr_mask) | corr_mask
+    touched_mask = npz["touched_pair"].astype(bool) | corr_mask
     null_eval = (y == labels._index("unrelated")) & (npz["split"] == 2)
 
     dials = meta.get("dials") or {}
     base = {
         "toy": meta["toy"], "seed": meta["seed"],
-        "kind": meta.get("corruption", "absorption"),
+        "kind": meta["corruption"],
         # The world shape is NOT in the artifact path: without these a shrunken run is
         # indistinguishable from a full one in the CSV.
         "n_tokens": meta.get("n_tokens"),
         "n_roots": (meta.get("cfg_overrides") or {}).get("n_roots"),
-        "readout": meta.get("readout", meta.get("match_mode")),
-        "acts_model": meta.get("acts_model", meta.get("acts_mode", "ridge")),
+        "readout": meta["readout"],
+        "acts_model": meta["acts_model"],
         "nnls_lambda": (rc.get("acts_model") or {}).get("lambda"),
     }
     # Each damage carries only its own dials; a missing knob is absent, not zero.
@@ -80,12 +78,12 @@ def collect_point(d: Path) -> list[dict]:
     pairs = derived.get("partner_density") or []
     base |= {
         "severity": meta["realized_severity_median"],
-        "severity_kind": meta.get("severity_kind", "edge_cos_parent"),
-        "pair_rule": meta.get("corrupted_pair_rule", "ordered_edge"),
+        "severity_kind": meta["severity_kind"],
+        "pair_rule": meta["corrupted_pair_rule"],
         "fvu": meta["fvu"]["scoring"],
-        "zeroed_rate": (meta.get("zeroed_rate") or meta.get("support_flip_rate"))["scoring"],
-        "zeroed_rate_damaged": (meta.get("zeroed_rate_damaged") or {}).get("scoring"),
-        "latent_l0": meta.get("latent_l0", meta.get("realized_l0")),
+        "zeroed_rate": meta["zeroed_rate"]["scoring"],
+        "zeroed_rate_damaged": meta["zeroed_rate_damaged"]["scoring"],
+        "latent_l0": meta["latent_l0"],
         "feature_l0": meta.get("feature_l0"),
         "n_latents": meta.get("n_latents"), "F": report["F"],
         "L_over_F": rc.get("L_over_F"),

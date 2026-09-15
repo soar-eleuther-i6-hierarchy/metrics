@@ -77,8 +77,7 @@ def toygen_commit(root: Path = _ROOT) -> str:
 
 
 def dial_dirname(dials) -> str:
-    """The dial point's directory name, one branch per damage (absorption's form is unchanged
-    from round 1)."""
+    """The dial point's directory name, one branch per damage."""
     if isinstance(dials, AbsorptionDials):
         return f"beta{dials.beta:g}-eta{dials.eta:g}-f{dials.edge_fraction:g}"
     if isinstance(dials, HedgingDials):
@@ -101,8 +100,7 @@ def provenance_tuple(meta: dict) -> tuple:
     """What one tag must not mix, read from an artifact's meta: encoder, readout, damage, world
     shape and whether the probe ran. None of these is in the path, so a shrunken `--n-roots`
     or `--no-probe` run would otherwise land on top of (or be resumed as) a full one."""
-    return (meta.get("acts_model", meta.get("acts_mode", "ridge")),
-            meta.get("readout", f"match:{meta.get('match_mode', 'unknown')}"),
+    return (meta.get("acts_model"), meta.get("readout"),
             meta.get("corruption", "absorption"), int(meta.get("n_tokens", -1)),
             json.dumps(meta.get("cfg_overrides"), sort_keys=True),
             meta.get("s_res_mode"))

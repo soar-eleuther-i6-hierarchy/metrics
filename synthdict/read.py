@@ -6,12 +6,11 @@ and synthesis has none, because we built it. The feature->latent correspondence 
 PLANTED map (`synthdict.planted`), and `readout` declares how a feature carried by several
 latents is reduced to one scored column.
 
-Two frames, and keeping them apart is what round 2 added. The DICTIONARY frame is `[., L]`:
+Two frames, kept apart on purpose. The DICTIONARY frame is `[., L]`:
 one column per decoder row, which is one per feature only while the map is 1-1. The SCORED
 frame is `[., R]`: one column per feature that has a latent, after the readout reduction.
 `synth_encode` returns the dictionary frame; everything the detectors see is the scored one.
-Under a 1-1 map both are the identity gather, which is why the round-1 dial points are
-bit-identical under this code.
+Under a 1-1 map both are the identity gather, so the readout seam is inert there.
 
 Two draws, same derivations as the benchmark: scoring = `held_out_sample_seed(seed)`, probe
 fit = `probe_fit_sample_seed(seed)`. (The benchmark's third, in-sample MATCHING draw has no
