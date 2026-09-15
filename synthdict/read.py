@@ -16,7 +16,7 @@ bit-identical under this code.
 Two draws, same derivations as the benchmark: scoring = `held_out_sample_seed(seed)`, probe
 fit = `probe_fit_sample_seed(seed)`. (The benchmark's third, in-sample MATCHING draw has no
 purpose here and is not taken.) The synthetic "encoder" is a deterministic function of a draw:
-planted support (true `A > 0` plus the corruption's eta-hole) -> per-token ridge magnitudes
+planted support (true `A > 0` plus the damage's firing transform) -> per-token NNLS strengths
 against the draw's real `h`.
 
 `signed_normalized_decoder` runs on every synthetic path (parity with the trained read); on a
@@ -37,12 +37,13 @@ from scoring.core.detectors import (DetectorInputs, compute_all, fit_probe_direc
 from scoring.core.grid import held_out_sample_seed, pair_frame
 from scoring.core.registry import CONSTANTS
 from scoring.core.world import WorldBundle, regenerate_world, signed_normalized_decoder
-from scoring.oracle.validate_metrics import pure_inputs, reconstruction_fvu
+from scoring.oracle.validate_metrics import RIDGE_LAMBDA, pure_inputs, reconstruction_fvu
 from toygen import spec
 from toygen.world import resolve_config
 
-from synthdict.activations import ridge_acts, support_flip_rate
-from synthdict.corruptions import Corruption, apply_hole, build_corruption, expand_support
+from synthdict.activations import nnls_acts, zeroed_rate
+from synthdict.corruptions import (AbsorptionDials, Corruption, apply_hole, build_corruption,
+                                   expand_support)
 from synthdict.planted import READOUTS, resolve_map
 
 _TINY = 1e-12
@@ -57,90 +58,50 @@ def resolved_config(toy: str, seed: int, cfg_overrides: dict | None = None) -> d
     return dataclasses.asdict(cfg)
 
 
+ACTS_MODELS = ("nnls", "true_A")
+NNLS_LAMBDA = RIDGE_LAMBDA           # the regularizer the encoder is run with and recorded as
+
+
 def synth_encode(bundle: WorldBundle, corruption: Corruption | None, world_seed: int,
-                 sample_seed: int, acts_mode: str = "ridge"
+                 sample_seed: int, acts_mode: str = "nnls"
                  ) -> tuple[torch.Tensor, torch.Tensor, int]:
     """(acts [n, L], LATENT-space support, total holed tokens) for one draw.
 
     `acts_mode="true_A"` passes the oracle coefficients through untouched — the passthrough
     anchor only, and therefore refused when a corruption is present.
     """
+    if acts_mode not in ACTS_MODELS:
+        raise ValueError(f"unknown acts_mode {acts_mode!r}; the encoder is 'nnls' "
+                         f"('true_A' is the passthrough anchor)")
     support = bundle.A > 0
     n_holed = 0
-    # The hole is an EDGE transform; a feature-level damage (splitting, missing, noise) has no
-    # edges and `apply_hole` would reach for an `eta` its dials do not carry.
-    if corruption is not None and corruption.corrupted_edges:
+    # The hole is absorption's firing transform; no other damage carries an eta.
+    if corruption is not None and isinstance(corruption.dials, AbsorptionDials):
         support, holed = apply_hole(support, corruption, world_seed, sample_seed)
         n_holed = sum(holed.values())
     if acts_mode == "true_A":
         if corruption is not None:
             raise ValueError("acts_mode='true_A' is the passthrough anchor; it cannot carry "
-                             "a corruption (the hole would be silently ignored)")
+                             "a corruption (the damage would be silently ignored)")
         return bundle.A, support, 0
     W_raw = corruption.W_raw if corruption is not None else bundle.g.double()
     # Feature space -> LATENT space, once, immediately before the solve. Below this line every
-    # array is indexed by decoder row, which is one per feature only while the map is 1-1.
+    # array is indexed by decoder row.
     if corruption is not None:
         support = expand_support(support, corruption, world_seed, sample_seed)
-    if acts_mode == "ridge":
-        # Deployed-encoder-like: joint least squares over the whole support. Beta carry lets
-        # the corrupted child EXPLAIN AWAY the parent on co-firing tokens (nonpositive parent
-        # coefficients = extra firing holes beyond eta) - absorption's own reconstruction
-        # mechanism, but a measured LEAK of beta into the firing channel (review finding;
-        # measured parent recall ~0.85 at beta=0.6, eta=0). Read against `support_flip_rate`.
-        return ridge_acts(bundle.h, W_raw, support), support, n_holed
-    if acts_mode == "clean":
-        # Firing-preserving: the dial-independent construct SYNTH_PRECOMMIT promised.
-        # Uncorrupted latents keep their TRUE magnitudes on the (holed) planted support, so
-        # beta cannot move any UNCORRUPTED latent's firing decision (a corrupted child's own
-        # coefficient is still ridge-determined and can rarely flip: measured 1.78e-7 at one
-        # hole-only dial point - review LOW-1); only the corrupted children re-fit, against
-        # the residual. Where the hole removed the parent, the parent's mass sits in that
-        # residual and flows into the child's carry term (absorption's story); on un-holed
-        # tokens the carried g_p component double-counts the parent, so reconstruction
-        # degrades with beta (hedging's story). The FVU column records that price.
-        #
-        # Feature-indexed throughout: `bundle.A` columns and `bundle.g` rows are read by TRUE
-        # FEATURE id, so this mode is only defined where latent id == feature id. Under any
-        # other map it would quietly fit one feature's magnitudes onto another feature's row.
-        if corruption is not None and not corruption.planted_map.is_identity():
-            raise ValueError(
-                "acts_mode='clean' requires an identity planted map (latent id == feature id); "
-                f"this corruption declares {corruption.planted_map.n_latents} latents over "
-                f"{corruption.planted_map.F} features. Use acts_mode='ridge'.")
-        # And it is an EDGE construct: the re-fit set below is the corrupted CHILDREN. A
-        # feature-level damage has no edges, so that set is empty and this mode would return
-        # magnitudes fitted against the TRUE directions while W_raw holds the damaged ones —
-        # a reconstruction channel computed from a dictionary the magnitudes never saw.
-        # Measured: clean + noise(sigma=0.8) returns acts bit-identical to the UNCORRUPTED
-        # clean acts. Refused rather than given an invented meaning nobody registered.
-        if corruption is not None and not corruption.corrupted_edges:
-            raise ValueError(
-                f"acts_mode='clean' is defined for edge damages (it re-fits each corrupted "
-                f"child against the residual); {corruption.kind} damages features and has no "
-                f"edges, so the dial would not reach the activations at all. Use "
-                f"acts_mode='ridge'.")
-        A_masked = bundle.A.double() * support.double()
-        if corruption is None:
-            return A_masked, support, n_holed
-        cc = sorted({c for _, c in corruption.corrupted_edges})
-        acts = A_masked.clone()
-        acts[:, cc] = 0.0
-        residual = bundle.h.double() - acts @ bundle.g.double()   # uncorrupted rows ARE g rows
-        idx = torch.tensor(cc, dtype=torch.long)
-        acts[:, idx] = ridge_acts(residual, W_raw[idx], support[:, idx])
-        return acts, support, n_holed
-    raise ValueError(f"unknown acts_mode {acts_mode!r}")
+    return nnls_acts(bundle.h, W_raw, support, lam=NNLS_LAMBDA), support, n_holed
 
 
 def corrupted_pair_mask(corruption: Corruption | None, feats: list[int],
                         pairs: list[tuple[int, int]]) -> torch.Tensor:
     """`[n_pairs]` bool: which scored pairs this damage touched, under its declared rule.
 
-    Absorption damages an ORDERED edge, so only (parent, child) is marked. A feature-level
-    damage has no edges at all, and the edge rule would return an all-False mask — silently
-    making `intact` the whole target class in `report.py`, i.e. comparing the dose-response
-    against itself. The rule travels with the corruption for exactly that reason.
+    ordered_edge              (parent, child) is an absorbed edge
+    either_endpoint_feature   either feature is damaged (a hedged parent)
+    candidate_parent_feature  the candidate parent, the pair's FIRST feature, is damaged
+
+    The rule travels with the corruption: the edge rule on a feature damage would return an
+    all-False mask and make `intact` the whole target class in `report.py`.
     """
     if corruption is None:
         return torch.zeros(len(pairs), dtype=torch.bool)
@@ -153,13 +114,35 @@ def corrupted_pair_mask(corruption: Corruption | None, feats: list[int],
         damaged = set(corruption.corrupted_features)
         return torch.tensor(
             [feats[a] in damaged or feats[b] in damaged for a, b in pairs], dtype=torch.bool)
-    if rule == "all":
-        return torch.ones(len(pairs), dtype=torch.bool)
+    if rule == "candidate_parent_feature":
+        damaged = set(corruption.corrupted_features)
+        return torch.tensor([feats[a] in damaged for a, _ in pairs], dtype=torch.bool)
     raise ValueError(f"unknown corrupted_pair_rule {rule!r}")
 
 
+def touched_pair_mask(corruption: Corruption | None, feats: list[int],
+                      pairs: list[tuple[int, int]]) -> torch.Tensor:
+    """`[n_pairs]` bool: pairs with either feature touched by the damage (row or firing changed).
+
+    A superset of the corrupted mask. Classes labelled in both orderings (superparent,
+    frequency, topical) put a pair whose SECOND feature was damaged outside the corrupted arm;
+    counting it as intact would contaminate the control.
+    """
+    if corruption is None:
+        return torch.zeros(len(pairs), dtype=torch.bool)
+    touched = set(corruption.touched_features())
+    return torch.tensor([feats[a] in touched or feats[b] in touched for a, b in pairs],
+                        dtype=torch.bool)
+
+
+def _damaged_latents(corruption: Corruption | None, pmap) -> list[int]:
+    if corruption is None:
+        return []
+    return sorted({j for f in corruption.touched_features() for j in pmap.feature_to_latents[f]})
+
+
 def synthetic_read(toy: str, seed: int, dials, readout: str,
-                   n_tokens: int, with_probe: bool = True, acts_mode: str = "ridge",
+                   n_tokens: int, with_probe: bool = True, acts_mode: str = "nnls",
                    cfg_overrides: dict | None = None,
                    probe_fit_seed: int | None = None) -> Read:
     """Build, encode, and score one synthetic dictionary as a `Read(read="synthetic")`.
@@ -170,7 +153,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
 
     NO MATCHER RUNS HERE. The feature->latent correspondence is the PLANTED map (see
     `synthdict.planted`), and `readout` declares how a multi-latent feature is reduced to one
-    scored column. On a 1-1 map all three readouts are the same gather, bit-for-bit.
+    scored column. On a 1-1 map every readout is the same gather, bit-for-bit.
     """
     if readout not in READOUTS:
         raise ValueError(f"readout must be one of {READOUTS}, got {readout!r}")
@@ -184,8 +167,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
     # bundle's g/CONT is the same dictionary every draw sees.
     corruption = None
     if dials is not None:
-        corruption = build_corruption(score.g, score.CONT, dials, world_seed=int(seed),
-                                      readout=readout)
+        corruption = build_corruption(score, dials, world_seed=int(seed), readout=readout)
     W_raw = corruption.W_raw if corruption is not None else score.g.double()
 
     acts_ho, support_ho, holed_ho = synth_encode(score, corruption, seed, score_seed, acts_mode)
@@ -193,20 +175,22 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
     b_dec = torch.zeros(score.g.shape[1], dtype=score.g.dtype)
 
     fvu = {"scoring": reconstruction_fvu(score.h, acts_ho, W_raw)}
-    flips = {"scoring": support_flip_rate(acts_ho, support_ho)}
+    zeroed = {"scoring": zeroed_rate(acts_ho, support_ho)}
+    pmap = resolve_map(corruption, F, readout)
+    dl = _damaged_latents(corruption, pmap)
+    # The pooled rate hides zeroing that concentrates on the damaged columns (absorption's
+    # carry pushes the parent's NNLS strength to 0 on co-firing tokens).
+    zeroed_damaged = {"scoring": zeroed_rate(acts_ho[:, dl], support_ho[:, dl])}
     holed = {"scoring": holed_ho}
 
-    # The planted correspondence, not an inferred one. The three reductions take the [., L]
+    # The planted correspondence, not an inferred one. The reductions take the [., L]
     # dictionary frame to the [., R] SCORED frame under the declared readout; for a one-to-one
-    # map every one of them is a gather over `arange(F)` and the seam is inert, which is what
-    # makes the matcher-free read bit-identical to the matched one on every round-1 dial point
-    # (the regression gate and G1 check exactly this).
-    pmap = resolve_map(corruption, F, readout)
+    # map every one of them is a gather over `arange(F)` and the seam is inert.
     feats = pmap.feats()
     recovered = pmap.recovered()
     di = DetectorInputs(acts_rec=pmap.reduce_acts(acts_ho),
-                        W_unit=pmap.reduce_unit(oriented_ho),
-                        W_raw=pmap.reduce_raw(W_raw), h=score.h, b_dec=b_dec,
+                        W_unit=pmap.reduce_unit(oriented_ho, acts_ho),
+                        W_raw=pmap.reduce_raw(W_raw, acts_ho), h=score.h, b_dec=b_dec,
                         tokens=score.tokens, vocab=score.cfg.vocab)
 
     dets = compute_all(di, CONSTANTS, s_res_mode="cosine")
@@ -224,12 +208,14 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
         P, avail = fit_probe_directions(fw.h, acts_f_rec, CONSTANTS)
         probe = s_res_from_directions(P, avail, di.W_unit)
         fvu["probe_fit"] = reconstruction_fvu(fw.h, acts_f, W_raw)
-        flips["probe_fit"] = support_flip_rate(acts_f, support_f)
+        zeroed["probe_fit"] = zeroed_rate(acts_f, support_f)
+        zeroed_damaged["probe_fit"] = zeroed_rate(acts_f[:, dl], support_f[:, dl])
         holed["probe_fit"] = holed_f
 
     pairs, y = pair_frame(feats, score.pair_labels)
 
     corrupted_pair = corrupted_pair_mask(corruption, feats, pairs)
+    touched_pair = touched_pair_mask(corruption, feats, pairs)
 
     # True-direction cosine on the same universe — the trained read's diagnostic control.
     g_unit = (score.g / score.g.norm(dim=1, keepdim=True).clamp_min(_TINY)).double()
@@ -247,18 +233,25 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
                                if corruption is not None else ()),
         "realized_severity": sev,
         "realized_severity_median": (float(sev.median()) if sev.numel() else _NAN),
-        # WHAT that severity measures, and WHICH pairs the mask marks. Both are per-damage:
-        # `realized_severity` is a per-edge cosine for absorption and a per-row cosine for
-        # noise, one column holding two populations unless the population is stamped.
+        # WHAT that severity measures, and WHICH pairs the mask marks. Both are per-damage.
         "severity_kind": (corruption.severity_kind if corruption is not None else "none"),
         "corrupted_pair_rule": (corruption.corrupted_pair_rule
                                 if corruption is not None else "ordered_edge"),
         "corrupted_pair": corrupted_pair,
-        "acts_mode": acts_mode,
+        "touched_pair": touched_pair,
+        "hedged_children": (tuple(corruption.hedged_children) if corruption is not None else ()),
+        "composition_pairs": (tuple(corruption.composition_pairs)
+                              if corruption is not None else ()),
+        "details": (dict(corruption.details) if corruption is not None else {}),
+        "acts_model": acts_mode,
+        "nnls_lambda": NNLS_LAMBDA,
         "readout": readout,
         "planted_map_sha256": pmap.sha256(),
+        "feature_to_latents": pmap.feature_to_latents,
         "n_latents": pmap.n_latents,
-        "support_flip_rate": flips,
+        "n_lost_features": F - len(feats),
+        "zeroed_rate": zeroed,
+        "zeroed_rate_damaged": zeroed_damaged,
         "fvu": fvu,
         "fvu_true_A": reconstruction_fvu(score.h, score.A, score.g),
         "n_holed_total": holed,
@@ -270,9 +263,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
         "probe_fit_labels": ("the synthetic SAE's own activations" if with_probe else None),
         "true_l0": float(score.A.gt(0).double().sum(dim=1).mean()),
         # Two L0s that coincide only while the map is 1-1. `latent_l0` counts columns of the
-        # [n, L] DICTIONARY frame (what the SAE substitute actually fires); `feature_l0` counts
-        # the [n, R] SCORED frame after the readout reduction. Round 1 published one number
-        # under the name `realized_l0`; it was always the latent one.
+        # [n, L] DICTIONARY frame; `feature_l0` counts the [n, R] SCORED frame.
         "latent_l0": float(acts_ho.gt(0).double().sum(dim=1).mean()),
         "feature_l0": float(di.acts_rec.gt(0).double().sum(dim=1).mean()),
     }

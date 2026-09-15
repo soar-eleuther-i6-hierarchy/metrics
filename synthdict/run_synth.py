@@ -3,24 +3,26 @@
 Ships its own CLI because the benchmark's is deliberately closed (`--read choices=
 ("oracle","trained")`, `--toy choices=TOYS`); `run_read` and `write_artifacts` themselves are
 name-agnostic and are reused verbatim. Artifacts land under their own root
-(`outputs_local/synthdict/<TAG>/...`), NEVER under a benchmark tag — `verify_manifest`
-correctly rejects unknown read dirs in a benchmark tree.
+(`outputs_local/synthdict/<TAG>/...`), NEVER under a benchmark tag.
 
 Layout:  <out>/<tag>/seed<N>/<toy>/<kind>/<dials>/<readout>/
            scores.npz         run_read arrays + corrupted_pair, realized_severity
            expressions.json   run_read report | __meta__
+           run_config.json    everything needed to reinterpret the point (also in __meta__)
            census.json        annotation (manipulation check; see synthdict/census.py)
 
-`<kind>` and `<dials>` come from the dials TYPE, so two damages under one tag can never collide
-on a path:  absorption/beta0.4-eta0.4-f0.1 · split/k8-skew0-f1 · missing/f0.25 · noise/sigma0.3
+`<kind>` and `<dials>` come from the dials TYPE, so two damages under one tag never collide:
+  absorption/beta0.4-eta0.4-f0.1 · hedging/gamma1-f0.5 · split/k8-skew0-f1-roles_parent ·
+  composition/pi0.5-f1
 
-Usage (one dial point; the grid launches many of these in parallel on the server):
-  python -m synthdict.run_synth --toy only_isa --seed 0 --beta 0.4 --eta 0.4 \
+Usage (one dial point; run_grid launches many of these in parallel):
+  python -m synthdict.run_synth --toy only_isa --seed 0 --beta 0.4 --eta 0.4 \\
       --edge-fraction 0.1 --tag SYNTH-R1 [--n-tokens 200000] [--no-probe] [--no-census]
       [--readout identity] [--out outputs_local/synthdict] [--force] [--n-roots 12]
-  python -m synthdict.run_synth --toy only_isa --kind split --k 8 --readout union ...
-  python -m synthdict.run_synth --toy only_isa --kind missing --fraction 0.25 ...
-  python -m synthdict.run_synth --toy only_isa --kind noise --sigma 0.3 ...
+  python -m synthdict.run_synth --toy only_isa --kind hedging --gamma-rel 1 --edge-fraction 0.5 ...
+  python -m synthdict.run_synth --toy only_superparent --kind split --k 4 \\
+      --roles superparent dense_parent --readout union ...
+  python -m synthdict.run_synth --toy only_isa --kind composition --pi 0.5 --readout own ...
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import argparse
 import dataclasses
 import hashlib
 import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -38,21 +41,23 @@ from scoring.benchmark.manifest import evaluator_sha256
 from scoring.benchmark.registry import REPORT_SCHEMA
 from scoring.benchmark.run_benchmark import git_provenance, run_read, write_artifacts
 from scoring.core.grid import held_out_sample_seed
+from scoring.core.registry import CONSTANTS
 from scoring.core.world import regenerate_world
 
-from synthdict.census import run_census
-from synthdict.corruptions import (AbsorptionDials, MissingDials, NoiseDials, SplitDials,
-                                   build_corruption)
+from synthdict.census import absorption_classifier_sha256, run_census
+from synthdict.corruptions import (SPLIT_ROLES, AbsorptionDials, CompositionDials,
+                                   HedgingDials, SplitDials, build_corruption)
 from synthdict.planted import READOUTS
 from synthdict.read import resolved_config, synthetic_read
 
 SYNTHDICT_SOURCES = ("synthdict",)
+_ROOT = Path(__file__).resolve().parents[1]
 
 
 def synthdict_sha256(root: Path | None = None) -> str:
     """Content hash of this package's `.py` files — the study-side analogue of
     `evaluator_sha256`, for runs on the git-less server copy."""
-    root = Path(__file__).resolve().parents[1] if root is None else Path(root)
+    root = _ROOT if root is None else Path(root)
     h = hashlib.sha256()
     for rel in SYNTHDICT_SOURCES:
         for p in sorted((root / rel).rglob("*.py")):
@@ -61,72 +66,159 @@ def synthdict_sha256(root: Path | None = None) -> str:
     return h.hexdigest()
 
 
-def dial_dirname(dials) -> str:
-    """The dial point's directory name, one branch per damage.
+def toygen_commit(root: Path = _ROOT) -> str:
+    """The last commit touching `toygen/`, or "unavailable" off a git checkout."""
+    try:
+        return subprocess.run(["git", "log", "-1", "--format=%H", "--", "toygen"], cwd=root,
+                              capture_output=True, text=True, check=True).stdout.strip() \
+            or "unavailable"
+    except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
+        return "unavailable"
 
-    Absorption's form is unchanged from round 1 so its saved artifacts stay addressable.
-    """
+
+def dial_dirname(dials) -> str:
+    """The dial point's directory name, one branch per damage (absorption's form is unchanged
+    from round 1)."""
     if isinstance(dials, AbsorptionDials):
         return f"beta{dials.beta:g}-eta{dials.eta:g}-f{dials.edge_fraction:g}"
+    if isinstance(dials, HedgingDials):
+        return f"gamma{dials.gamma_rel:g}-f{dials.edge_fraction:g}"
     if isinstance(dials, SplitDials):
-        return f"k{dials.k:g}-skew{dials.skew:g}-f{dials.fraction:g}"
-    if isinstance(dials, MissingDials):
-        return f"f{dials.fraction:g}"
-    if isinstance(dials, NoiseDials):
-        return f"sigma{dials.sigma:g}"
+        return (f"k{dials.k:g}-skew{dials.skew:g}-f{dials.fraction:g}"
+                f"-roles_{'+'.join(dials.roles)}")
+    if isinstance(dials, CompositionDials):
+        return f"pi{dials.pi:g}-f{dials.fraction:g}"
     raise ValueError(f"no directory naming registered for {type(dials).__name__}")
 
 
 def point_dir(out, tag: str, seed: int, toy: str, kind: str, dials, readout: str) -> Path:
-    """THE artifact path for one dial point. One function, because the driver's write path and
-    the grid's resume probe were built independently in two files: a desync is silent in both
-    directions (the grid reruns everything, or skips points that do not exist and exits 0
-    having produced nothing).
-
-    `kind` is a path segment so two damages under one tag cannot collide on a dial name.
-    """
+    """THE artifact path for one dial point, shared by the driver's write and the launcher's
+    resume probe so the two cannot desync."""
     return (Path(out) / tag / f"seed{int(seed)}" / toy / kind / dial_dirname(dials) / readout)
 
 
-def run_dial_point(toy: str, seed: int, dials: AbsorptionDials, n_tokens: int,
-                   out: Path, tag: str, readout: str = "identity",
-                   with_probe: bool = True, with_census: bool = True,
-                   force: bool = False, cfg_overrides: dict | None = None,
-                   acts_mode: str = "ridge") -> list[Path]:
-    """Score one (toy, seed, dials) under the declared readout; write its three artifacts."""
-    written = []
+def provenance_tuple(meta: dict) -> tuple:
+    """What one tag must not mix, read from an artifact's meta: encoder, readout, damage, world
+    shape and whether the probe ran. None of these is in the path, so a shrunken `--n-roots`
+    or `--no-probe` run would otherwise land on top of (or be resumed as) a full one."""
+    return (meta.get("acts_model", meta.get("acts_mode", "ridge")),
+            meta.get("readout", f"match:{meta.get('match_mode', 'unknown')}"),
+            meta.get("corruption", "absorption"), int(meta.get("n_tokens", -1)),
+            json.dumps(meta.get("cfg_overrides"), sort_keys=True),
+            meta.get("s_res_mode"))
+
+
+def build_run_config(read, toy: str, seed: int, dials, n_tokens: int,
+                     census_seed: int | None) -> dict:
+    """The complete record of one dial point: world, dials, derived values, explicit
+    selections, encoder, readout and rules, constants, and code identity."""
+    ex = read.extra
+    L, F = int(ex["n_latents"]), int(read.F)
+    ftl = ex["feature_to_latents"]
+    kind = ex["corruption_kind"]
+    return {
+        "toy": toy,
+        "toy_config": ex["resolved_config"],
+        "world_seed": int(seed),
+        "sample_seeds": {"scoring": ex["scoring_sample_seed"],
+                         "probe_fit": ex["probe_fit_sample_seed"],
+                         "in_sample": census_seed},
+        "n_tokens": int(n_tokens),
+        "kind": kind,
+        "dials": ex["dials"],
+        "derived": ex["details"],
+        "selection": {
+            "corrupted_edges": [list(e) for e in ex["corrupted_edges"]],
+            "corrupted_features": list(ex["corrupted_features"]),
+            "hedged_children": list(ex["hedged_children"]),
+            "composition_pairs": [list(p) for p in ex["composition_pairs"]],
+            "shard_map": ([[f, list(ftl[f])] for f in ex["corrupted_features"]]
+                          if kind == "split" else []),
+        },
+        "acts_model": {"name": ex["acts_model"], "lambda": ex["nnls_lambda"]},
+        "zeroed_rate": ex["zeroed_rate"],
+        "zeroed_rate_damaged": ex["zeroed_rate_damaged"],
+        "fvu": ex["fvu"],
+        "readout": ex["readout"],
+        "pair_rule": ex["corrupted_pair_rule"],
+        "severity_kind": ex["severity_kind"],
+        "realized_severity": [float(x) for x in ex["realized_severity"]],
+        "L": L, "F": F, "L_over_F": L / F,
+        "n_lost_features": int(ex["n_lost_features"]),
+        "detector_constants": dict(CONSTANTS),
+        "thresholds_location": "expressions.json -> thresholds (fitted on this read's null)",
+        "code": {"evaluator_sha256": evaluator_sha256(),
+                 "synthdict_sha256": synthdict_sha256(),
+                 "toygen_commit": toygen_commit(),
+                 "absorption_classifier_sha256": absorption_classifier_sha256(),
+                 **git_provenance(_ROOT)},
+    }
+
+
+def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: str,
+                   readout: str = "identity", with_probe: bool = True,
+                   with_census: bool = True, force: bool = False,
+                   cfg_overrides: dict | None = None) -> list[Path]:
+    """Score one (toy, seed, dials) under the declared readout; write its artifacts."""
     rc = resolved_config(toy, seed, cfg_overrides)
-    mode = readout
     t0 = time.time()
-    read = synthetic_read(toy, seed, dials, mode, n_tokens, with_probe=with_probe,
-                          cfg_overrides=cfg_overrides, acts_mode=acts_mode)
+    read = synthetic_read(toy, seed, dials, readout, n_tokens, with_probe=with_probe,
+                          cfg_overrides=cfg_overrides)
     report, arrays = run_read(read)
     report["secs"] = round(time.time() - t0, 1)
-
     ex = read.extra
     arrays["corrupted_pair"] = ex["corrupted_pair"].numpy()
+    arrays["touched_pair"] = ex["touched_pair"].numpy()
     arrays["realized_severity"] = ex["realized_severity"].numpy()
 
-    w_bytes = ex["W_raw"].numpy().tobytes()
+    d = point_dir(out, tag, seed, toy, ex["corruption_kind"], dials, readout)
+    npz = d / "scores.npz"
+    if npz.exists():
+        # The encoder, world shape and probe state are not in the path; one tag holds one
+        # construct, even under --force.
+        prev = provenance_tuple(json.loads(str(np.load(npz, allow_pickle=False)["__meta__"])))
+        now = provenance_tuple({"acts_model": ex["acts_model"], "readout": readout,
+                                "corruption": ex["corruption_kind"], "n_tokens": n_tokens,
+                                "cfg_overrides": cfg_overrides, "s_res_mode": read.s_res_mode})
+        if prev != now:
+            raise FileExistsError(
+                f"{d} holds an (acts_model, readout, kind, n_tokens, cfg_overrides, s_res_mode)="
+                f"{prev} artifact; refusing to overwrite with {now} even under --force - one tag "
+                f"holds one construct.")
+        if not force:
+            raise FileExistsError(f"refusing to overwrite the existing artifact at {d}; pass "
+                                  f"--force to overwrite.")
+
+    cen = None
+    if with_census:
+        # Rebuild the same corruption the read used — deterministic in (world seed, dials),
+        # and geometry is draw-independent, so any draw reproduces it exactly.
+        world = regenerate_world(rc, sample_seed=held_out_sample_seed(int(seed)),
+                                 n_tokens=n_tokens)
+        corruption = build_corruption(world, dials, world_seed=int(seed), readout=readout)
+        cen = run_census(rc, corruption, seed, n_tokens=n_tokens, readout=readout)
+    run_config = build_run_config(read, toy, seed, dials, n_tokens,
+                                  census_seed=cen["sample_seed"] if cen is not None else None)
+
     meta = {
         "toy": toy, "seed": int(seed), "read": "synthetic", "n_tokens": int(n_tokens),
         "s_res_mode": read.s_res_mode, "report_schema": REPORT_SCHEMA,
         "freeze_tag": tag,                      # a study tag, explicitly NOT a benchmark freeze
         "checkpoint": "synthetic:none",
-        "checkpoint_weights_sha256": hashlib.sha256(w_bytes).hexdigest(),
-        "evaluator_sha256": evaluator_sha256(),
-        "synthdict_sha256": synthdict_sha256(),
+        "checkpoint_weights_sha256": hashlib.sha256(ex["W_raw"].numpy().tobytes()).hexdigest(),
+        "evaluator_sha256": run_config["code"]["evaluator_sha256"],
+        "synthdict_sha256": run_config["code"]["synthdict_sha256"],
         "corruption": ex["corruption_kind"], "dials": ex["dials"],
         "corrupted_edges_sha256": hashlib.sha256(
             json.dumps(list(ex["corrupted_edges"])).encode()).hexdigest(),
         "n_corrupted_edges": len(ex["corrupted_edges"]),
         "realized_severity_median": ex["realized_severity_median"],
-        "support_flip_rate": ex["support_flip_rate"], "fvu": ex["fvu"],
-        "fvu_true_A": ex["fvu_true_A"], "n_holed_total": ex["n_holed_total"],
+        "zeroed_rate": ex["zeroed_rate"], "zeroed_rate_damaged": ex["zeroed_rate_damaged"],
+        "fvu": ex["fvu"], "fvu_true_A": ex["fvu_true_A"], "n_holed_total": ex["n_holed_total"],
         "corrupted_features": list(ex["corrupted_features"]),
         "severity_kind": ex["severity_kind"],
         "corrupted_pair_rule": ex["corrupted_pair_rule"],
-        "readout": mode, "acts_mode": ex["acts_mode"],
+        "readout": readout, "acts_model": ex["acts_model"],
         "planted_map_sha256": ex["planted_map_sha256"],
         "n_latents": ex["n_latents"],
         "true_l0": ex["true_l0"],
@@ -135,65 +227,37 @@ def run_dial_point(toy: str, seed: int, dials: AbsorptionDials, n_tokens: int,
         "probe_fit_sample_seed": ex["probe_fit_sample_seed"],
         "probe_fit_labels": ex["probe_fit_labels"],
         "cfg_overrides": cfg_overrides,
-    } | git_provenance(Path(__file__).resolve().parents[1])
+        "run_config": run_config,
+    } | git_provenance(_ROOT)
 
-    d = point_dir(out, tag, seed, toy, ex["corruption_kind"], dials, mode)
-    # acts_mode is meta, not path: a --force overwrite must never silently mix two
-    # constructs under one tag (review MED-1).
-    npz = d / "scores.npz"
-    if npz.exists():
-        pm = json.loads(str(np.load(npz, allow_pickle=True)["__meta__"]))
-        # The WORLD SHAPE is part of the construct: n_tokens and cfg_overrides are not in the
-        # path, so a shrunken `--n-roots` run lands on top of a full one and is indistinguishable
-        # afterwards. Compared here as well as in the grid's resume, so the driver refuses even
-        # when invoked directly.
-        prev = (pm.get("acts_mode", "ridge"), pm.get("readout", pm.get("match_mode")),
-                pm.get("corruption", "absorption"), int(pm.get("n_tokens", -1)),
-                json.dumps(pm.get("cfg_overrides"), sort_keys=True))
-        now = (acts_mode, mode, ex["corruption_kind"], int(n_tokens),
-               json.dumps(cfg_overrides, sort_keys=True))
-        if prev != now:
-            raise FileExistsError(
-                f"{d} holds an (acts_mode, readout, kind, n_tokens, cfg_overrides)={prev} "
-                f"artifact; refusing to overwrite with {now} even under --force - one tag "
-                f"holds one construct.")
+    # A forced rewrite must not leave a previous run's side files beside the new artifact.
+    for stale in ("census.json", "run_config.json"):
+        (d / stale).unlink(missing_ok=True)
     write_artifacts(d, arrays, report, meta, force=force)
-    written.append(d)
-
-    if with_census:
-        # Rebuild the same corruption the read used — deterministic in (world seed, dials),
-        # and geometry is draw-independent, so any draw's g/CONT reproduces it exactly.
-        world = regenerate_world(rc, sample_seed=held_out_sample_seed(int(seed)),
-                                 n_tokens=n_tokens)
-        corruption = build_corruption(world.g, world.CONT, dials, world_seed=int(seed), readout=mode)
-        cen = run_census(rc, corruption, seed, n_tokens=n_tokens, readout=mode,
-                         acts_mode=acts_mode)
+    (d / "run_config.json").write_text(json.dumps(run_config, indent=2), encoding="utf-8")
+    if cen is not None:
         (d / "census.json").write_text(json.dumps(cen, indent=2), encoding="utf-8")
-    print(f"[{toy} seed{seed} {dial_dirname(dials)} {mode}] wrote {d} "
+    print(f"[{toy} seed{seed} {dial_dirname(dials)} {readout}] wrote {d} "
           f"({report['secs']}s, sev_med={ex['realized_severity_median']:.3f}, "
-          f"fvu={ex['fvu']['scoring']:.3f}, flips={ex['support_flip_rate']['scoring']:.2e})")
-    return written
+          f"fvu={ex['fvu']['scoring']:.3f}, zeroed={ex['zeroed_rate']['scoring']:.2e})")
+    return [d]
 
 
 # CLI kind -> which knobs that damage takes. Each damage reads ONLY its own, so a `--beta`
 # passed to a split run is refused rather than silently ignored.
 DIALS_BY_KIND = {
     "absorption": (AbsorptionDials, ("beta", "eta", "edge_fraction")),
-    "split": (SplitDials, ("k", "skew", "fraction")),
-    "missing": (MissingDials, ("fraction",)),
-    "noise": (NoiseDials, ("sigma",)),
+    "hedging": (HedgingDials, ("gamma_rel", "edge_fraction")),
+    "split": (SplitDials, ("k", "roles", "skew", "fraction")),
+    "composition": (CompositionDials, ("pi", "fraction")),
 }
 
 
 def dials_from_args(args) -> object:
     """Build the damage's dials from the CLI, refusing knobs that belong to another damage.
 
-    Which knobs are REQUIRED is read off the dials dataclass rather than listed here: a knob
-    with no dataclass default must be supplied. That matters because `--fraction` is shared,
-    and it means opposite things - for `split` it selects which features to shard and 1.0 is
-    the sensible default, for `missing` it IS the dose and 1.0 deletes the entire dictionary.
-    A hand-maintained list gave it one default for both, so `--kind missing` with no
-    `--fraction` silently wrote a complete artifact over an empty scored frame.
+    Which knobs are REQUIRED is read off the dials dataclass: a field with no default must be
+    supplied, so a shared flag cannot inherit another damage's default.
     """
     cls, names = DIALS_BY_KIND[args.kind]
     required = {f.name for f in dataclasses.fields(cls)
@@ -205,7 +269,7 @@ def dials_from_args(args) -> object:
         if v is None:
             if n in required:
                 raise SystemExit(f"--kind {args.kind} requires --{n.replace('_', '-')}")
-            continue                       # not supplied and optional: take the dataclass default
+            continue
         kwargs[n] = v
     foreign = [n for k, (_c, ns) in DIALS_BY_KIND.items() if k != args.kind
                for n in ns if n not in names and getattr(args, n, None) is not None]
@@ -215,44 +279,43 @@ def dials_from_args(args) -> object:
     return cls(**kwargs)
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--toy", required=True)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--kind", default="absorption", choices=tuple(DIALS_BY_KIND))
-    # absorption
-    ap.add_argument("--beta", type=float)
-    ap.add_argument("--eta", type=float)
-    # every dial defaults to None so "not supplied" is distinguishable from "supplied as the
-    # default" - that is what makes both the required-knob check and the foreign-knob check work
-    ap.add_argument("--edge-fraction", type=float)
-    # split / missing
-    ap.add_argument("--k", type=int, help="shards per split feature")
-    ap.add_argument("--skew", type=float, help="0 = equal shard shares (default)")
+    # every dial defaults to None so "not supplied" is distinguishable from a default value
+    ap.add_argument("--beta", type=float, help="absorption: parent carry into the child row")
+    ap.add_argument("--eta", type=float, help="absorption: share of co-fire tokens holed")
+    ap.add_argument("--edge-fraction", type=float, help="absorption, hedging (default 1.0)")
+    ap.add_argument("--gamma-rel", type=float, help="hedging: mixing as a multiple of gamma*")
+    ap.add_argument("--k", type=int, help="split: shards per split feature")
+    ap.add_argument("--roles", nargs="+", choices=SPLIT_ROLES, help="split: roles to split")
+    ap.add_argument("--skew", type=float, help="split: 0 = equal shard shares (default)")
     ap.add_argument("--fraction", type=float,
-                    help="split: share of features sharded (default 1.0). "
-                         "missing: share of features DELETED - required, no default")
-    # noise
-    ap.add_argument("--sigma", type=float, help="cosine-scale decoder perturbation")
+                    help="split: share per role; composition: share of partner pairs "
+                         "(default 1.0)")
+    ap.add_argument("--pi", type=float, help="composition: share of co-firing tokens")
     ap.add_argument("--n-tokens", type=int, default=200_000)
     ap.add_argument("--tag", default="SYNTH-R1")
     ap.add_argument("--out", default="outputs_local/synthdict")
     ap.add_argument("--readout", default="identity", choices=READOUTS)
-    ap.add_argument("--acts-mode", default="ridge", choices=("ridge", "clean"))
     ap.add_argument("--n-roots", type=int, default=None,
-                    help="shrink the world (cheap local runs); recorded in resolved_config, so "
-                         "a shrunken world can never masquerade as the real toy")
+                    help="shrink the world (cheap local runs); recorded in resolved_config")
     ap.add_argument("--no-probe", action="store_true")
     ap.add_argument("--no-census", action="store_true")
     ap.add_argument("--force", action="store_true")
-    args = ap.parse_args()
+    return ap
 
+
+def main() -> None:
+    args = build_parser().parse_args()
     dials = dials_from_args(args)
     overrides = {"n_roots": args.n_roots} if args.n_roots is not None else None
     run_dial_point(args.toy, args.seed, dials, args.n_tokens, Path(args.out), args.tag,
-                   readout=args.readout,
-                   with_probe=not args.no_probe, with_census=not args.no_census,
-                   force=args.force, acts_mode=args.acts_mode, cfg_overrides=overrides)
+                   readout=args.readout, with_probe=not args.no_probe,
+                   with_census=not args.no_census, force=args.force, cfg_overrides=overrides)
 
 
 if __name__ == "__main__":
