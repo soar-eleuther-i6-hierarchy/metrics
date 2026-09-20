@@ -46,7 +46,6 @@ design_studies/
 synthdict/tests
 
 /KNOWN_BUGS.md
-/PRECOMMIT.md
 *.pdf
 scoring/MATCHING_METHODS.md
 synthdict/*.md
