@@ -1,136 +1,94 @@
-"""The eight literal predicates from `PRECOMMIT.md` s6, and conjunction over them.
+"""The two gate predicates, and conjunction over them.
 
 Every predicate returns `(mask, scorable)`:
 
-  `scorable`  the pair has a finite value AND the thresholds this predicate reads are usable.
+  `scorable`  the gate has a finite value for this pair, i.e. the rule could be evaluated.
   `mask`      the predicate is TRUE, and the pair is scorable. `mask` is always a subset of
               `scorable`, so `N_pass <= N_scorable` is an invariant, not a hope.
 
-Both defects the pilot evaluator had live here.
+WHAT WAS DELETED AND WHY. Eight quantile predicates lived here -- HIGH, NOT-HIGH, LOW, NOT-LOW,
+IN-BAND, SYM, FREQ-LOCAL, SURVIVES -- comparing each metric against a percentile of the
+unrelated-pair null. That rule cannot be carried to a real SAE. It accepts 1% of whatever
+population it is pointed at, which is a few hundred pairs on a 24-feature toy and millions on a
+16k-latent dictionary, so it stays computable and stops meaning anything. It also made the
+false-positive bar unfailable: the threshold was fitted on one half of the null and measured on
+the other, and two exchangeable halves put ~1% over a q99 cut by arithmetic, with conjunctions
+pushing that lower still. Only recall could ever fail. The replacement compares against FIXED
+constants instead, in `scoring/core/gates.py`.
+
+Both defects the pilot evaluator had still live here, and both are still guarded.
 
 1. NOT-HIGH was implemented as `~HIGH`. In IEEE arithmetic `NaN > q` is False, so `~(NaN > q)`
-   is TRUE: a pair with a MISSING score satisfied the negative clause. `superparent_v5` is
-   `LOW(wide) AND NOT-HIGH(pmi)`, so this was live on a registered rule. Every predicate here
-   is written literally and gated on finiteness instead.
+   is TRUE: a pair with a MISSING score satisfied the negative clause. `FAILS` is the
+   descendant of that clause and is written LITERALLY below, never as `~PASSES`. A gate is
+   tristate, so NaN must satisfy NEITHER predicate -- the whole reason gates carry a NaN state
+   is to say "no evidence", and `~PASSES` would convert every one of those into a confident
+   rejection.
 
 2. Scorability was taken from ONE metric for every expression. A conjunction is scorable only
    where every clause it contains is, which is why `evaluate` intersects the per-clause masks
    rather than taking a single finiteness vector from the caller.
 
-An unusable threshold (NaN, from calibration support below the floor) makes every pair
-UNSCORABLE. It must not make every comparison False and be reported as a rejection: "0/N
-rejected" and "no measurement exists" are different results.
+A predicate may only be applied to a REGISTERED GATE. `PASSES(coverage_R)` is shape-legal and
+would silently test whether a coverage exceeds 0.5 -- a plausible number answering a question
+nobody asked -- so `evaluate` refuses any clause naming something outside `GATE_NAMES`.
 """
 
 from __future__ import annotations
 
-import math
-
 import torch
 
-Thresholds = tuple[float | None, float | None]
+from scoring.core.gates import GATE_NAMES
 
-
-def _usable(x: float | None) -> bool:
-    return x is not None and isinstance(x, (int, float)) and math.isfinite(float(x))
+# A gate is {1.0, 0.0, NaN}. The comparison point sits between the two defined values rather
+# than at either of them, so neither `>=` nor `>` can be got wrong at a boundary that no gate
+# ever lands on.
+GATE_TRUE = 0.5
 
 
 def _finite(v: torch.Tensor) -> torch.Tensor:
     return torch.isfinite(v)
 
 
-def _gate(v: torch.Tensor, ok: bool) -> torch.Tensor:
-    """Scorable mask: finite value AND a usable threshold."""
-    f = _finite(v)
-    return f if ok else torch.zeros_like(f)
-
-
 # --------------------------------------------------------------------------
-# the predicates (PRECOMMIT.md s6). Strict/inclusive comparisons are frozen.
+# the predicates
 # --------------------------------------------------------------------------
-def high(v: torch.Tensor, th: Thresholds) -> tuple[torch.Tensor, torch.Tensor]:
-    """`m > Q99`. Needs only the upper threshold."""
-    s = _gate(v, _usable(th[1]))
-    return (s & (v > (th[1] if _usable(th[1]) else 0.0)), s)
+def passes(v: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """The gate holds. NaN (never measurable) is not a pass."""
+    s = _finite(v)
+    return (s & (v > GATE_TRUE), s)
 
 
-def not_high(v: torch.Tensor, th: Thresholds) -> tuple[torch.Tensor, torch.Tensor]:
-    """`m <= Q99`, written literally. NOT `~high`: that form passes on NaN."""
-    s = _gate(v, _usable(th[1]))
-    return (s & (v <= (th[1] if _usable(th[1]) else 0.0)), s)
+def fails(v: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """The gate does not hold, written literally. NOT `~passes`: that form passes on NaN.
 
-
-def low(v: torch.Tensor, th: Thresholds) -> tuple[torch.Tensor, torch.Tensor]:
-    """`m < Q01`. Needs only the lower threshold."""
-    s = _gate(v, _usable(th[0]))
-    return (s & (v < (th[0] if _usable(th[0]) else 0.0)), s)
-
-
-def not_low(v: torch.Tensor, th: Thresholds) -> tuple[torch.Tensor, torch.Tensor]:
-    """`m >= Q01`, written literally. Registered for completeness; no frozen rule uses it."""
-    s = _gate(v, _usable(th[0]))
-    return (s & (v >= (th[0] if _usable(th[0]) else 0.0)), s)
-
-
-def in_band(v: torch.Tensor, th: Thresholds) -> tuple[torch.Tensor, torch.Tensor]:
-    """`Q01 <= m <= Q99`, inclusive at both ends. Needs BOTH thresholds."""
-    ok = _usable(th[0]) and _usable(th[1])
-    s = _gate(v, ok)
-    lo, hi = (th[0], th[1]) if ok else (0.0, 0.0)
-    return (s & (v >= lo) & (v <= hi), s)
-
-
-def sym(v: torch.Tensor, th: Thresholds) -> tuple[torch.Tensor, torch.Tensor]:
-    """`|A| <= Q99(|A|)`.
-
-    The threshold passed in is Q99 of the ABSOLUTE asymmetry (see `registry.abs_asymmetry_R`).
-    Comparing the SIGNED score against it would accept every strongly negative asymmetry, i.e.
-    every reversed containment pair -- the opposite of a symmetry test.
+    `passes` and `fails` are complements only on the FINITE values. Over the whole tensor they
+    are not, and the gap is exactly the population a rule has no evidence about.
     """
-    s = _gate(v, _usable(th[1]))
-    return (s & (v.abs() <= (th[1] if _usable(th[1]) else 0.0)), s)
-
-
-def freq_local(v: torch.Tensor, tau: float) -> tuple[torch.Tensor, torch.Tensor]:
-    """`S < tau_surv`. A FIXED boundary, never a fitted quantile."""
     s = _finite(v)
-    return (s & (v < tau), s)
+    return (s & (v <= GATE_TRUE), s)
 
 
-def survives(v: torch.Tensor, tau: float) -> tuple[torch.Tensor, torch.Tensor]:
-    """`S >= tau_surv`. Equality is assigned here, not to FREQ-LOCAL (PRECOMMIT s6)."""
-    s = _finite(v)
-    return (s & (v >= tau), s)
-
-
-# Predicates keyed by their PRECOMMIT name. `basis` names the metric whose THRESHOLD the
-# predicate reads, given the metric whose VALUE it reads; `None` means it reads `tau_surv`
-# instead of a calibrated threshold.
 PREDICATES: dict[str, dict] = {
-    "HIGH": {"fn": high, "basis": lambda m: m},
-    "NOT-HIGH": {"fn": not_high, "basis": lambda m: m},
-    "LOW": {"fn": low, "basis": lambda m: m},
-    "NOT-LOW": {"fn": not_low, "basis": lambda m: m},
-    "IN-BAND": {"fn": in_band, "basis": lambda m: m},
-    "SYM": {"fn": sym, "basis": lambda m: f"abs_{m}"},
-    "FREQ-LOCAL": {"fn": freq_local, "basis": None},
-    "SURVIVES": {"fn": survives, "basis": None},
+    "PASSES": {"fn": passes},
+    "FAILS": {"fn": fails},
 }
 
 
 # --------------------------------------------------------------------------
 # conjunction
 # --------------------------------------------------------------------------
-def evaluate(clauses, vals: dict[str, torch.Tensor], thresholds: dict[str, Thresholds],
-             tau_surv: float) -> tuple[torch.Tensor, torch.Tensor, dict]:
-    """Evaluate a conjunction of `(PREDICATE, metric)` clauses.
+def evaluate(clauses, vals: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, dict]:
+    """Evaluate a conjunction of `(PREDICATE, gate)` clauses.
 
     Returns `(mask, scorable, per_clause)`. `scorable` is the intersection of the clauses'
-    scorable masks -- CLAUSE-SPECIFIC, which is the point: a pair with a finite `G` but a
-    missing PMI is not scorable for `C AND HIGH(G)` and must not be counted as a rejection.
+    scorable masks -- CLAUSE-SPECIFIC, which is the point: a pair with a finite
+    `gate_parent_of` but no probe is not scorable for a rule that reads `gate_sres_rank`, and
+    must not be counted as a rejection.
 
-    An unknown predicate or metric raises `KeyError` rather than being skipped: a typo in the
-    frozen registry would otherwise loosen a rule after the freeze with no visible change.
+    An unknown predicate, an unknown name, or a name that is not a registered gate raises
+    rather than being skipped: a typo in the frozen registry would otherwise loosen a rule
+    after the freeze with no visible change.
     """
     if not clauses:
         raise ValueError("an expression needs at least one clause")
@@ -138,22 +96,18 @@ def evaluate(clauses, vals: dict[str, torch.Tensor], thresholds: dict[str, Thres
     mask = torch.ones(n, dtype=torch.bool)
     scorable = torch.ones(n, dtype=torch.bool)
     per: dict[str, dict] = {}
-    for pred_name, metric in clauses:
+    for pred_name, gate in clauses:
         if pred_name not in PREDICATES:
             raise KeyError(f"unknown predicate {pred_name!r} in a registered expression")
-        if metric not in vals:
-            raise KeyError(f"unknown metric {metric!r} in a registered expression")
-        spec = PREDICATES[pred_name]
-        v = vals[metric]
-        if spec["basis"] is None:
-            m, s = spec["fn"](v, tau_surv)
-        else:
-            basis = spec["basis"](metric)
-            if basis not in thresholds:
-                raise KeyError(f"no threshold fitted for {basis!r} (needed by "
-                               f"{pred_name}({metric}))")
-            m, s = spec["fn"](v, thresholds[basis])
-        key = f"{pred_name}({metric})"
+        if gate not in GATE_NAMES:
+            raise KeyError(
+                f"{pred_name}({gate}) names {gate!r}, which is not a registered gate. A "
+                f"predicate applied to a METRIC compares a score against {GATE_TRUE}, which is "
+                f"a number but not a decision.")
+        if gate not in vals:
+            raise KeyError(f"the read did not produce gate {gate!r}")
+        m, s = PREDICATES[pred_name]["fn"](vals[gate])
+        key = f"{pred_name}({gate})"
         per[key] = {"n_scorable": int(s.sum()), "n_pass": int(m.sum())}
         mask = mask & m
         scorable = scorable & s

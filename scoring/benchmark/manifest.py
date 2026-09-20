@@ -36,9 +36,11 @@ import json
 from pathlib import Path
 
 from scoring.benchmark.registry import (BAR_CONFOUND_LEAK, BAR_EVAL_NULL_FPR, BAR_RECALL,
-                                        CAL_SPLIT_SEED, CONSTANT_TOL, DESIGNATED, EXPRESSIONS,
-                                        METRICS, MIN_CAL_SUPPORT, MIN_SCORABLE_SUPPORT,
-                                        NULL_CLASS, Q_HI, Q_LO, REPORT_SCHEMA, TAU_SURV)
+                                        CONSTANT_TOL, DESIGNATED, EXPRESSIONS, GATES,
+                                        METRICS, MIN_SCORABLE_SUPPORT, NULL_CLASS,
+                                        REPORT_SCHEMA)
+from scoring.core.gates import GATE_CONSTANT_KEYS
+from scoring.core.registry import CONSTANTS
 
 FROZEN_DOC = "PRECOMMIT.md"
 MANIFEST_NAME = "MANIFEST.json"
@@ -148,12 +150,18 @@ def build_manifest(tag: str, seeds: list[int], toys: list[str],
                      for name, spec in EXPRESSIONS.items()},
         "designated_rules": list(DESIGNATED),
         "metrics": list(METRICS),
+        # The gates and the constants they compare against. With nothing fitted, this pair IS
+        # the decision rule: a retuned constant changes every verdict and would otherwise be
+        # invisible to the freeze check. `verify_manifest` compares both beside `metrics`.
+        "gates": list(GATES),
         "settings": {
-            "q": [Q_LO, Q_HI],
-            "quantile_interpolation": "linear",
-            "tau_surv": TAU_SURV,
-            "min_cal_support": MIN_CAL_SUPPORT,
-            "cal_split_seed": CAL_SPLIT_SEED,
+            # `q` / `quantile_interpolation` / `tau_surv` / `min_cal_support` /
+            # `cal_split_seed` are gone with the quantile rule -- see registry REPORT_SCHEMA 3.
+            # The SAME list the artifacts stamp (`scoring.core.gates.GATE_CONSTANT_KEYS`), not
+            # a second copy: two lists would let an eighth constant land in the freeze record
+            # and not in the provenance, or the other way round, with each side complete.
+            "gate_constants": {k: CONSTANTS[k] for k in GATE_CONSTANT_KEYS},
+            "null_population": "the WHOLE null; nothing is fitted, so there is no split",
             "constant_tol": CONSTANT_TOL,
             "null_class": NULL_CLASS,
             "bars": {"recall_given_recovery": BAR_RECALL,
@@ -163,10 +171,10 @@ def build_manifest(tag: str, seeds: list[int], toys: list[str],
             # An unscorable TARGET pair is a miss; an unscorable NULL or CONFOUND pair must not
             # dilute a rate into compliance. See scoring/benchmark/evaluate.py's docstring.
             "recall_denominator": "N_recovered",
-            "fpr_denominator": "N_scorable within the evaluation-half null",
+            "fpr_denominator": "N_scorable within the whole null",
             "leak_denominator": "N_scorable within each confound class",
             "min_scorable_support": MIN_SCORABLE_SUPPORT,
-            "support_floor_applies_to": ["target", "evaluation-half null", "each confound"],
+            "support_floor_applies_to": ["target", "null", "each confound"],
             "scoring_precision": "float64",
         },
         "checkpoints": checkpoint_pins(toys, seeds),
@@ -250,6 +258,10 @@ def verify_manifest(out: Path, manifest: dict) -> dict:
         problems.append("designated_rules in the freeze record disagrees with the code")
     if manifest.get("metrics") != live["metrics"]:
         problems.append("metrics in the freeze record disagrees with the code")
+    # Beside `metrics`, not folded into it: a gate is a DECISION and a metric is a score, and a
+    # record that still lists the old rule set must say so in those words.
+    if manifest.get("gates") != live["gates"]:
+        problems.append("gates in the freeze record disagrees with the code")
     for k, want in live["settings"].items():
         got = manifest.get("settings", {}).get(k, "<absent>")
         if got != want:
@@ -333,7 +345,11 @@ def verify_manifest(out: Path, manifest: dict) -> dict:
         o, t = got.get("oracle"), got.get("trained")
         if not (o and t):
             continue
-        for key in ("scoring_sample_seed", "null_split_sha256", "n_tokens",
+        # `null_split_sha256` was here and is gone with the split. It was not merely unused --
+        # both sides read `None`, so the comparison passed for every pair of reads and looked
+        # like a check that was being made. `gate_constants` replaces it: it is now the thing
+        # that must match for two reads to be comparable, because it IS the decision rule.
+        for key in ("scoring_sample_seed", "gate_constants", "n_tokens",
                     "probe_fit_sample_seed"):
             if o.get(key) != t.get(key):
                 problems.append(

@@ -15,8 +15,8 @@ beside them still describing seed 0, with nothing in the tree to reveal the mism
 discipline had already failed once, so this refuses to overwrite an existing artifact without
 `--force`, mirroring `training/train_toy.py`'s checkpoint guard.
 
-The trained read additionally passes a HARNESS GATE before anything is written: the nine
-non-`s_res` detectors must reproduce the checkpoint's own saved scoring arrays element-wise,
+The trained read additionally passes a HARNESS GATE before anything is written: the detectors
+in `GATE_DETECTORS` must reproduce the checkpoint's own saved scoring arrays element-wise,
 including length and finite-pattern equality. Agreement pins the matcher, the recovered
 universe, the held-out draw and the pair ordering to the saved run. A failure aborts; it is not
 a warning, because every downstream number would be computed on a different universe.
@@ -38,13 +38,24 @@ from scoring.benchmark import calibrate as C
 from scoring.benchmark import evaluate as E
 from scoring.benchmark import manifest as M
 from scoring.benchmark import reads as RD
-from scoring.benchmark.registry import (CAL_SPLIT_SEED, DESIGNATED, EXPRESSIONS, METRICS,
-                                        MIN_CAL_SUPPORT, MIN_SCORABLE_SUPPORT, NULL_CLASS,
-                                        Q_HI, Q_LO, REPORT_SCHEMA, TAU_SURV, TOYS)
-from scoring.core.registry import DETECTORS
+from scoring.benchmark.registry import (DESIGNATED, EXPRESSIONS, GATES, METRICS,
+                                        MIN_SCORABLE_SUPPORT, NULL_CLASS, REPORT_SCHEMA, TOYS)
+from scoring.core.gates import GATE_CONSTANT_KEYS, GATE_SOURCES
+from scoring.core.registry import CONSTANTS
 from toygen import labels
 
 GATE_TOL = 1e-5          # the saved trained arrays are stored float32
+
+# The detectors the checkpoint's saved scoring arrays actually contain, named rather than
+# derived from `DETECTORS`. A detector added AFTER those arrays were written has no saved
+# counterpart, so the key lookup misses it; derived from `DETECTORS` the gate would simply
+# compare fewer things and still print OK. It only errors at ZERO comparable keys today, so
+# going from thirteen detectors to ten would be invisible. Every name here must contribute at
+# least one key or the gate aborts.
+GATE_DETECTORS: tuple[str, ...] = (
+    "coverage_R", "asymmetry_R", "joint_child_J", "pmi", "token_freq_survival",
+    "recon_2a", "sibling_redundancy", "joint_child_mass", "outdegree",
+)
 REQUIRED_META = ("toy", "seed", "read", "n_tokens", "s_res_mode", "freeze_tag",
                  "git_sha", "git_dirty", "checkpoint", "checkpoint_weights_sha256")
 
@@ -154,18 +165,21 @@ def gate_max_diff(a: torch.Tensor, b: torch.Tensor) -> float:
 
 
 def harness_gate(read: RD.Read, saved_path: Path, tol: float = GATE_TOL) -> dict:
-    """Hold the nine non-`s_res` detectors to the checkpoint's own saved arrays, element-wise.
+    """Hold the `GATE_DETECTORS` to the checkpoint's own saved arrays, element-wise.
 
     `s_res` is excluded: the saved run used PROBE mode and this run computes cosine and probe
-    separately under different names. The other nine share identical inputs, so agreement pins
-    the matcher, the recovered universe, the held-out draw and the pair ordering. Hard abort.
+    separately under different names. The rest share identical inputs, so agreement pins the
+    matcher, the recovered universe, the held-out draw and the pair ordering. Hard abort.
+
+    Every detector in `GATE_DETECTORS` must contribute at least one comparable key. Without
+    that, a detector renamed or added since the reference was written drops out of the
+    comparison in silence and the gate still reports OK over whatever remains.
     """
     saved = np.load(saved_path, allow_pickle=True)
     worst, where = 0.0, ""
     checked = 0
-    for det in DETECTORS:
-        if det == "s_res":
-            continue
+    per_det = {d: 0 for d in GATE_DETECTORS}
+    for det in GATE_DETECTORS:
         vals = read.vals[det]
         for name in labels.LABELS:
             key = f"{det}__{name}"
@@ -175,49 +189,62 @@ def harness_gate(read: RD.Read, saved_path: Path, tol: float = GATE_TOL) -> dict
             theirs = torch.from_numpy(saved[key].astype(np.float64))
             d = gate_max_diff(mine, theirs)
             checked += 1
+            per_det[det] += 1
             if d > worst:
                 worst, where = d, key
-    if checked == 0:
-        raise AssertionError(f"harness gate found no comparable keys in {saved_path}; "
-                             f"a silently skipped gate is not a passed gate")
+    # This subsumes the older `checked == 0` abort, which is why that one is gone rather than
+    # kept beside it. `per_det` is initialised from a non-empty `GATE_DETECTORS`, so zero
+    # comparisons implies every detector is absent and this raises first -- the old branch was
+    # unreachable, and a mutation harness cannot kill a branch nothing reaches. A silently
+    # skipped gate is not a passed gate, and now neither is a partially skipped one.
+    absent = [d for d, n in per_det.items() if n == 0]
+    if absent:
+        raise AssertionError(
+            f"harness gate found no comparable keys for {absent} in {saved_path}. A detector "
+            f"the gate cannot see is a detector the gate does not check, and the remaining "
+            f"{checked} comparisons would still have printed OK.")
     if not worst <= tol:
         raise AssertionError(
             f"HARNESS GATE FAILED at {where}: max diff {worst:.3e} > {tol:.0e}. The universe, "
             f"matcher or held-out draw does not reproduce the saved run, so every number "
-            f"downstream would be computed on a different population.")
+            f"downstream would be computed on a different population.\n"
+            f"BEFORE debugging the matcher: an INFINITE diff on coverage_R, asymmetry_R or pmi "
+            f"against a reference written before the scorability mask is EXPECTED and is not a "
+            f"matcher problem. `detectors.MASKED_DETECTORS` NaNs those three below the support "
+            f"floor, so their finite pattern legitimately differs from any pre-mask array.\n"
+            f"A regenerated reference does NOT revalidate the mask -- it comes from the same "
+            f"masked `compute_all`, so the gate would then be comparing this code with itself, "
+            f"which is the one thing it exists to rule out. Regenerating restores the gate for "
+            f"FUTURE runs only. That the mask changes exactly these three detectors and no "
+            f"others is pinned separately, by "
+            f"tests_local/test_detector_mask.py::test_a_pre_mask_reference_aborts_the_harness_gate.")
     return {"gate_max_diff": worst, "gate_worst_key": where, "gate_keys_checked": checked,
-            "gate_reference": str(saved_path)}
+            "gate_detectors": list(GATE_DETECTORS), "gate_reference": str(saved_path)}
 
 
 # --------------------------------------------------------------------------
 # one read, end to end
 # --------------------------------------------------------------------------
-def run_read(read: RD.Read, cal_split_seed: int = CAL_SPLIT_SEED) -> tuple[dict, dict]:
-    """Calibrate, evaluate, and assemble the report + the arrays to persist."""
-    assignment = C.null_split_assignment(read.pair_labels, seed=cal_split_seed,
-                                         null_class=NULL_CLASS)
-    cal_mask, ev_mask, unassigned = C.split_masks(read.pairs, read.feats, assignment)
+def run_read(read: RD.Read) -> tuple[dict, dict]:
+    """Evaluate, and assemble the report + the arrays to persist.
+
+    Nothing is calibrated: every rule compares a gate against a fixed constant, so there is no
+    threshold to fit, no calibration half, and the false-positive rate is measured over the
+    WHOLE null population.
+    """
     vals = {m: read.vals[m] for m in METRICS}
-    thresholds = C.fit_thresholds(vals, cal_mask, MIN_CAL_SUPPORT, Q_LO, Q_HI)
-    cal_support = C.calibration_support(vals, cal_mask)
-    eval_null_idx = [i for i in range(len(read.pairs)) if bool(ev_mask[i])]
-    cal_null_idx = [i for i in range(len(read.pairs)) if bool(cal_mask[i])]
-    # Fingerprint of the assignment itself. `cal_split_seed` alone does not prove two reads used
-    # the same split: `torch.randperm(n)` is not prefix-stable, so any drift in the world's
-    # feature count reshuffles everything (measured: F 240 -> 239 moves 50% of shared keys).
-    # With this in each artifact, "the two reads shared a split" is checkable, not asserted.
-    split_sha = hashlib.sha256(
-        ",".join(f"{a}:{b}:{int(v)}" for (a, b), v in sorted(assignment.items()))
-        .encode()).hexdigest()
+    gate_vals = {g: read.gate_vals[g] for g in GATES}
+    null = C.null_mask(read.pairs, read.feats, read.pair_labels, NULL_CLASS)
+    eval_null_idx = [i for i in range(len(read.pairs)) if bool(null[i])]
 
     in_universe = read.recovered
     n_total = RD.class_totals(read.pair_labels)
     n_recovered = RD.class_recovered(read.pair_labels, in_universe)
 
-    exprs = E.evaluate_read(vals, read.y, thresholds, n_total, eval_null_idx,
-                            EXPRESSIONS, TAU_SURV,
-                            probe_available=(read.s_res_mode == "probe"),
-                            cal_null_idx=cal_null_idx)
+    # The gates are what the clauses read; the metrics ride along for the diagnostics. They are
+    # merged only here, at the call, so `Read` keeps them in separate fields.
+    exprs = E.evaluate_read(vals | gate_vals, read.y, n_total, eval_null_idx,
+                            EXPRESSIONS, probe_available=(read.s_res_mode == "probe"))
     # `class_counts` counts recovered pairs from the SCORED frame; cross-check it against the
     # answer key so a pair-frame bug cannot agree with itself.
     for name, c in next(iter(exprs.values()))["counts"].items():
@@ -231,29 +258,37 @@ def run_read(read: RD.Read, cal_split_seed: int = CAL_SPLIT_SEED) -> tuple[dict,
                              scorables={k: v["_scorable"] for k, v in exprs.items()})
     expr_masks = {k: v.pop("_mask") for k, v in exprs.items()}      # not JSON-serialisable
     expr_scorable = {k: v.pop("_scorable") for k, v in exprs.items()}
-    # Each metric's `constant_target` needs a target, and a metric can appear in rules with
-    # different targets; use the first designated rule that reads it, which is the one whose
+    # Each metric's `constant_target` needs a target, and a metric can appear under rules with
+    # different targets; use the first designated rule that reaches it, which is the one whose
     # verdict the flag will sit beside.
+    #
+    # The clauses name GATES now, so the target reaches a metric through `GATE_SOURCES` -- the
+    # gate is tagged directly and the metrics it decides on inherit that tag. Reading the clause
+    # names alone would leave every METRIC untagged and `constant_target` `None` throughout,
+    # which is how the degenerate-separation flag stops firing without anything looking wrong.
     metric_target: dict[str, tuple[str, ...]] = {}
     for ename in DESIGNATED:
-        for _pred, m in EXPRESSIONS[ename]["clauses"]:
-            metric_target.setdefault(m, EXPRESSIONS[ename]["target"])
+        target = EXPRESSIONS[ename]["target"]
+        for _pred, g in EXPRESSIONS[ename]["clauses"]:
+            metric_target.setdefault(g, target)
+            for m in GATE_SOURCES.get(g, ()):
+                metric_target.setdefault(m, target)
 
     report = {
         "toy": read.toy, "seed": read.seed, "read": read.read, "n_tokens": read.n_tokens,
         "s_res_mode": read.s_res_mode,
         "F": read.F, "n_recovered_features": read.n_recovered,
         "n_pairs": len(read.pairs),
-        "n_cal_null": int(cal_mask.sum()), "n_eval_null": int(ev_mask.sum()),
-        "n_not_null": int(unassigned.sum()),
-        "cal_split_seed": cal_split_seed,
+        "n_null": int(null.sum()), "n_not_null": int((~null).sum()),
         "class_totals": n_total, "class_recovered": n_recovered,
-        "thresholds": {k: {"q01": v[0], "q99": v[1], "n_cal_finite": cal_support[k]}
-                       for k, v in thresholds.items()},
-        "metric_diagnostics": E.metric_diagnostics(vals, read.y, eval_null_idx,
-                                                   thresholds, cal_support,
+        # The gates are diagnosed beside the metrics: a rule that fires on nothing and a gate
+        # that is NaN everywhere look the same in a verdict and are different problems.
+        "metric_diagnostics": E.metric_diagnostics(vals | gate_vals, read.y, eval_null_idx,
                                                    targets=metric_target),
-        "null_split_sha256": split_sha,
+        # How much of the frame the scorability guard removed. A first-class number: it is the
+        # difference between "the rules rejected these pairs" and "the rules could not see
+        # them", and only one of those is a result.
+        "support": read.extra.get("support"),
         "expressions": exprs,
         "rule_overlap": overlap,
         "extra": {k: v for k, v in read.extra.items()
@@ -263,14 +298,20 @@ def run_read(read: RD.Read, cal_split_seed: int = CAL_SPLIT_SEED) -> tuple[dict,
         "pairs": np.array(read.pairs, dtype=np.int32),
         "feats": np.array(read.feats, dtype=np.int32),
         "y": read.y.numpy().astype(np.int8),
-        # 0 = not null, 1 = calibration, 2 = evaluation
-        "split": (cal_mask.numpy().astype(np.int8) + 2 * ev_mask.numpy().astype(np.int8)),
+        # 0 = not null, 1 = null. Was three-valued (1 = calibration, 2 = evaluation) until the
+        # split collapsed; a schema-2 artifact's 2s therefore still read as "in the null".
+        "split": null.numpy().astype(np.int8),
         "recovered": in_universe.numpy(),
     }
     # Original precision, every metric an expression can read, so a borderline decision is
     # reproducible without re-deriving it from a rounded cache (PRECOMMIT s7).
     for m in METRICS:
         arrays[m] = vals[m].numpy()
+    # The gates as float64 tristates, NOT as bools: a bool array cannot carry the NaN that says
+    # "never measurable", and reading one back would turn every unmeasurable pair into a
+    # rejection -- the defect this whole change exists to remove.
+    for g in GATES:
+        arrays[g] = gate_vals[g].numpy().astype(np.float64)
     # Per-expression pass masks, so a decision can be reproduced without re-deriving it from
     # the scores (PRECOMMIT s7 box 3: "sufficient scorable/pass masks").
     for name, m in expr_masks.items():
@@ -343,8 +384,8 @@ def _cross_world_main(args) -> None:
                     # Pooling across differing settings would mix incomparable numbers, so the
                     # settings that decide a verdict are fingerprinted and required to match.
                     "settings_sha256": hashlib.sha256(json.dumps(
-                        {k: meta.get(k) for k in ("tau_surv", "q", "min_cal_support",
-                                                  "min_scorable_support", "cal_split_seed")},
+                        {k: meta.get(k) for k in ("gates", "gate_constants",
+                                                  "min_scorable_support")},
                         sort_keys=True, default=str).encode()).hexdigest()[:16],
                     "expressions": blob.get("expressions") or {},
                 })
@@ -461,11 +502,14 @@ def main() -> None:
                            default=str).encode()).hexdigest(),
             "freeze_tag": args.tag, "checkpoint": ckpt,
             "checkpoint_weights_sha256": checkpoint_weights_sha256(ckpt),
-            "cal_split_seed": CAL_SPLIT_SEED, "tau_surv": TAU_SURV,
-            "q": [Q_LO, Q_HI], "min_cal_support": MIN_CAL_SUPPORT,
+            # The rules and the constants they compare against. These replace the old
+            # `q` / `tau_surv` / `min_cal_support` / `cal_split_seed` settings: with nothing
+            # fitted, WHICH CONSTANT was used is the whole of what decided a pass.
+            "gates": list(GATES),
+            "gate_constants": {k: CONSTANTS[k] for k in GATE_CONSTANT_KEYS},
             "min_scorable_support": MIN_SCORABLE_SUPPORT,
             "scoring_precision": "float64",
-            "null_split_sha256": report.get("null_split_sha256"),
+            "support": report.get("support"),
             # BOTH reads score the held-out draw as of B2.1. Read off the Read rather than
             # branched on `read.read`, so the recorded number is the one that was actually used.
             "scoring_sample_seed": read.extra.get("scoring_sample_seed"),

@@ -13,19 +13,28 @@ score and threshold that expression actually reads is available. The pilot evalu
 every rule on one metric's finiteness, which is why unscorable pairs were reported as
 rejections (`PRECOMMIT.md` s7).
 
+METRICS AND GATES ARE DIFFERENT THINGS AND ARE KEPT APART. A metric is a continuous score; a
+gate is a fixed-threshold DECISION about a pair, tristate over {1.0, 0.0, NaN}. Expressions read
+GATES only -- `predicates.evaluate` refuses a clause naming a metric, because applying `PASSES`
+to a coverage would compare it against 0.5 and produce a plausible number answering no question.
+Metrics are still computed, persisted at full precision and reported in `metric_diagnostics`;
+they are simply no longer what a rule decides on.
+
 Metric names are the benchmark's own, not `compute_all`'s internal keys:
   `G`      decoder cosine -- `G_g` on the oracle read (true `g`), `G_W` on the trained read
            (learned `W_dec`). PRECOMMIT s5: cosine-mode `s_res` is exported as G and must NOT
            populate the probe comparator rows.
   `S_res`  the Tree-SAE linear probe (`probe_true_g` oracle, `probe_self_W` trained).
   `wide`   `min(outdegree[p,c], outdegree[c,p])`, the either-endpoint transformation.
-  `abs_asymmetry_R`  `|asymmetry_R|`, registered separately so SYM's threshold is fitted on the
-           absolute distribution rather than the signed one.
-The remaining nine are the registry names from `scoring.core.registry.DETECTORS`.
+  `abs_asymmetry_R`  `|asymmetry_R|`, registered separately. It was added so SYM's threshold
+           could be fitted on the absolute distribution; SYM is gone, and it is kept as a
+           reported metric because the artifacts carry it.
+The rest are the registry names from `scoring.core.registry.DETECTORS`.
 """
 
 from __future__ import annotations
 
+from scoring.core.gates import GATE_NAMES
 from scoring.core.registry import DETECTORS
 
 # --------------------------------------------------------------------------
@@ -42,16 +51,30 @@ from scoring.core.registry import DETECTORS
 #      and `fpr_over_half`; `leakage` explicitly on the scorable rate with
 #      `leakage_over_recovered` beside it; the support floor extended to the evaluation-null and
 #      confound rows; established failures ordered ahead of unmeasurable evidence in `verdict`.
+#   3  the fixed-gate contract. Every rule decides on a GATE against a fixed constant rather
+#      than a null quantile, so the null is no longer halved and `fpr_given_scorable` is
+#      measured over the WHOLE null instead of an evaluation half; `fpr_over_half` is gone.
+#      `pmi`, `coverage_R` and `asymmetry_R` additionally carry the scorability mask. The key
+#      names did not change and the arithmetic under them did, which is what this number exists
+#      to make visible.
 #
 # This exists because `recall_given_recovery` KEPT ITS NAME and CHANGED ITS ARITHMETIC, and a
 # schema-1 artifact is on disk. Pooling one of those under the new names is a silent denominator
 # mix -- the exact class of error this package exists to prevent -- so the cross-world rollup and
 # `verify_manifest` REQUIRE this value rather than defaulting it.
-REPORT_SCHEMA = 2
+REPORT_SCHEMA = 3
 
-Q_LO, Q_HI = 0.01, 0.99      # null quantiles, linear interpolation
-TAU_SURV = 0.25              # token_freq_survival boundary; equality assigned to SURVIVES
-MIN_CAL_SUPPORT = 200        # floor on FINITE calibration scores; below it, no threshold
+# `Q_LO`/`Q_HI`, `TAU_SURV`, `MIN_CAL_SUPPORT` and `CAL_SPLIT_SEED` are GONE. Nothing is fitted
+# any more: every rule compares against a constant in `scoring.core.registry.CONSTANTS`, so
+# there is no calibration half, no quantile and no fitted boundary. `TAU_SURV = 0.25` in
+# particular is replaced by `gates.squash(CONSTANTS["freq_survival_min_raw"])` = 0.333, which is
+# `config.FREQ_SURVIVAL_MIN` put through the transform the detector reports its ratio under.
+#
+# The null is no longer halved either. The split existed so a threshold fitted on one half
+# could be measured on the other; with nothing fitted the calibration half has no job, and the
+# false-positive rate is measured on the WHOLE null. Do not re-introduce a split "for holdout" --
+# there is nothing left to leak.
+
 # Floor on FINITE SCORABLE TARGET pairs before a recall may carry a verdict. Without one,
 # MET CRITERIA is reachable off a single pair -- an adversarial review built a superparent
 # target with N_scorable=1, N_pass=1 and got recall 1.000 and MET CRITERIA. PRECOMMIT s8
@@ -60,7 +83,6 @@ MIN_CAL_SUPPORT = 200        # floor on FINITE calibration scores; below it, no 
 # (scoring/oracle/score_dump.py:_MIN_TABLE_N) and changes no seed-0 verdict: the smallest
 # scorable target there is 54.
 MIN_SCORABLE_SUPPORT = 10
-CAL_SPLIT_SEED = 0           # frozen partition seed for the calibration/evaluation null split
 
 # The three draws of one experiment seed, kept distinct so no two share sampling noise:
 #   seed          the MATCHING draw (trained read only: the Hungarian matcher runs here)
@@ -81,7 +103,7 @@ NULL_CLASS = "unrelated"
 # Operating criteria (PRECOMMIT.md s8). Proposed bars, not mathematical guarantees; they are
 # not loosened because a rule fails.
 BAR_RECALL = 0.80            # recall given recovery, >=
-BAR_EVAL_NULL_FPR = 0.01     # evaluation-half null FPR in each tested world, <=
+BAR_EVAL_NULL_FPR = 0.01     # null FPR in each tested world, <=  (whole null as of schema 3)
 BAR_CONFOUND_LEAK = 0.05     # each named complete-expression confound rate, <=
 
 # --------------------------------------------------------------------------
@@ -95,56 +117,114 @@ METRICS: tuple[str, ...] = tuple(d for d in DETECTORS if d != "s_res") + DERIVED
 # the other, and PRECOMMIT s5 requires those to stay separately named (`G` vs `S_res`).
 
 # --------------------------------------------------------------------------
-# the eight frozen expressions (PRECOMMIT.md s4)
+# gates
 # --------------------------------------------------------------------------
-C: tuple[tuple[str, str], ...] = (
-    ("HIGH", "coverage_R"), ("HIGH", "asymmetry_R"), ("HIGH", "pmi"),
-)
+# The fixed-threshold decisions the expressions are built from. Sourced from
+# `scoring.core.gates` rather than re-listed, so a gate cannot exist in one place and not the
+# other. Disjointness from METRICS is asserted rather than assumed: a name in both would let a
+# clause read a score where it meant to read a decision, and every value involved is a float.
+GATES: tuple[str, ...] = GATE_NAMES
+assert not set(METRICS) & set(GATES), (
+    f"a name is registered as both a metric and a gate: {sorted(set(METRICS) & set(GATES))}")
 
+# --------------------------------------------------------------------------
+# the eight expressions, rebuilt on gates
+# --------------------------------------------------------------------------
+# WHAT CHANGED AND WHY, because the targets are unchanged and the clauses are not.
+#
+# `C` is gone. It was `HIGH(coverage_R) AND HIGH(asymmetry_R) AND HIGH(pmi)`, and the first two
+# of those are exactly what `metrics.in_block.directed_coverage` decides at a fixed tau:
+# containment one way (`R >= tau`) and NOT the other (`R_reverse < tau`), on a supported pair.
+# That is `gate_parent_of`, one clause in place of two.
+#
+# PMI HAS NO GATE, so the PMI clause has no successor and is simply gone from every rule.
+# `metrics/` computes PMI (`independence_null.py`) but thresholds it nowhere, and `config.py`
+# carries no PMI constant. It is still computed, persisted and reported as a metric; it no
+# longer decides anything. The clause rejected frequent-parent base-rate coverage, and what
+# now does that work is the support guard plus the fixed tau -- less of it, and the leak rates
+# say how much less.
+#
+# THE GEOMETRY CHANNEL IS NOW THE PROBE ONLY. The quantile rules had two: `G` (decoder cosine)
+# and `S_res` (the Tree-SAE probe). No fixed cosine threshold exists anywhere -- not in
+# `config.py`, not in `metrics/`, and `scoring/trained/absorption.py`'s `null_cos_threshold` is
+# itself a permutation quantile -- so the G clauses have no fixed-threshold form. All four
+# geometry rules therefore read `gate_sres_rank`, Tree SAE's top-k rank rule, which carries no
+# numeric threshold at all. The consequence is that four rules now need the probe instead of
+# two; `PROBE_EXPRESSIONS` records it, so a `--no-probe` run marks them INVALID MEASUREMENT
+# rather than reading an absent probe as a rejection.
+#
+# The `v6` / `v5` / `v3` suffixes are kept so an artifact written under the quantile rule and one
+# written under the gates are comparable by NAME across the schema bump, which is what
+# `REPORT_SCHEMA` is for. The rules are not the same rules.
 EXPRESSIONS: dict[str, dict] = {
     "overlap_v6": {
+        # The full metrics/ cascade: coverage direction, then the reconstruction contribution
+        # filter, then Tree SAE's refinement rank.
         "target": ("is_a",),
-        "clauses": C + (("HIGH", "G"),),
-        "text": "C AND HIGH(G)",
+        "clauses": (("PASSES", "gate_parent_of"), ("PASSES", "gate_recon"),
+                    ("PASSES", "gate_sres_rank")),
+        "text": "PASSES(parent_of) AND PASSES(recon) AND PASSES(sres_rank)",
     },
     "orthogonal_v6": {
+        # Same containment and the same reconstruction mass, but the parent decoder does NOT
+        # rank against the child's concept: co-firing without refinement.
         "target": ("firing_only",),
-        "clauses": C + (("IN-BAND", "G"),),
-        "text": "C AND IN-BAND(G)",
+        "clauses": (("PASSES", "gate_parent_of"), ("PASSES", "gate_recon"),
+                    ("FAILS", "gate_sres_rank")),
+        "text": "PASSES(parent_of) AND PASSES(recon) AND FAILS(sres_rank)",
     },
     "superparent_v5": {
+        # One clause, because `metrics.outdegree.find_superparents` is one clause: the flag is
+        # on out-degree ALONE, with the firing rate demoted to a reported attribute after the
+        # AND-gate was found to miss high-fanout low-firing parents. The deleted
+        # `NOT-HIGH(pmi)` half has no gated successor.
         "target": ("superparent",),
-        "clauses": (("LOW", "wide"), ("NOT-HIGH", "pmi")),
-        "text": "LOW(wide) AND NOT-HIGH(pmi)",
+        "clauses": (("PASSES", "gate_superparent"),),
+        "text": "PASSES(superparent)",
     },
     "frequency_v6": {
+        # A directed containment that does not survive conditioning away the frequent tokens.
         "target": ("frequency",),
-        "clauses": (("HIGH", "pmi"), ("FREQ-LOCAL", "token_freq_survival")),
-        "text": "HIGH(pmi) AND FREQ-LOCAL(S)",
+        "clauses": (("PASSES", "gate_parent_of"), ("FAILS", "gate_freq_survives")),
+        "text": "PASSES(parent_of) AND FAILS(freq_survives)",
     },
     "topical_v6": {
+        # Directed containment that DOES survive conditioning the frequent tokens away -- the
+        # exact complement of `frequency_v6` within `gate_parent_of`, which is what separates a
+        # topic-caused container from a token-caused one.
+        #
+        # It read `PASSES(gate_duplicate)` until 2026-09-19 and scored 0 recall at the oracle
+        # ceiling: duplicate needs coverage >= tau in BOTH directions, and the toy plants a
+        # register at 0.9 with members at 0.32, so no topical pair is ever a duplicate. No tau
+        # rescues that -- any cut below 0.32 also makes every is_a pair a duplicate. Measured at
+        # the ceiling, the register->member pairs pass `gate_parent_of` and `gate_freq_survives`
+        # 100%, while the frequency class fails survival 100%. PRECOMMIT.md s4.
+        #
+        # `metrics.independence_null` states that topical co-occurrence passes both PMI and Dev
+        # and needs a model-based co-occurrence null that is not implemented, so this is the most
+        # the fixed gates can say about it.
         "target": ("topical",),
-        "clauses": (("HIGH", "pmi"), ("SURVIVES", "token_freq_survival"),
-                    ("SYM", "asymmetry_R")),
-        "text": "HIGH(pmi) AND SURVIVES(S) AND SYM(asymmetry_R)",
+        "clauses": (("PASSES", "gate_parent_of"), ("PASSES", "gate_freq_survives")),
+        "text": "PASSES(parent_of) AND PASSES(freq_survives)",
     },
     "containment_baseline": {
         # Generated direct containment = is_a UNION firing_only. The two primary code labels
         # stay separate in every table; only this baseline's target row combines them.
         "target": ("is_a", "firing_only"),
-        "clauses": C,
-        "text": "C",
+        "clauses": (("PASSES", "gate_parent_of"),),
+        "text": "PASSES(parent_of)",
     },
     "probe_overlap_v3": {
-        # NOT C: the historical probe comparator has no PMI clause. PRECOMMIT.md s4.
+        # The historical comparator, which was `overlap_v6` minus one clause. It dropped PMI
+        # then; it drops the reconstruction filter now, keeping the same relationship.
         "target": ("is_a",),
-        "clauses": (("HIGH", "coverage_R"), ("HIGH", "asymmetry_R"), ("HIGH", "S_res")),
-        "text": "HIGH(coverage_R) AND HIGH(asymmetry_R) AND HIGH(S_res)",
+        "clauses": (("PASSES", "gate_parent_of"), ("PASSES", "gate_sres_rank")),
+        "text": "PASSES(parent_of) AND PASSES(sres_rank)",
     },
     "probe_orthogonal_v3": {
         "target": ("firing_only",),
-        "clauses": C + (("NOT-HIGH", "S_res"),),
-        "text": "C AND NOT-HIGH(S_res)",
+        "clauses": (("PASSES", "gate_parent_of"), ("FAILS", "gate_sres_rank")),
+        "text": "PASSES(parent_of) AND FAILS(sres_rank)",
     },
 }
 
@@ -155,11 +235,14 @@ EXPRESSIONS: dict[str, dict] = {
 DESIGNATED: tuple[str, ...] = ("overlap_v6", "orthogonal_v6", "superparent_v5",
                                "frequency_v6", "topical_v6")
 
-# Expressions that read the probe. A run without the probe marks these INVALID MEASUREMENT
-# rather than letting an all-NaN column read as a rejection, and the artifact records
-# `s_res_mode="absent"`. The run is still written -- it is a labelled partial run, not a
-# refused one.
-PROBE_EXPRESSIONS: tuple[str, ...] = ("probe_overlap_v3", "probe_orthogonal_v3")
+# Expressions that read the probe -- FOUR of them since the gate rebuild, not two, because the
+# geometry channel is now `gate_sres_rank` alone (see the note above EXPRESSIONS). A run
+# without the probe marks these INVALID MEASUREMENT rather than letting an all-NaN column read
+# as a rejection, and the artifact records `s_res_mode="absent"`. The run is still written --
+# it is a labelled partial run, not a refused one. With four of the five DESIGNATED rules
+# reading the probe, a `--no-probe` run now measures very little.
+PROBE_EXPRESSIONS: tuple[str, ...] = ("overlap_v6", "orthogonal_v6",
+                                      "probe_overlap_v3", "probe_orthogonal_v3")
 
 TOYS: tuple[str, ...] = ("only_isa", "only_firing", "only_superparent",
                          "only_frequency", "only_topical")
