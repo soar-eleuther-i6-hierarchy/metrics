@@ -42,6 +42,12 @@ CONFOUND_OVERRIDES: tuple[str, ...] = (
     "n_superparent", "n_token_bound_pairs", "n_topical_pairs", "n_bind_ids",
 )
 
+# Each override applies only to a config that already builds that family; otherwise it would add a second confound to a pure toy or tune a knob nothing reads.
+_OVERRIDE_FAMILY: dict[str, str] = {
+    "n_superparent": "n_superparent", "n_token_bound_pairs": "n_token_bound_pairs",
+    "n_topical_pairs": "n_topical_pairs", "n_bind_ids": "n_token_bound_pairs",
+}
+
 # Short, stable abbreviations for the checkpoint-dir suffix (e.g. sp3-tp8).
 _OVERRIDE_ABBR: dict[str, str] = {
     "n_superparent": "sp", "n_token_bound_pairs": "tb",
@@ -75,8 +81,8 @@ def resolve_config(cfg_name: str, **overrides: int) -> spec.ToyConfig:
     `overrides` may name only `CONFOUND_OVERRIDES` knobs (typos raise); only non-None values
     are applied. Refuses loudly rather than building the wrong world: overriding a config
     with `confounds=False` (would be powered in name only), a negative count (silently
-    un-powers), or a bool (slips past `< 0` and resolves True -> 1). Feasibility is still
-    checked by `build_tree`.
+    un-powers), a bool (slips past `< 0` and resolves True -> 1), or a knob whose confound family
+    the base config does not build. Feasibility is still checked by `build_tree`.
     """
     if cfg_name not in spec.CONFIGS:
         raise ValueError(
@@ -101,6 +107,12 @@ def resolve_config(cfg_name: str, **overrides: int) -> spec.ToyConfig:
            if isinstance(val, bool) or val < 0}
     if bad:
         raise ValueError(f"confound counts must be non-negative ints (not bool); got {bad}")
+    idle = sorted(name for name in overrides if getattr(base, _OVERRIDE_FAMILY[name]) <= 0)
+    if idle:
+        raise ValueError(
+            f"override {idle} does not apply to config {cfg_name!r}: it builds no "
+            f"{sorted({_OVERRIDE_FAMILY[n] for n in idle})} family, so the override would add a "
+            f"second confound or tune a knob the world never reads")
     return spec.replace(base, **overrides)
 
 
@@ -126,8 +138,8 @@ def checkpoint_dirname(config_name: str, variant: str, k: int, expansion: int,
     return stem
 
 
-# A confound only counts as a real distractor if it clears the scorer's edge cut -- validate_config checks Zipf mass but not this, so an approved override can silently un-power it.
-_EDGE_TAU_REFERENCE = 0.5   # mirrors scoring.core.registry CONSTANTS["edge_tau"]
+# A legacy confound only counts as a real distractor if it clears the scorer's edge cut -- validate_config checks its Zipf mass but not this, so an approved override can silently un-power it.
+_EDGE_TAU_REFERENCE = spec.EDGE_TAU_REFERENCE
 # Population-level check needs a real-scale draw; tiny smoke/test builds (n_tokens ~ hundreds) skip it since training/scoring draws are far above this floor.
 _MIN_TOKENS_FOR_CONFOUND_CHECK = 100_000
 
@@ -135,14 +147,20 @@ _MIN_TOKENS_FOR_CONFOUND_CHECK = 100_000
 def _assert_confounds_powered(A: torch.Tensor, tree: tree_mod.Tree) -> None:
     """Refuse a powered world whose frequency or topical confound sits below edge_tau (forms no
     inferred edges, leaving that negative class empty and the detector unchallenged). A low
-    `kappa` or high `n_bind_ids` can quietly trigger this even though `validate_config` passes."""
+    `kappa` or high `n_bind_ids` can quietly trigger this even though `validate_config` passes.
+
+    Only pairs of the legacy token-bound / kappa-modulated archetypes are checked. Token groups and
+    topic registers fire at a fixed rate inside their cause, so `validate_config` checks their
+    containment exactly; their member pairs sit below edge_tau by design."""
     from toygen import labels
     pl = labels.pair_label(tree)
     firing = A > 0
     fire = firing.double().sum(0)
+    legacy = torch.tensor([tree.cause_rate.get(k) is None for k in range(tree.F)])
+    legacy_pair = legacy.reshape(-1, 1) & legacy.reshape(1, -1)
 
     def _median_reverse_coverage(cls_name: str) -> float | None:
-        fp = (pl == labels._index(cls_name)).nonzero()
+        fp = ((pl == labels._index(cls_name)) & legacy_pair).nonzero()
         if fp.numel() == 0:
             return None
         rs = [float((firing[:, p] & firing[:, c]).double().sum()) / max(float(fire[c]), 1.0)

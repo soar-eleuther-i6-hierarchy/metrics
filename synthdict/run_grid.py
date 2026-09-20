@@ -1,149 +1,152 @@
-"""Round-1 grid launcher: the 29 approved dial points, N parallel subprocesses.
+"""Launcher: run a given list of dial points as N parallel `synthdict.run_synth` subprocesses.
 
-The grid is FROZEN in SYNTH_PRECOMMIT.md; this file only enumerates it:
-  * diagonal beta=eta in {0,.2,.4,.6,.8,1.0} x f in {0.1, 1.0} x {only_isa, only_firing}  (24)
-  * decoupled controls (beta=.6, eta=0) and (beta=0, eta=.6) at f=.1, both toys           (4)
-  * bridge: only_firing, f=11/120, beta=eta=0.547 -> realized severity ~0.48              (1)
+The points come from a JSON file, one object per point (the launcher holds no experiment of
+its own):
 
-Each point runs `python -m synthdict.run_synth` as its own subprocess (crash isolation: one
-failed point leaves 28 artifacts, not zero), logging to <out>/<tag>/logs/. `--timed-pilot`
-runs ONE representative point first — the plan's "time one dial point before the grid" rule.
+  [{"toy": "only_isa", "kind": "hedging", "readout": "identity",
+    "dials": {"gamma_rel": 1.0, "edge_fraction": 0.5}},
+   {"toy": "only_superparent", "kind": "split", "readout": "union",
+    "dials": {"k": 4, "roles": ["superparent", "dense_parent"]}}]
 
-  python -m synthdict.run_grid --tag SYNTH-R1 --n-jobs 8 [--dry-run|--timed-pilot]
+Each point is its own subprocess (one failed point leaves the others' artifacts), logging to
+<out>/<tag>/logs/. Points whose artifacts already exist under the same construct are skipped.
+
+  python -m synthdict.run_grid --points points.json --tag T --n-jobs 8 [--dry-run]
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import json
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-from synthdict.corruptions import AbsorptionDials
 from synthdict.planted import READOUTS
-from synthdict.run_synth import point_dir
-
-DIAG = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
-TOYS = ("only_isa", "only_firing")
-BRIDGE_BETA = 0.547            # beta/sqrt(1+beta^2) = 0.48 on an orthogonal edge
-BRIDGE_F = 11 / 120            # the trained artifact's absorbed-edge rate (11 of 120 edges)
+from synthdict.run_synth import DIALS_BY_KIND, dial_dirname, point_dir, provenance_tuple
 
 
-def grid_points() -> list[tuple[str, float, float, float]]:
-    pts = [(toy, b, b, f) for toy in TOYS for f in (0.1, 1.0) for b in DIAG]
-    pts += [(toy, 0.6, 0.0, 0.1) for toy in TOYS]          # decoder-only carry (hedging-like)
-    pts += [(toy, 0.0, 0.6, 0.1) for toy in TOYS]          # hole-only
-    pts += [("only_firing", BRIDGE_BETA, BRIDGE_BETA, BRIDGE_F)]
-    return pts
+def point_dials(point: dict):
+    """The dials object a point describes. A field the CLI cannot carry must stay at its
+    default, or the subprocess would silently run a different point than the one named."""
+    kind = point["kind"]
+    if kind not in DIALS_BY_KIND:
+        raise SystemExit(f"unknown kind {kind!r}; kinds are {tuple(DIALS_BY_KIND)}")
+    if point["readout"] not in READOUTS:
+        raise SystemExit(f"unknown readout {point['readout']!r}; readouts are {READOUTS}")
+    toy = point["toy"]
+    if "/" in toy or "\\" in toy or toy.startswith("."):
+        raise SystemExit(f"toy {toy!r} is not a plain name")
+    cls, names = DIALS_BY_KIND[kind]
+    dials = cls(**point["dials"])
+    for f in dataclasses.fields(cls):
+        if f.name not in names and getattr(dials, f.name) != f.default:
+            raise SystemExit(f"{kind} point sets {f.name}={getattr(dials, f.name)!r}, which "
+                             f"the run_synth CLI does not carry")
+    return dials
 
 
-def _artifact_provenance(npz_path: Path) -> tuple:
-    """Everything about an artifact that resume must NOT differ on, from its own meta.
-
-    A pre-matcher-removal artifact stamps `match_mode` and no `readout`; it is reported as
-    `match:<mode>` so resume can refuse it. Skipping it would let a rerun exit 0 having
-    produced nothing while the report labels matcher-built rows as this code's output.
-
-    The WORLD SHAPE (`n_tokens`, `cfg_overrides`) is in here and not in the path, which is the
-    only thing standing between a cheap `--n-roots` dry run and a silently suppressed real
-    grid: the dry run's artifacts sit at the same path, resume finds them, every point is
-    skipped, the grid exits 0, and `dose_response.csv` reports a 4-root world as the full one.
-    """
-    import json
-
-    import numpy as np
-
-    meta = json.loads(str(np.load(npz_path, allow_pickle=True)["__meta__"]))
-    readout = meta.get("readout")
-    if readout is None:
-        readout = f"match:{meta.get('match_mode', 'unknown')}"
-    return (meta.get("acts_mode", "ridge"), readout, meta.get("corruption", "absorption"),
-            int(meta.get("n_tokens", -1)),
-            json.dumps(meta.get("cfg_overrides"), sort_keys=True))
-
-
-def _requested_provenance(args, kind: str) -> tuple:
-    """The same tuple for the run ABOUT to happen, so the two are compared in one place."""
-    import json
-
-    overrides = {"n_roots": args.n_roots} if args.n_roots is not None else None
-    return (args.acts_mode, args.readout, kind, int(args.n_tokens),
-            json.dumps(overrides, sort_keys=True))
-
-
-def resume_npz(out, tag: str, seed: int, toy: str, dials, readout: str) -> Path:
-    """Where resume LOOKS — the same `point_dir` the driver WRITES to, never a second copy of
-    the path built here."""
-    return point_dir(out, tag, seed, toy, type(dials).KIND, dials, readout) / "scores.npz"
-
-
-def point_cmd(toy: str, beta: float, eta: float, f: float, args) -> list[str]:
-    cmd = [sys.executable, "-m", "synthdict.run_synth", "--toy", toy,
-           "--seed", str(args.seed), "--beta", str(beta), "--eta", str(eta),
-           "--edge-fraction", str(f), "--n-tokens", str(args.n_tokens),
-           "--tag", args.tag, "--out", args.out]
-    cmd += ["--acts-mode", args.acts_mode, "--readout", args.readout]
+def point_cmd(point: dict, args) -> list[str]:
+    """The run_synth argv for one point, every dial of its kind spelled out."""
+    kind = point["kind"]
+    dials = point_dials(point)
+    cmd = [sys.executable, "-m", "synthdict.run_synth", "--toy", point["toy"], "--kind", kind,
+           "--readout", point["readout"], "--seed", str(args.seed),
+           "--n-tokens", str(args.n_tokens), "--tag", args.tag, "--out", str(args.out)]
+    for name in DIALS_BY_KIND[kind][1]:
+        v = getattr(dials, name)
+        flag = "--" + name.replace("_", "-")
+        cmd += [flag, *v] if name == "roles" else [flag, str(v)]
     if args.n_roots is not None:
         cmd += ["--n-roots", str(args.n_roots)]
     if args.no_probe:
         cmd.append("--no-probe")
+    if args.no_census:
+        cmd.append("--no-census")
     if args.force:
         cmd.append("--force")
     return cmd
 
 
+def resume_npz(out, tag: str, seed: int, toy: str, dials, readout: str) -> Path:
+    """Where resume LOOKS — the driver's own `point_dir`, never a second copy of the path."""
+    return point_dir(out, tag, seed, toy, type(dials).KIND, dials, readout) / "scores.npz"
+
+
+def _artifact_provenance(npz_path: Path) -> tuple:
+    import numpy as np
+
+    return provenance_tuple(json.loads(str(np.load(npz_path, allow_pickle=False)["__meta__"])))
+
+
+def _requested_provenance(args, kind: str, readout: str) -> tuple:
+    """The same tuple for the run ABOUT to happen, so the two are compared in one place."""
+    overrides = {"n_roots": args.n_roots} if args.n_roots is not None else None
+    return provenance_tuple({"acts_model": "nnls", "readout": readout, "corruption": kind,
+                             "n_tokens": int(args.n_tokens), "cfg_overrides": overrides,
+                             "s_res_mode": "absent" if args.no_probe else "probe"})
+
+
+def check_unique_points(pts: list[dict], args) -> None:
+    """Two points writing one directory would race; refuse before launching either."""
+    seen: dict[Path, int] = {}
+    for i, p in enumerate(pts):
+        d = point_dir(args.out, args.tag, args.seed, p["toy"], p["kind"], point_dials(p),
+                      p["readout"])
+        if d in seen:
+            raise SystemExit(f"points {seen[d]} and {i} both write {d}")
+        seen[d] = i
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--tag", default="SYNTH-R1")
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--points", required=True, help="JSON file: a list of dial points")
+    ap.add_argument("--tag", required=True)
     ap.add_argument("--out", default="outputs_local/synthdict")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--n-tokens", type=int, default=200_000)
     ap.add_argument("--n-jobs", type=int, default=8)
     ap.add_argument("--threads-per-job", type=int, default=8)
-    ap.add_argument("--acts-mode", default="ridge", choices=("ridge", "clean"))
-    ap.add_argument("--readout", default="identity", choices=READOUTS)
     ap.add_argument("--n-roots", type=int, default=None,
-                    help="shrink the world (cheap local dry runs of the real grid)")
-    ap.add_argument("--only-f01", action="store_true",
-                    help="the f=0.1 subset + the bridge point (the approved clean-mode re-run)")
+                    help="shrink the world (cheap local dry runs)")
     ap.add_argument("--no-probe", action="store_true")
+    ap.add_argument("--no-census", action="store_true")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--timed-pilot", action="store_true",
-                    help="run ONE representative point (only_firing beta=eta=0.6 f=0.1) and report wall-clock")
     args = ap.parse_args()
 
-    pts = grid_points()
-    if args.only_f01:
-        pts = [p for p in pts if p[3] != 1.0]
-    if args.timed_pilot:
-        pts = [("only_firing", 0.6, 0.6, 0.1)]
+    pts = json.loads(Path(args.points).read_text())
+    cmds = [point_cmd(p, args) for p in pts]            # validates every point before any run
+    check_unique_points(pts, args)
     if args.dry_run:
-        for p in pts:
-            print(" ".join(point_cmd(*p, args)))
+        for c in cmds:
+            print(" ".join(c))
         print(f"# {len(pts)} points")
         return
 
     logdir = Path(args.out) / args.tag / "logs"
     logdir.mkdir(parents=True, exist_ok=True)
-    running: list[tuple[subprocess.Popen, str, float]] = []
+    running: list[tuple[subprocess.Popen, str, float, object]] = []
     failed: list[str] = []
     done = 0
     t_start = time.time()
 
     def reap(block: bool) -> None:
         nonlocal done
-        while running and (block or any(p.poll() is not None for p, _, _ in running)):
-            for i, (proc, name, t0) in enumerate(running):
+        while running and (block or any(p.poll() is not None for p, _, _, _ in running)):
+            for i, (proc, name, t0, log) in enumerate(running):
                 rc = proc.poll()
                 if rc is None:
                     continue
-                dt = time.time() - t0
+                log.close()
                 done += 1
                 status = "ok" if rc == 0 else f"FAILED rc={rc}"
-                print(f"[{done}/{len(pts)}] {name}: {status} ({dt:.0f}s)", flush=True)
+                print(f"[{done}/{len(pts)}] {name}: {status} ({time.time() - t0:.0f}s)",
+                      flush=True)
                 if rc != 0:
                     failed.append(name)
                 running.pop(i)
@@ -151,38 +154,30 @@ def main() -> None:
             else:
                 time.sleep(2.0)
 
-    for toy, beta, eta, f in pts:
-        name = f"{toy}-beta{beta:g}-eta{eta:g}-f{f:g}"
-        dials = AbsorptionDials(beta=beta, eta=eta, edge_fraction=f)
-        # Idempotent resume: a point whose artifacts exist was produced by this same code
-        # (content-hash stamped in its meta); rerunning would only trip the overwrite guard.
-        existing = [resume_npz(args.out, args.tag, args.seed, toy, dials, args.readout)]
-        if not args.force and all(p.exists() for p in existing):
-            # Resume only PAST artifacts of the SAME construct: acts_mode is not in the path,
-            # so skipping on existence alone would let `--acts-mode clean` against a ridge tag
-            # exit 0 having run nothing (review MED-1).
-            modes = {_artifact_provenance(p) for p in existing}
-            want = _requested_provenance(args, type(dials).KIND)
-            if modes == {want}:
+    for i, (point, cmd) in enumerate(zip(pts, cmds)):
+        dials = point_dials(point)
+        kind, readout = point["kind"], point["readout"]
+        name = f"{i:03d}-{point['toy']}-{kind}-{dial_dirname(dials)}-{readout}"
+        npz = resume_npz(args.out, args.tag, args.seed, point["toy"], dials, readout)
+        census_missing = not args.no_census and not (npz.parent / "census.json").exists()
+        if not args.force and npz.exists() and not census_missing:
+            have, want = _artifact_provenance(npz), _requested_provenance(args, kind, readout)
+            if have == want:
                 done += 1
                 print(f"[{done}/{len(pts)}] {name}: skipped (artifacts exist)", flush=True)
                 continue
             raise SystemExit(
-                f"{name}: existing artifacts under this tag are (acts_mode, readout, kind, "
-                f"n_tokens, cfg_overrides)={sorted(modes)}, not {want}. One tag holds ONE "
-                f"construct - a `match:` readout means they predate the matcher removal, and a "
-                f"different n_tokens/cfg_overrides means they came from a shrunken dry run. "
-                f"Use a different --tag.")
+                f"{name}: existing artifact under this tag is (acts_model, readout, kind, "
+                f"n_tokens, cfg_overrides, s_res_mode)={have}, not {want}. One tag holds ONE "
+                f"construct; use a different --tag.")
         while len(running) >= args.n_jobs:
             reap(block=True)
         log = open(logdir / f"{name}.log", "w")
-        # Cap BLAS threads per child: n_jobs x default-all-cores oversubscribes the box.
-        env = dict(os.environ,
-                   OMP_NUM_THREADS=str(args.threads_per_job),
+        # Cap BLAS threads per child: n_jobs x all cores oversubscribes the box.
+        env = dict(os.environ, OMP_NUM_THREADS=str(args.threads_per_job),
                    MKL_NUM_THREADS=str(args.threads_per_job))
-        proc = subprocess.Popen(point_cmd(toy, beta, eta, f, args),
-                                stdout=log, stderr=subprocess.STDOUT, env=env)
-        running.append((proc, name, time.time()))
+        proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env)
+        running.append((proc, name, time.time(), log))
     while running:
         reap(block=True)
 

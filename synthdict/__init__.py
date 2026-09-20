@@ -2,18 +2,13 @@
 
 Constructs dictionaries with planted, dial-parameterized pathologies and scores them through
 the UNMODIFIED benchmark pipeline (`scoring.benchmark.run_read`, `read="synthetic"`). No SAE
-training anywhere.
+training anywhere; activations are NNLS strengths on the planted support.
 
-Damages: `absorption` (decoder carry + firing hole, L = F), `noise` (all rows perturbed,
-L = F), `missing` (a feature's row deleted, L < F), `split` (a feature carried by k shards,
-L > F). Merging is deliberately absent: it needs a sibling world, and `PlantedMap` refuses a
-latent claimed by two features.
-
-Only absorption has been pre-registered and run. The rest is machinery.
+Damages: `absorption` (decoder carry + co-fire firing hole, L = F), `hedging` (a child's row
+deleted and mixed into its parent's, L < F), `split` (a feature carried by k shards, L > F),
+`composition` (a combination latent for two independent features, L > F).
 
 Lives outside `scoring/` / `toygen/` / `metrics/` on purpose: `manifest.EVALUATOR_SOURCES`
 content-hashes those trees, so adding a file there would change `evaluator_sha256` and break
 freeze verification. This package only IMPORTS them.
-
-Scope, dials, predictions, and claim wording are frozen in `SYNTH_PRECOMMIT.md`.
 """

@@ -1,9 +1,11 @@
 """The ground-truth pair-label table.
 
 Labels are per ordered pair `(a, b)`: "a is the candidate parent, b the candidate child".
-`is_a`, `firing_only`, `transitive`, `reversed` are directional; `sibling`, `superparent`,
-`frequency`, `topical` are symmetric. Each pair carries exactly one class -- classes can't
-overlap by construction, and `pair_label` enforces this with a disjointness check.
+`is_a`, `firing_only`, `transitive`, `reversed` are directional. `sibling`, `superparent`,
+`frequency`, `topical` are assigned to both orderings of a pair, but the co-firing behind them
+need not be symmetric: a token container or topic register contains its members one way only.
+Each pair carries exactly one class -- classes can't overlap by construction, and `pair_label`
+enforces this with a disjointness check.
 
 Only data-side properties appear here (never absorption/splitting/merging, which are
 dictionary-side). Every label is read off the generator's declared structure, never
@@ -21,9 +23,9 @@ LABELS: tuple[str, ...] = (
     "firing_only",  # a direct containment edge with alpha == 0: nested firing, orthogonal direction
     "transitive",   # b is a strict descendant of a but not its direct child
     "sibling",      # a and b share a direct parent
-    "superparent",  # a or b is a declared superparent (high firing rate, no children)
-    "frequency",    # a and b are both token-bound on a shared high-frequency id set
-    "topical",      # a and b are both topic-modulated on the same topic
+    "superparent",  # a or b is a superparent, or a dense parent paired with a non-relative (base-rate coverage)
+    "frequency",    # a and b are both token-bound and their token id sets intersect
+    "topical",      # a and b are both topical features on the same topic
     "unrelated",    # the null: no declared property holds
     "reversed",     # the flip of a directed ancestry pair — b is related to a, wrong way round
 )
@@ -59,6 +61,12 @@ def pair_label(tree: Tree) -> torch.Tensor:
             )
         y[a, b] = idx
 
+    def _ids(k: int) -> tuple[int, ...]:
+        ids = tree.token_ids.get(k)
+        if not ids:
+            raise ValueError(f"token-bound feature {k} has no token ids; the frequency rule needs its id set")
+        return ids
+
     # symmetric coincidence confounds
     for a in range(F):
         for b in range(F):
@@ -67,8 +75,7 @@ def pair_label(tree: Tree) -> torch.Tensor:
             if ("topical" in tree.tags[a] and "topical" in tree.tags[b]
                     and tree.topic[a] is not None and tree.topic[a] == tree.topic[b]):
                 assign(a, b, "topical")
-            if tree.token_bound[a] and tree.token_bound[b]:
-                # all token-bound features share one high-frequency id set, so any such pair is a frequency confound
+            if tree.token_bound[a] and tree.token_bound[b] and set(_ids(a)) & set(_ids(b)):
                 assign(a, b, "frequency")
 
     # siblings: any two features sharing a direct parent (exclusive or not)
@@ -78,12 +85,17 @@ def pair_label(tree: Tree) -> torch.Tensor:
                 assign(x, z, "sibling")
                 assign(z, x, "sibling")
 
-    # superparent: both orderings of every pair touching a declared superparent, since its high base rate contaminates the pair either way
+    # superparent: both orderings of every pair touching a declared superparent, since its high base rate contaminates the pair either way.
+    # A dense true parent has the same base-rate coverage toward every feature outside its own lineage, so those pairs get the same class.
     for a in range(F):
-        if "superparent" not in tree.tags[a]:
+        if "superparent" in tree.tags[a]:
+            lineage: set[int] = set()
+        elif "dense_parent" in tree.tags[a]:
+            lineage = tree.ancestors[a] | tree.descendents[a]
+        else:
             continue
         for b in range(F):
-            if a != b:
+            if a != b and b not in lineage:
                 assign(a, b, "superparent")
                 assign(b, a, "superparent")
 
