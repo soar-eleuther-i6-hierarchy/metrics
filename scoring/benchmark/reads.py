@@ -27,8 +27,8 @@ from dataclasses import dataclass
 
 import torch
 
-from scoring.benchmark.registry import METRICS, probe_fit_sample_seed
-from scoring.core.detectors import (compute_all, fit_probe_directions,
+from scoring.benchmark.registry import GATES, METRICS, probe_fit_sample_seed
+from scoring.core.detectors import (compute_bundle, fit_probe_directions,
                                     s_res_cosine, s_res_from_directions)
 from scoring.core.grid import held_out_sample_seed, pair_frame, reduce_to_recovered
 from scoring.core.recovery import activation_corr, match_features, per_class_recovery
@@ -47,9 +47,14 @@ _TINY = 1e-12
 class Read:
     """One (toy, seed, read) scored universe.
 
-    feats   true feature id at each recovered POSITION; `pairs` are positions into it, so
-            `feats[a]` is the true id the calibration split keys on.
-    vals    per-ordered-pair score vectors, float64, one per name in `registry.METRICS`.
+    feats     true feature id at each recovered POSITION; `pairs` are positions into it, so
+              `feats[a]` is the true id the null population keys on.
+    vals      per-ordered-pair score vectors, float64, one per name in `registry.METRICS`.
+    gate_vals per-ordered-pair GATE vectors, float64 tristates over {1.0, 0.0, NaN}, one per
+              name in `registry.GATES`. A separate field rather than more entries in `vals`,
+              whose docstring promises one entry per METRICS name and which is what
+              `detector_matrices` and the AUROC grid iterate blindly -- a tristate scored as a
+              continuous detector would produce an AUROC over a three-valued variable.
     """
 
     toy: str
@@ -62,6 +67,7 @@ class Read:
     pairs: list[tuple[int, int]]
     y: torch.Tensor
     vals: dict[str, torch.Tensor]
+    gate_vals: dict[str, torch.Tensor]
     pair_labels: torch.Tensor
     W_unit: torch.Tensor
     recovered: torch.Tensor         # [F] bool, the scored universe
@@ -82,7 +88,7 @@ def wide_matrix(outdegree: torch.Tensor) -> torch.Tensor:
     `torch.minimum` propagates NaN, so a missing reverse ordering yields NaN; `torch.fmin` would
     return the finite side and manufacture a score for a pair that was never measured
     (PRECOMMIT s6). But `minimum` does NOT propagate an infinity -- `min(+inf, 5)` is 5 -- so
-    non-finite entries are masked explicitly rather than relying on the reduction. `compute_all`
+    non-finite entries are masked explicitly rather than relying on the reduction. `_orient`
     already converts inf to NaN before this sees `outdegree`, so today that mask is belt and
     braces; this function is public and the docstring has to be true of the function, not of
     one caller.
@@ -102,9 +108,9 @@ def add_derived(vals: dict[str, torch.Tensor], outdegree_matrix: torch.Tensor | 
                 pairs: list[tuple[int, int]] | None) -> dict[str, torch.Tensor]:
     """Add `abs_asymmetry_R` and (when the matrix is given) `wide`.
 
-    `abs_asymmetry_R` is a registered metric rather than an inline `.abs()` inside SYM, so the
-    calibration fits Q99 on the ABSOLUTE distribution. Fitting it on the signed one would give
-    SYM a threshold that admits every strongly negative asymmetry.
+    `abs_asymmetry_R` was added as a registered metric so the deleted SYM predicate's Q99 could
+    be fitted on the ABSOLUTE distribution rather than the signed one. SYM is gone with the
+    quantile rule; the metric stays because the artifacts carry it and it is still reported.
     """
     out = dict(vals)
     if "asymmetry_R" in out:
@@ -136,7 +142,7 @@ def class_recovered(pair_labels: torch.Tensor, in_universe: torch.Tensor) -> dic
 def assemble_metrics(dets: dict[str, torch.Tensor], W_unit: torch.Tensor,
                      probe: torch.Tensor | None, pairs: list[tuple[int, int]]
                      ) -> dict[str, torch.Tensor]:
-    """The nine non-`s_res` detectors, plus `G` (cosine) and `S_res` (probe), plus derived.
+    """Every non-`s_res` detector, plus `G` (cosine) and `S_res` (probe), plus derived.
 
     Public because it is the seam where PRECOMMIT s5's separation is enforced: `G` is cosine
     over unit decoders and `S_res` is the probe, and neither may be populated from the other.
@@ -152,6 +158,21 @@ def assemble_metrics(dets: dict[str, torch.Tensor], W_unit: torch.Tensor,
         raise RuntimeError(f"the read did not produce {missing}; a registered expression "
                            f"would go untestable for a harness reason, not a metric one")
     return vals
+
+
+def assemble_gates(gate_mats: dict[str, torch.Tensor],
+                   pairs: list[tuple[int, int]]) -> dict[str, torch.Tensor]:
+    """Every registered gate, scored onto the ordered-pair frame.
+
+    Mirrors `assemble_metrics` and raises for the same reason: a gate missing from the read
+    would make every rule that names it UNSCORABLE, and an expression reported as untestable
+    for a harness reason looks exactly like one untestable for a measurement reason.
+    """
+    missing = [g for g in GATES if g not in gate_mats]
+    if missing:
+        raise RuntimeError(f"the read did not produce {missing}; a registered expression "
+                           f"would go untestable for a harness reason, not a metric one")
+    return {g: _scored(gate_mats[g], pairs) for g in GATES}
 
 
 # --------------------------------------------------------------------------
@@ -195,15 +216,18 @@ def oracle_read(toy: str, seed: int, n_tokens: int, with_probe: bool = True,
     feats = list(range(F))
     idx = torch.tensor(feats, dtype=torch.long)
     inp = pure_inputs(bundle, feats, bundle.A[:, idx])
-    # cosine mode: the internal `s_res` key holds G here and is dropped by `assemble_metrics`.
-    dets = compute_all(inp, CONSTANTS, s_res_mode="cosine")
 
     # The probe is fitted on its OWN draw and frozen before anything is scored (PRECOMMIT s6
     # step 2). `probe_fit_seed` overrides the derived draw; passing the SCORING draw is the
     # bridge that reproduces the unseparated pilot numbers, and is the only gate this change
     # gets, because `harness_gate` deliberately excludes `s_res`.
+    #
+    # It is fitted BEFORE the detectors now, because `gate_sres_rank` needs the frozen
+    # directions and `compute_bundle` builds the gates alongside the detectors. Neither the
+    # fit nor the detectors touch global RNG, so the reordering moves no number -- which the
+    # phase gate asserted element-wise rather than assumed.
     fit_seed = probe_fit_sample_seed(int(seed)) if probe_fit_seed is None else int(probe_fit_seed)
-    probe = None
+    probe, P, avail = None, None, None
     if with_probe:
         fw = regenerate_world(rc, sample_seed=fit_seed, n_tokens=n_tokens)
         fi = pure_inputs(fw, feats, fw.A[:, idx])
@@ -211,16 +235,23 @@ def oracle_read(toy: str, seed: int, n_tokens: int, with_probe: bool = True,
         P, avail = fit_probe_directions(fi.h, fi.acts_rec, CONSTANTS)
         probe = s_res_from_directions(P, avail, inp.W_unit)
 
+    # cosine mode: the internal `s_res` key holds G here and is dropped by `assemble_metrics`.
+    bnd = compute_bundle(inp, CONSTANTS, s_res_mode="cosine",
+                         probe_directions=P, probe_available=avail)
+    dets = bnd["detectors"]
+
     pairs, y = pair_frame(feats, bundle.pair_labels)
     return Read(
         toy=toy, seed=seed, read="oracle", n_tokens=n_tokens,
         s_res_mode="probe" if with_probe else "absent",
         F=F, feats=feats, pairs=pairs, y=y,
         vals=assemble_metrics(dets, inp.W_unit, probe, pairs),
+        gate_vals=assemble_gates(bnd["gates"], pairs),
         pair_labels=bundle.pair_labels, W_unit=inp.W_unit,
         recovered=torch.ones(F, dtype=torch.bool),
         detector_matrices=dets,
-        extra={"true_l0": float(bundle.A.gt(0).double().sum(dim=1).mean()),
+        extra={"support": bnd["support"],
+               "true_l0": float(bundle.A.gt(0).double().sum(dim=1).mean()),
                "resolved_config": rc,
                # Recorded so an artifact says WHICH draw it was scored on, not just which
                # experiment seed it belongs to. The trained read records the same quantity.
@@ -271,15 +302,14 @@ def trained_read(ckpt: str, n_tokens: int, with_probe: bool = True,
     feats, di, _index_map = reduce_to_recovered(
         ah, oh, W, res.match, res.recovered,
         h=ho.h, b_dec=L.b_dec, tokens=ho.tokens, vocab=ho.cfg.vocab)
-    dets = compute_all(di, CONSTANTS, s_res_mode="cosine")
-
     # Same fitting draw as the oracle read at this seed (identical config, identical seed, so
     # identical observations), but the SAE's OWN activations as labels -- the deployed
     # `probe_self_W` detector. The self-LABEL circularity is untouched by this change and stays
-    # recorded; only the shared sampling noise with the scoring draw is removed.
+    # recorded; only the shared sampling noise with the scoring draw is removed. Fitted before
+    # the detectors because `gate_sres_rank` reads the frozen directions.
     fit_seed = (probe_fit_sample_seed(train_seed) if probe_fit_seed is None
                 else int(probe_fit_seed))
-    probe = None
+    probe, P, avail = None, None, None
     if with_probe:
         fw = regenerate_world(rc, sample_seed=fit_seed, n_tokens=n_tokens)
         af = L.encode(fw.h)
@@ -291,6 +321,10 @@ def trained_read(ckpt: str, n_tokens: int, with_probe: bool = True,
             h=fw.h, b_dec=L.b_dec, tokens=fw.tokens, vocab=fw.cfg.vocab)
         P, avail = fit_probe_directions(dfit.h, dfit.acts_rec, CONSTANTS)
         probe = s_res_from_directions(P, avail, di.W_unit)
+
+    bnd = compute_bundle(di, CONSTANTS, s_res_mode="cosine",
+                         probe_directions=P, probe_available=avail)
+    dets = bnd["detectors"]
 
     pairs, y = pair_frame(feats, ho.pair_labels)
 
@@ -310,10 +344,11 @@ def trained_read(ckpt: str, n_tokens: int, with_probe: bool = True,
         s_res_mode="probe" if with_probe else "absent",
         F=int(ho.g.shape[0]), feats=feats, pairs=pairs, y=y,
         vals=assemble_metrics(dets, di.W_unit, probe, pairs),
+        gate_vals=assemble_gates(bnd["gates"], pairs),
         pair_labels=ho.pair_labels, W_unit=di.W_unit,
         recovered=in_universe,
         detector_matrices=dets,
-        extra={"ckpt": str(ckpt), "G_g_matched": _scored(g_matched, pairs),
+        extra={"support": bnd["support"], "ckpt": str(ckpt), "G_g_matched": _scored(g_matched, pairs),
                "match": res.match, "n_recovered": len(feats),
                "effective_alpha": effective_alpha(ho.tree),
                "alpha_designed_in_meta": rc.get("alpha"),

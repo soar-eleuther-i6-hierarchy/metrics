@@ -28,8 +28,9 @@ denominator that is HARDER to clear:
 Do not "fix" this into symmetry. Putting the leak bar on N_recovered would let a rule clear the
 leak budget by rendering confound pairs unmeasurable -- the rule gets credit for the pairs it
 failed to evaluate. Both denominators are reported for all three quantities, under names that
-say which is which (`leakage` vs `leakage_over_recovered`, `fpr_given_scorable` vs
-`fpr_over_half`), so a reader can always see the one the bar did not use.
+say which is which (`leakage` vs `leakage_over_recovered`), so a reader can always see the one
+the bar did not use. On the null row the second denominator is `scorable_fraction`, since
+`fpr_over_half` went with the split.
 
 This is also why `leakage` reads `pass_rate_given_scorable` and NOT `recall_given_recovery`.
 The two keys held the same arithmetic before B2.3; moving the recall bar to N_recovered while
@@ -43,9 +44,12 @@ no measurement exists. `recall_given_recovery` extends the same guard to a NON-z
 with N_recovered > 0 and N_scorable == 0, N_pass is necessarily 0, so the rate would render
 0.000 off zero evidence. It is `None` there too.
 
-Null FPR is taken over the EVALUATION half only. The thresholds were fitted on the calibration
-half, so a rate over every unrelated pair is fitted-on. The full-null count is kept beside it
-under a different name, as a labelled diagnostic (PRECOMMIT s6).
+Null FPR is taken over the WHOLE null population as of schema 3. It used to be the evaluation
+half of a calibration/evaluation split, because the thresholds were fitted on the other half
+and a rate over every unrelated pair would have been fitted-on. Nothing is fitted any more, so
+the split has no job and both halves are one population. The `unrelated_eval` key is kept --
+artifacts and the rollup index on it -- and `fpr_over_half` and `unrelated_cal` are gone, since
+neither names anything now.
 
 The support floor guards the NEGATIVE evidence as well as the target: an FPR over two pairs and
 a leak over three pairs are arithmetic, not measurements. An under-supported negative row blocks
@@ -57,11 +61,9 @@ because artifacts on disk carry the old arithmetic under the same key.
 
 from __future__ import annotations
 
-import math
 
 import torch
 
-from scoring.benchmark.calibrate import boundary_ties
 from scoring.benchmark.registry import (BAR_CONFOUND_LEAK, BAR_EVAL_NULL_FPR, BAR_RECALL,
                                         CONSTANT_TOL, MIN_SCORABLE_SUPPORT, NULL_CLASS,
                                         REPORT_SCHEMA)
@@ -99,9 +101,9 @@ def _recall(n_pass: int, n_recovered: int, n_scorable: int) -> float | None:
 
 def class_counts(y: torch.Tensor, mask: torch.Tensor, scorable: torch.Tensor,
                  n_total: dict[str, int], eval_null_idx: list[int],
-                 null_class: str = NULL_CLASS, cal_null_idx: list[int] | None = None,
+                 null_class: str = NULL_CLASS,
                  min_support: int = MIN_SCORABLE_SUPPORT) -> dict[str, dict]:
-    """The four counts per ground-truth class, plus evaluation- and calibration-null rows.
+    """The four counts per ground-truth class, plus the null row.
 
     Every class in `labels.LABELS` gets a row even when the toy has none of it: an omitted row
     and a zero row read very differently to someone scanning the table, and a pure toy is
@@ -139,42 +141,29 @@ def class_counts(y: torch.Tensor, mask: torch.Tensor, scorable: torch.Tensor,
     n_ev_sc = int(scorable[idx].sum()) if n_ev else 0
     n_ev_pass = int(mask[idx].sum()) if n_ev else 0
     # NOT `N_total`: on every other row that means "generated pairs over the full feature set",
-    # and there is no such quantity for a half of the null. Naming it `N_in_half` keeps the two
-    # denominators from being read as the same thing.
+    # and the null population is defined over the answer key's unordered pairs instead. The
+    # distinct name keeps the two denominators from being read as the same thing.
+    #
+    # The KEY is still `unrelated_eval` although there is no longer an evaluation half: the
+    # cross-world rollup, the manifest and every artifact on disk index on it, and renaming it
+    # would silently split the series in two. `REPORT_SCHEMA` records that the arithmetic under
+    # the name changed.
     out["unrelated_eval"] = {
-        "N_in_half": n_ev, "N_scorable": n_ev_sc, "N_pass": n_ev_pass,
-        # THE BAR: positives over the SCORABLE evaluation-half null, so an unscorable null pair
-        # does not dilute the rate into compliance.
+        "N_null": n_ev, "N_scorable": n_ev_sc, "N_pass": n_ev_pass,
+        # THE BAR: positives over the SCORABLE null, so an unscorable null pair does not dilute
+        # the rate into compliance.
         "fpr_given_scorable": _rate(n_ev_pass, n_ev_sc),
-        # The population rate, as a labelled diagnostic. Never the bar.
-        "fpr_over_half": _rate(n_ev_pass, n_ev),
         "scorable_fraction": _rate(n_ev_sc, n_ev),
         # The floor guards the NEGATIVE evidence too: an FPR over two pairs clears 0.01
         # arithmetically without establishing anything. Reproduced by an adversarial review,
-        # which reached MET CRITERIA off a one-pair evaluation null.
+        # which reached MET CRITERIA off a one-pair null.
         "status": ("UNTESTABLE" if n_ev_sc == 0 else
                    "UNDER_SUPPORTED" if n_ev_sc < min_support else "MEASURED"),
         "min_scorable_support": min_support,
-        "note": (f"evaluation half only; the full-null count is the `{null_class}` row above "
-                 "and is fitted-on, not a held-out FPR"),
+        "note": (f"the WHOLE null population, both orderings of every pair labelled "
+                 f"`{null_class}` in both directions. Nothing is fitted, so there is no "
+                 "calibration half to hold out from and no fitted-on rate to distinguish."),
     }
-    # The calibration half as a SEPARATELY LABELLED diagnostic (PRECOMMIT s6), not something a
-    # reader has to recover by subtracting two other rows -- and never quotable as an FPR.
-    if cal_null_idx is not None:
-        cidx = torch.tensor(cal_null_idx, dtype=torch.long)
-        n_c = int(cidx.numel())
-        n_c_sc = int(scorable[cidx].sum()) if n_c else 0
-        n_c_pass = int(mask[cidx].sum()) if n_c else 0
-        out["unrelated_cal"] = {
-            "N_in_half": n_c, "N_scorable": n_c_sc, "N_pass": n_c_pass,
-            "fpr_given_scorable": _rate(n_c_pass, n_c_sc),
-            "fpr_over_half": _rate(n_c_pass, n_c),
-            "scorable_fraction": _rate(n_c_sc, n_c),
-            "status": ("UNTESTABLE" if n_c_sc == 0 else
-                       "UNDER_SUPPORTED" if n_c_sc < min_support else "MEASURED"),
-            "min_scorable_support": min_support,
-            "note": "calibration half -- fitted-on, a DIAGNOSTIC; never quote as an FPR",
-        }
     return out
 
 
@@ -203,14 +192,16 @@ def constant_flags(vals: torch.Tensor, y: torch.Tensor, eval_null_idx: list[int]
     this flag has to travel with the verdict or the number reads as a clean success.
     """
     idx = torch.tensor(eval_null_idx, dtype=torch.long)
-    # The evaluation half is the right null population. Falling back to the full null when the
-    # evaluation half is empty uses a different, fitted-on population, so the fallback is
-    # LABELLED rather than silent.
+    # The null population is the index set `run_read` supplies: the pairs whose BOTH orderings
+    # carry the null label. That is strictly fewer than `y == null_class`, which also admits a
+    # pair whose flip is `reversed` -- an ancestry pair seen backwards. Falling back to the
+    # label when the index set is empty therefore uses a DIFFERENT population, so the fallback
+    # is LABELLED rather than silent.
     if idx.numel():
-        null_vals, null_pop = vals[idx], "evaluation half"
+        null_vals, null_pop = vals[idx], "the supplied null population"
     else:
         null_vals, null_pop = (vals[y == labels._index(null_class)],
-                               "full-null (no evaluation half)")
+                               f"every pair labelled {null_class} (no null index set supplied)")
     by_class = {name: _is_constant(vals[y == labels._index(name)], tol)
                 for name in labels.LABELS}
     n_by_class = {name: int(torch.isfinite(vals[y == labels._index(name)]).sum())
@@ -394,15 +385,21 @@ def rule_overlap(masks: dict[str, torch.Tensor], y: torch.Tensor,
     """Multiple-rule and no-rule outcomes over the five DESIGNATED rules (PRECOMMIT s6).
 
     Per-rule recall says nothing about how the rules interact, and two of the interactions
-    matter here. `frequency_v6` and `topical_v6` are exact complements on one fitted `tau_surv`
-    boundary given high PMI, so given high PMI a pair is FORCED into one of them rather than
-    abstained on -- they partition rather than detect, and only a no-rule count makes that
-    visible. And two rules firing on one pair means the property assignment is ambiguous, which
-    is a different failure from either rule missing.
+    matter here. Two rules firing on one pair means the property assignment is ambiguous, which
+    is a different failure from either rule missing. And the NO-rule count is what shows a pair
+    that every rule abstained on rather than rejected.
+
+    `frequency_v6` and `topical_v6` are exact complements again, now on `gate_freq_survives`
+    within `gate_parent_of`: one reads `FAILS` where the other reads `PASSES`. So they can never
+    collide, and a pair that is a directed containment is forced into one of them rather than
+    abstained on -- the same forced-choice shape the fitted `tau_surv` boundary had, with a fixed
+    constant in place of the fitted one. A zero in their collision cell is structural rather than
+    evidence; the informative cell is the NO-rule count, which is where a pair no rule claims
+    shows up.
 
     The baseline and the two historical comparators are excluded: `containment_baseline` is a
-    sub-expression of both G rules and the probe comparators overlap them by construction, so
-    counting them would manufacture ambiguity that is not there.
+    sub-expression of every containment rule and the probe comparators overlap them by
+    construction, so counting them would manufacture ambiguity that is not there.
     """
     from scoring.benchmark.registry import DESIGNATED
 
@@ -458,25 +455,27 @@ def rule_overlap(masks: dict[str, torch.Tensor], y: torch.Tensor,
     return {"designated_rules": names, "by_class": by, "collisions": collisions}
 
 
-def evaluate_read(vals: dict[str, torch.Tensor], y: torch.Tensor, thresholds: dict,
+def evaluate_read(vals: dict[str, torch.Tensor], y: torch.Tensor,
                   n_total: dict[str, int], eval_null_idx: list[int],
-                  expressions: dict, tau_surv: float,
-                  probe_available: bool = True,
-                  cal_null_idx: list[int] | None = None) -> dict:
+                  expressions: dict, probe_available: bool = True) -> dict:
     """Every registered expression against every class in this read.
 
-    `probe_available=False` marks the two probe comparators INVALID MEASUREMENT rather than
-    letting an all-NaN `S_res` column render as a rejection: a rule that was never evaluated is
-    not a rule that failed.
+    `probe_available=False` marks the probe-reading rules INVALID MEASUREMENT rather than
+    letting an all-NaN `gate_sres_rank` column render as a rejection: a rule that was never
+    evaluated is not a rule that failed. That is FOUR of the eight since the gate rebuild --
+    the geometry channel is the probe rank rule alone -- so a `--no-probe` run measures very
+    little (`registry.PROBE_EXPRESSIONS`).
+
+    `vals` must carry the GATES the clauses name, not only the metrics; `run_read` passes
+    `vals | gate_vals`. A clause naming a metric is refused by `predicates.evaluate`.
     """
     from scoring.benchmark import predicates as P
     from scoring.benchmark.registry import PROBE_EXPRESSIONS
 
     out: dict[str, dict] = {}
     for name, spec in expressions.items():
-        mask, scorable, per_clause = P.evaluate(spec["clauses"], vals, thresholds, tau_surv)
-        counts = class_counts(y, mask, scorable, n_total, eval_null_idx,
-                              cal_null_idx=cal_null_idx)
+        mask, scorable, per_clause = P.evaluate(spec["clauses"], vals)
+        counts = class_counts(y, mask, scorable, n_total, eval_null_idx)
         roll = target_rollup(counts, spec["target"])
         leaks = leakage(counts, spec["target"])
         leaks_rec = leakage_over_recovered(counts, spec["target"])
@@ -506,60 +505,82 @@ def evaluate_read(vals: dict[str, torch.Tensor], y: torch.Tensor, thresholds: di
     return out
 
 
-# Detectors whose value is a function of ONE endpoint, broadcast across a row
-# (`scoring/core/detectors.py:_broadcast_parent`), plus `wide`, which is a function of the
-# unordered pair's two endpoints. A pair-level calibration split holds out essentially nothing
-# for these: on the seed-0 worlds 100% of evaluation-half pairs share both endpoints with some
-# calibration-half pair. Recorded per metric so an FPR on one of them is not read as held out.
+# Metrics whose value is a function of ONE endpoint rather than of the pair, plus the two that
+# are a function of the unordered pair's two endpoints. Three shapes, all in the same class:
+#
+#   per-PARENT, broadcast across a ROW (`detectors._broadcast_parent`): outdegree,
+#       joint_child_J, joint_child_mass, sibling_redundancy, joint_child_supp,
+#       sibling_redundancy_pc
+#   per-CHILD, broadcast down a COLUMN (`detectors._broadcast_child`): recon_child_gain
+#   both endpoints: wide, gate_superparent
+#
+# No pair-level split holds any of these out: on the seed-0 worlds 100% of evaluation-half
+# pairs shared both endpoints with some calibration-half pair, back when there were halves.
+# The property is about the METRIC, not the split, so it outlived it. Recorded per metric so a rate on
+# one of them is never read as held out. A real holdout for this class needs a FEATURE-level
+# split, which is a different procedure and was never built.
+#
+# The same property is why the scorability mask is SELECTIVE (`detectors.MASKED_DETECTORS`):
+# NaN-ing `outdegree[p, c]` because p and c rarely co-fire deletes a number that was never
+# about that pair, and it propagates through `reads.wide_matrix` into `wide`.
 ENDPOINT_BROADCAST: tuple[str, ...] = ("outdegree", "joint_child_J", "joint_child_mass",
-                                       "sibling_redundancy", "wide")
+                                       "sibling_redundancy", "joint_child_supp",
+                                       "sibling_redundancy_pc", "recon_child_gain",
+                                       "wide", "gate_superparent")
 
-# Detectors symmetric in (parent, child). Both orderings of a pair share a calibration half by
-# design AND take the same value, so the two decisions are one decision and the reported
-# denominator is twice the number of independent ones.
+# Detectors symmetric in (parent, child). Both orderings of a pair take the SAME value, so the
+# two decisions are one decision and the reported denominator is twice the number of
+# independent ones. This was compounded by both orderings sharing a calibration half by design;
+# the halves are gone and the doubling is not, because it comes from the metric.
 # Metrics that take the SAME value on (p, c) and (c, p), so both orderings of a pair are one
-# decision, not two -- which is what `n_effective_eval_null` halves the denominator for.
+# decision, not two -- which is what `n_effective_null` halves the denominator for.
 #
 # `S_res` is deliberately NOT here. The repo's doctrine is at scoring/oracle/score_dump.py's
 # `symmetric_detectors`: `s_res` is symmetric only in COSINE mode, where it is the Gram matrix
 # `W @ W.T`. In this package `S_res` is the PROBE on both reads (reads.py:145) -- a directional
 # margin -- and `G` is the cosine one. Listing `S_res` here halved its effective null denominator
 # on a metric that never had the symmetry that justifies halving.
-SYMMETRIC_METRICS: tuple[str, ...] = ("pmi", "G", "wide", "abs_asymmetry_R")
+#
+# The GATES are in this list too, and three of them belong: `gate_duplicate` is `ge & ge.T`,
+# `gate_superparent` is `flag[p] | flag[c]` and `gate_support` is built from a symmetric
+# co-firing count, so each takes the same value on (p, c) and (c, p). Leaving them out was the
+# live case, not a hypothetical: `topical_v6` and `superparent_v5` read exactly those, so the
+# two rules whose null denominators are doubled were the two reported as undoubled.
+# `gate_parent_of` is deliberately absent -- it is antisymmetric by construction, which is the
+# opposite property.
+SYMMETRIC_METRICS: tuple[str, ...] = ("pmi", "G", "wide", "abs_asymmetry_R",
+                                      "gate_duplicate", "gate_superparent", "gate_support")
 
 
 def metric_diagnostics(vals: dict[str, torch.Tensor], y: torch.Tensor,
-                       eval_null_idx: list[int], thresholds: dict,
-                       cal_support: dict[str, int], tol: float = CONSTANT_TOL,
+                       eval_null_idx: list[int], tol: float = CONSTANT_TOL,
                        targets: dict[str, tuple[str, ...]] | None = None) -> dict:
-    """Per-metric distributions, thresholds, calibration support, constant-distribution flags,
-    boundary ties, and how much of a holdout the split actually is for this metric.
+    """Per-metric and per-gate distributions, constant-distribution flags, and how independent
+    the null decisions behind a reported rate actually are.
 
-    The last two are the ones easy to omit and easy to be misled by. PRECOMMIT s7 box 5 asks for
-    tied boundaries because the predicates fix strict-vs-inclusive precisely so ties decide
-    cases. And `split_kind` / `n_effective_eval_null` say when a reported FPR rests on fewer
-    independent decisions than its denominator suggests.
+    The thresholds, the calibration support and the boundary ties are gone with the quantile
+    rule: there is no fitted boundary left for a value to tie against, and `gates` compares at
+    0.5 against a tristate that never takes that value. What remains is the part that was never
+    about the split -- `metric_class` and `n_effective_null` say when a reported rate rests on
+    fewer independent decisions than its denominator suggests, which is a property of the
+    metric and is still true.
     """
     out: dict[str, dict] = {}
     n_ev = len(eval_null_idx)
     for name, v in vals.items():
         fin = _finite(v)
-        q = thresholds.get(name, (float("nan"), float("nan")))
         broadcast = name in ENDPOINT_BROADCAST
         symmetric = name in SYMMETRIC_METRICS
         out[name] = {
-            "q01": q[0], "q99": q[1],
-            "n_cal_finite": cal_support.get(name, 0),
-            "threshold_usable": bool(math.isfinite(q[0]) or math.isfinite(q[1])),
             "n": int(v.numel()), "n_finite": int(fin.numel()),
             "median": float(fin.median()) if fin.numel() else float("nan"),
-            "boundary_ties": boundary_ties(v, q),
-            "split_kind": ("endpoint-broadcast: the pair-level split holds out little or "
-                           "nothing for this metric" if broadcast else "pair-level"),
+            "metric_class": ("endpoint-broadcast: the value is a function of one endpoint (or "
+                             "of the unordered pair), so no pair-level holdout exists for it"
+                             if broadcast else "pair-level"),
             "symmetric": symmetric,
             # Both orderings of a pair take the same value for a symmetric metric, so the
             # independent-decision count is half the ordered-pair denominator.
-            "n_effective_eval_null": (n_ev // 2) if symmetric else n_ev,
+            "n_effective_null": (n_ev // 2) if symmetric else n_ev,
             "flags": constant_flags(v, y, eval_null_idx, tol,
                                     target=(targets or {}).get(name)),
         }

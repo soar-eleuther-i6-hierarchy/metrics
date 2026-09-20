@@ -152,7 +152,7 @@ def combine(worlds: list[dict], name: str, expected_toys: tuple[str, ...] = TOYS
     agg: dict[str, dict] = {}
     for toy, blk in blocks:
         for cls, row in blk["counts"].items():
-            if cls in ("unrelated_eval", "unrelated_cal", NULL_CLASS):
+            if cls in ("unrelated_eval", NULL_CLASS):   # `unrelated_cal` went with the split
                 continue
             if cls in blk["target"]:
                 continue

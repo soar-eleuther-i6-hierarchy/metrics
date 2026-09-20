@@ -1,5 +1,5 @@
 """
-detectors — the ten per-ordered-pair scalars, computed from SAE outputs only.
+detectors — the per-ordered-pair scalars, computed from SAE outputs only.
 
 Reads held-out activations and oriented unit decoders of the recovered latents; returns an
 `[R, R]` matrix per detector, entry `[p, c]` = score for ordered pair parent=p, child=c.
@@ -15,6 +15,10 @@ Conventions (see `scoring.core.registry`):
 
 Implemented directly here (not in `metrics/`) so undefined cells aren't hidden by
 zero-denominator clamping. `s_res`'s probe variant trains via `metrics.sres.train_probe`.
+
+A SCORABILITY MASK runs inside `compute_all`, so it reaches every caller and not only the
+benchmark -- see `MASKED_DETECTORS` for what it touches and `compute_all` for why that is the
+intended scope and what it costs.
 """
 
 from __future__ import annotations
@@ -23,10 +27,48 @@ from dataclasses import dataclass
 
 import torch
 
+from scoring.core import gates
+from scoring.core.gates import nan_diag as _nan_diag
 from scoring.core.registry import DETECTOR_SIGN, DETECTORS
 
 DT = torch.float64
 _NAN = float("nan")
+
+# --------------------------------------------------------------------------
+# the scorability mask -- SELECTIVE, and the exclusions are the load-bearing part
+# --------------------------------------------------------------------------
+# Detectors that take the FULL support mask: both endpoints must fire at least
+# `min_fire_count` times AND they must co-fire at least `support_min_joint` times. All three
+# are pair-level co-firing quantities, and below that floor they are arithmetic rather than
+# measurement -- a child firing 20 times inside a near-always-on parent reaches coverage 1.0
+# on no evidence beyond base rate.
+MASKED_DETECTORS: tuple[str, ...] = ("coverage_R", "asymmetry_R", "pmi")
+
+# Detectors that take the CHILD side of it only (`fire[c] >= min_fire_count`). Both are
+# defined over the tokens where the CHILD fires, so the joint count is not their support:
+# a parent that contributes nothing on those tokens is a real measured answer, not a missing
+# one, and NaN-ing it would delete the negative evidence.
+CHILD_MASKED_DETECTORS: tuple[str, ...] = ("recon_2a", "recon_child_gain")
+
+# EVERYTHING ELSE IS DELIBERATELY UNMASKED, and not out of caution.
+#   * the per-parent broadcasts (`outdegree`, `joint_child_J`, `joint_child_supp`,
+#     `joint_child_mass`, `sibling_redundancy`, `sibling_redundancy_pc`) have a value that does
+#     not depend on the column at all. NaN-ing `outdegree[p, c]` because p and c rarely co-fire
+#     deletes a number that was never about that pair, and it propagates through
+#     `reads.wide_matrix` into `wide`, gutting the scorable population of every rule reading it.
+#   * the geometry channel (`s_res` -> `G`, `S_res`) never reads tokens. A pair that never
+#     co-fires still has a perfectly well-defined decoder cosine.
+#   * `token_freq_survival` applies `min_joint` internally already (see its own guard), which
+#     is why `support_min_joint` is a SEPARATELY NAMED constant: tuning the mask through
+#     `min_joint` would silently retune the frequency detector as well.
+#
+# `em` is built from the UNMASKED coverage matrix, so the inferred edge set -- and therefore
+# every per-parent broadcast computed from it -- is bit-identical to what it was before the
+# mask existed. `edge_mask` carries its own joint-support guard.
+
+
+def _mask_to_nan(m: torch.Tensor, keep: torch.Tensor) -> torch.Tensor:
+    return torch.where(keep, m, torch.full_like(m, _NAN))
 
 
 @dataclass(frozen=True)
@@ -51,15 +93,19 @@ class DetectorInputs:
     vocab: int = 0
 
 
-def _nan_diag(m: torch.Tensor) -> torch.Tensor:
-    m = m.clone()
-    m.fill_diagonal_(_NAN)
-    return m
-
-
 def _broadcast_parent(vec: torch.Tensor, R: int) -> torch.Tensor:
     """A per-parent vector -> an [R, R] matrix constant across columns, NaN diagonal."""
     return _nan_diag(vec.reshape(R, 1).expand(R, R).clone())
+
+
+def _broadcast_child(vec: torch.Tensor, R: int) -> torch.Tensor:
+    """A per-CHILD vector -> an [R, R] matrix constant down COLUMNS, NaN diagonal.
+
+    The transpose of `_broadcast_parent`, and the pair is why both exist by name: the two
+    produce matrices of the same shape with the same values in them, so a swap is invisible
+    except in the answer. `entry[p, c] = vec[c]` here; `vec[p]` there.
+    """
+    return _nan_diag(vec.reshape(1, R).expand(R, R).clone())
 
 
 def cofiring(Fm: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, int]:
@@ -319,14 +365,18 @@ def sibling_redundancy(em: torch.Tensor, cofire: torch.Tensor, fire: torch.Tenso
     return _broadcast_parent(red, R)
 
 
-def recon_2a(acts_rec: torch.Tensor, h: torch.Tensor, W_raw: torch.Tensor,
-             b_dec: torch.Tensor, Fm: torch.Tensor) -> torch.Tensor:
-    """Reconstruction-ablation parent gain: how much removing the parent would worsen
-    reconstruction, over tokens where the child fires.
+def _recon_gains(acts_rec: torch.Tensor, h: torch.Tensor, W_raw: torch.Tensor,
+                 b_dec: torch.Tensor, Fm: torch.Tensor
+                 ) -> tuple[torch.Tensor, torch.Tensor]:
+    """`(gains [R, R] with its diagonal INTACT, child_gain [R])`.
 
-    parent_gain[p,c] = sum(g[t,p]) / sum(||err[t]||^2) over tokens where child c fires, with
-    err = h - (acts @ W_raw + b_dec) and g[t,f] = 2 a_f<d_f,err_t> + a_f^2||d_f||^2. A
-    never-firing child gives 0 denominator -> NaN.
+    Shared by `recon_2a` and `recon_child_gain`, which are the off-diagonal and the diagonal of
+    one matrix. `gains[p, c]` is the relative reconstruction damage from ablating p over the
+    tokens where c fires, so `gains[c, c]` is the damage from ablating the CHILD over its own
+    tokens -- `metrics.reconstruction`'s `child_gain = g_child_sum / err_sum_c`, exactly.
+
+    The diagonal is returned unmasked because `_nan_diag` would otherwise delete the only place
+    `child_gain` is computed, which is why this quantity was missing from the package.
     """
     a = acts_rec.double()
     W = W_raw.double()
@@ -340,7 +390,99 @@ def recon_2a(acts_rec: torch.Tensor, h: torch.Tensor, W_raw: torch.Tensor,
     err_sq = (err ** 2).sum(dim=1)                       # [n]
     denom_c = err_sq @ Fc                                # [R(child)]
     out = numer / torch.where(denom_c > 0, denom_c, torch.full_like(denom_c, _NAN)).reshape(1, -1)
-    return _nan_diag(out)
+    return out, torch.diagonal(out).clone()
+
+
+def recon_2a(acts_rec: torch.Tensor, h: torch.Tensor, W_raw: torch.Tensor,
+             b_dec: torch.Tensor, Fm: torch.Tensor) -> torch.Tensor:
+    """Reconstruction-ablation parent gain: how much removing the parent would worsen
+    reconstruction, over tokens where the child fires.
+
+    parent_gain[p,c] = sum(g[t,p]) / sum(||err[t]||^2) over tokens where child c fires, with
+    err = h - (acts @ W_raw + b_dec) and g[t,f] = 2 a_f<d_f,err_t> + a_f^2||d_f||^2. A
+    never-firing child gives 0 denominator -> NaN.
+    """
+    gains, _child = _recon_gains(acts_rec, h, W_raw, b_dec, Fm)
+    return _nan_diag(gains)
+
+
+def recon_child_gain(acts_rec: torch.Tensor, h: torch.Tensor, W_raw: torch.Tensor,
+                     b_dec: torch.Tensor, Fm: torch.Tensor) -> torch.Tensor:
+    """Per-CHILD reconstruction gain, broadcast down each column.
+
+    `metrics.reconstruction.edge_reconstruction_condition`'s `child_gain`: how much worse
+    reconstruction gets on the child's own tokens if the CHILD is ablated. It is the second
+    half of her edge condition -- the parent must contribute, and the child must add something
+    beyond the parent -- and the package carried only the first half.
+
+    Broadcast down a COLUMN (`entry[p, c] = child_gain[c]`), matching her `.unsqueeze(0)`. A
+    never-firing child gives 0/0 -> NaN, so its column is undefined rather than zero.
+    """
+    _gains, child = _recon_gains(acts_rec, h, W_raw, b_dec, Fm)
+    return _broadcast_child(child, int(acts_rec.shape[1]))
+
+
+def joint_child_supp(Fm: torch.Tensor, em: torch.Tensor,
+                     fire: torch.Tensor) -> torch.Tensor:
+    """Per-parent EXACT joint-child coverage: share of the parent's firing tokens on which at
+    least one kept child also fires. Broadcast across columns.
+
+    `metrics.joint_child.r_supp`, the union count over tokens. `joint_child_J` is the
+    closed-form upper bound `min(1, sum of forward coverages)`, which double-counts every pair
+    of co-firing siblings and therefore saturates near 1 for any parent with several children
+    regardless of structure. Both are registered: the bound is what the frozen rules were
+    calibrated against, the union is the quantity it was approximating.
+
+    A dead parent is NaN (hers clamps the denominator to 1 and returns 0). A live parent with
+    no kept children is 0.0 -- a real answer, not missing data.
+    """
+    R = int(em.shape[0])
+    out = torch.full((R,), _NAN, dtype=DT, device=em.device)
+    for p in range(R):
+        if float(fire[p]) <= 0.0:
+            continue                                     # dead parent -> NaN
+        kids = em[p].nonzero(as_tuple=True)[0]
+        if kids.numel() == 0:
+            out[p] = 0.0
+            continue
+        union = Fm[:, p] & Fm[:, kids].any(dim=1)
+        out[p] = float(union.sum()) / float(fire[p])
+    return _broadcast_parent(out, R)
+
+
+def sibling_redundancy_pc(Fm: torch.Tensor, em: torch.Tensor) -> torch.Tensor:
+    """Per-parent mean pairwise sibling Jaccard RESTRICTED to the parent's firing tokens.
+
+    `metrics.sibling_redundancy.parent_conditioned_redundancy`, and her docstring says why it
+    is the corrected form: the property under test is whether the children partition the
+    PARENT's firing set, while the global Jaccard also scores co-firing where the parent is
+    silent, which is irrelevant to this parent's partition. Registered beside the global
+    `sibling_redundancy` rather than replacing it.
+
+    Her arithmetic inside the defined domain, unchanged: the mean over the off-diagonal (each
+    sibling pair counted twice, which a symmetric matrix makes identical to the upper-triangle
+    mean), and the union clamped at 1 so two siblings that never fire inside the parent score
+    0 redundancy rather than NaN -- there the answer really is "not redundant".
+
+    Scoring's convention where hers differs: fewer than two kept children, or a parent that
+    never fires, is NaN. Hers returns 0.0, which is indistinguishable from a measured
+    partition and would let a childless parent look like a healthy one.
+    """
+    R = int(em.shape[0])
+    out = torch.full((R,), _NAN, dtype=DT, device=em.device)
+    for p in range(R):
+        kids = em[p].nonzero(as_tuple=True)[0]
+        k = int(kids.numel())
+        if k < 2 or not bool(Fm[:, p].any()):
+            continue
+        sub = Fm[Fm[:, p]][:, kids].double()              # [m, k] within the parent's tokens
+        cf = sub.transpose(0, 1) @ sub
+        fi = sub.sum(dim=0)
+        union = fi.reshape(1, -1) + fi.reshape(-1, 1) - cf
+        jac = cf / union.clamp(min=1.0)
+        offdiag = ~torch.eye(k, dtype=torch.bool, device=jac.device)
+        out[p] = float(jac[offdiag].mean())
+    return _broadcast_parent(out, R)
 
 
 def token_freq_survival(Fm: torch.Tensor, tokens: torch.Tensor, vocab: int,
@@ -389,16 +531,14 @@ def token_freq_survival(Fm: torch.Tensor, tokens: torch.Tensor, vocab: int,
 # --------------------------------------------------------------------------
 # the handoff
 # --------------------------------------------------------------------------
-def compute_all(inputs: DetectorInputs, constants: dict,
-                s_res_mode: str = "cosine") -> dict[str, torch.Tensor]:
-    """Return every detector as an oriented [R, R] matrix (higher == is-a-like), NaN diagonal.
+def _compute_raw(inputs: DetectorInputs, constants: dict,
+                 s_res_mode: str) -> tuple[dict[str, torch.Tensor], dict]:
+    """Every detector in its RAW orientation, plus the intermediates the gates need.
 
-    Applies each detector's frozen `DETECTOR_SIGN`; any leftover +/-inf becomes NaN.
-
-    `s_res_mode` selects the s_res variant:
-      "probe"  -- the real Tree-SAE probe metric; only mode allowed for a REPORTED s_res cell.
-      "cosine" -- cheap analytic geometry oracle; diagnostic/test default, never for a reported grid.
-    Only s_res depends on the mode; the other nine detectors are unaffected.
+    Split out of `compute_all` so `compute_bundle` can build the gates from the same firing
+    counts, edge set and reconstruction gains the detectors were computed from. Recomputing
+    them alongside would let a gate and the metric it is supposed to agree with drift apart
+    while both still look right.
     """
     if s_res_mode not in ("cosine", "probe"):
         raise ValueError(f"s_res_mode must be 'cosine' or 'probe', got {s_res_mode!r}")
@@ -411,12 +551,20 @@ def compute_all(inputs: DetectorInputs, constants: dict,
             f"compute_all needs {missing} ({readers} read them); "
             f"reduce_to_recovered must be given h/b_dec/tokens before scoring")
     eps = constants["coverage_eps"]
+    R = int(inputs.acts_rec.shape[1])
     Fm = inputs.acts_rec > constants["fire_thresh"]
     cofire, fire, N = cofiring(Fm)
     R_mat = coverage_R(cofire, fire, eps)
     F_mat = _forward_F(cofire, fire, eps)
     em = edge_mask(R_mat, fire, constants["edge_tau"], constants["min_fire_count"],
                    cofire=cofire, min_joint=constants["min_joint"])
+    # One pass for both halves of the reconstruction condition (`recon_2a` is the off-diagonal,
+    # `recon_child_gain` the diagonal of the same matrix).
+    gains, child_gain = _recon_gains(inputs.acts_rec, inputs.h, inputs.W_raw, inputs.b_dec, Fm)
+    # Built AFTER `em`, so the edge set never sees the mask (see MASKED_DETECTORS).
+    support, support_counts = gates.support_mask(cofire, fire, constants["min_fire_count"],
+                                                 constants["support_min_joint"])
+    child_ok = (fire >= float(constants["min_fire_count"])).reshape(1, -1).expand(R, R)
 
     raw = {
         "coverage_R": R_mat,
@@ -427,17 +575,126 @@ def compute_all(inputs: DetectorInputs, constants: dict,
             Fm, inputs.tokens, inputs.vocab, constants["min_joint"],
             constants["freq_high_mass"], constants["freq_mid_mass"],
             constants["freq_min_fire_low"]),
-        "recon_2a": recon_2a(inputs.acts_rec, inputs.h, inputs.W_raw, inputs.b_dec, Fm),
+        "recon_2a": _nan_diag(gains),
         "s_res": (s_res_cosine(inputs.W_unit) if s_res_mode == "cosine"
                   else s_res_probe(inputs.acts_rec, inputs.h, inputs.W_unit, constants)),
         "sibling_redundancy": sibling_redundancy(em, cofire, fire),
         "joint_child_mass": joint_child_mass(inputs.acts_rec, Fm, em),
         "outdegree": outdegree(em, fire, N),
+        "recon_child_gain": _broadcast_child(child_gain, R),
+        "joint_child_supp": joint_child_supp(Fm, em, fire),
+        "sibling_redundancy_pc": sibling_redundancy_pc(Fm, em),
     }
+    # Applied HERE, after every detector is built, rather than to the inputs. Masking `R_mat`
+    # before `em` or before `asymmetry_R` would work too -- the support mask is symmetric in
+    # the endpoints -- but it would make the set of masked detectors implicit in the dataflow
+    # instead of a list anyone can read.
+    for name in MASKED_DETECTORS:
+        raw[name] = _mask_to_nan(raw[name], support)
+    for name in CHILD_MASKED_DETECTORS:
+        raw[name] = _mask_to_nan(raw[name], child_ok)
 
+    # `ctx["R_mat"]` is the PRE-MASK coverage matrix: `_mask_to_nan` returns a new tensor, so
+    # rebinding `raw["coverage_R"]` above left this one alone. `compute_bundle` wants it that
+    # way -- `directed_coverage_gates` ANDs with `support` itself, so handing it the masked copy
+    # would mask twice. Nothing numeric turns on it today (a masked cell is unsupported, and
+    # `NaN >= tau` is False either way), but an in-place mask here would silently change what
+    # every gate is computed from, which is why the copy is stated rather than assumed.
+    ctx = {"Fm": Fm, "cofire": cofire, "fire": fire, "N": N, "R": R,
+           "R_mat": R_mat, "F_mat": F_mat, "em": em, "child_gain": child_gain,
+           "support": support, "support_counts": support_counts}
+    return raw, ctx
+
+
+def _orient(raw: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """Apply each detector's frozen sign; any leftover +/-inf becomes NaN."""
     out: dict[str, torch.Tensor] = {}
     for name in DETECTORS:
         m = raw[name] * float(DETECTOR_SIGN[name])
         m = torch.where(torch.isinf(m), torch.full_like(m, _NAN), m)
         out[name] = _nan_diag(m)
     return out
+
+
+def compute_all(inputs: DetectorInputs, constants: dict,
+                s_res_mode: str = "cosine") -> dict[str, torch.Tensor]:
+    """Return every detector as an oriented [R, R] matrix (higher == is-a-like), NaN diagonal.
+
+    Applies each detector's frozen `DETECTOR_SIGN`; any leftover +/-inf becomes NaN.
+
+    `s_res_mode` selects the s_res variant:
+      "probe"  -- the real Tree-SAE probe metric; only mode allowed for a REPORTED s_res cell.
+      "cosine" -- cheap analytic geometry oracle; diagnostic/test default, never for a reported grid.
+    Only s_res depends on the mode; the other detectors are unaffected.
+
+    THE SCORABILITY MASK APPLIES HERE, AND THEREFORE TO EVERY CALLER. `coverage_R`,
+    `asymmetry_R` and `pmi` are NaN below the support floor and three detectors were added, so
+    every consumer of this function sees both changes -- `scoring/oracle/score_dump.py`,
+    `scoring/oracle/validate_metrics.py`, `scoring/trained/retrieval.py`,
+    `training/score_trained.py`, `scoring/run_validate.py` and `scoring/run_scoring.py`, none
+    of which asked for it. Their per-class tables gain three rows and recompute three existing
+    ones over a smaller population.
+
+    That is deliberate. The alternative is a masked `coverage_R` on one path and an unmasked one
+    on another, which is two metrics under one name in a single repo -- the exact duplication
+    that `metrics/` versus `scoring/` already cost this project once. A pair whose endpoints
+    barely co-fire has a coverage of 1.0 by arithmetic on either path, and that is not a
+    measurement on either path.
+
+    What it does NOT come with is a schema bump for those packages: `registry.REPORT_SCHEMA`
+    covers the benchmark artifacts only. A table produced by one of the six above before this
+    change and one produced after are not comparable, and nothing in their own provenance says
+    so. Measured on `only_isa` at 3k tokens: 44.1% of ordered pairs fall below the floor.
+    """
+    raw, _ctx = _compute_raw(inputs, constants, s_res_mode)
+    return _orient(raw)
+
+
+def compute_bundle(inputs: DetectorInputs, constants: dict, s_res_mode: str = "cosine",
+                   probe_directions: torch.Tensor | None = None,
+                   probe_available: torch.Tensor | None = None) -> dict:
+    """`{"detectors", "gates", "support"}` — the detectors plus the fixed-threshold rules.
+
+    The gates are built from the SAME firing counts, edge set and reconstruction gains as the
+    detectors, which is the point of computing them together: `gate_parent_of` and
+    `coverage_R` must be two readings of one matrix, not two matrices that agree by habit.
+
+    `support` carries `gates.support_mask`'s counts. The excluded fraction is a first-class
+    number -- it is what separates "the rules rejected these pairs" from "the rules could not
+    see them" -- so it is returned rather than logged.
+
+    `probe_directions` / `probe_available` come from `fit_probe_directions`, fitted on the
+    SEPARATE fitting draw by the caller. Without them `gate_sres_rank` is all-NaN, which marks
+    the rules that read it INVALID MEASUREMENT rather than letting an untrained probe read as
+    a rejection.
+    """
+    raw, ctx = _compute_raw(inputs, constants, s_res_mode)
+    # The SAME mask the detectors were masked with, not a second call. Two calls agreeing is a
+    # habit; one object is a guarantee.
+    support, counts = ctx["support"], ctx["support_counts"]
+    R = ctx["R"]
+    gate_vals: dict[str, torch.Tensor] = {"gate_support": gates.support_gate(support)}
+    gate_vals |= gates.directed_coverage_gates(ctx["R_mat"], support, constants["edge_tau"])
+    # RAW, not oriented: `rel_gain_min` is stated on the gain itself, and a sign flip would
+    # invert the comparison silently. Both detectors carry sign +1 today, which is exactly why
+    # this has to be written down rather than relied on.
+    gate_vals["gate_recon"] = gates.recon_contributes(
+        raw["recon_2a"], ctx["child_gain"], constants["recon_rel_gain_min"])
+    gate_vals["gate_superparent"] = gates.superparent_flag(
+        ctx["em"], ctx["fire"], constants["superparent_outdeg_frac"],
+        constants["min_fire_count"])
+    gate_vals["gate_freq_survives"] = gates.freq_survives_gate(
+        raw["token_freq_survival"], gates.squash(constants["freq_survival_min_raw"]))
+    if probe_directions is None or probe_available is None:
+        gate_vals["gate_sres_rank"] = torch.full((R, R), _NAN, dtype=DT,
+                                                 device=inputs.W_unit.device)
+    else:
+        gate_vals["gate_sres_rank"] = gates.sres_rank_gate(
+            probe_directions, probe_available, inputs.W_unit, constants["sres_rank_top_k"])
+
+    missing = [g for g in gates.GATE_NAMES if g not in gate_vals]
+    if missing:
+        raise RuntimeError(f"compute_bundle did not produce {missing}; a registered gate "
+                           f"silently absent would make its rules untestable for a harness "
+                           f"reason, not a measurement one")
+    return {"detectors": _orient(raw), "gates": gate_vals, "support": counts}
