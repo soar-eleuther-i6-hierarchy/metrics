@@ -529,6 +529,33 @@ High base rate is the superparent target, so its firing-count baseline is substa
 - [ ] Report whether each pilot success or failure replicated; state when the signal is within uncertainty rather than calling it an improvement.
 - [ ] Finish the single-property stage, including properties for which no designated expression met criteria.
 
+### Pass criteria for the damage-matrix run, declared 2026-09-20 before any seed 1-3 result
+
+These are written down before the run so they cannot be shaped by what comes back.
+A criterion that fails stops the run and gets debugged; it is not relaxed to fit the output.
+
+Instrument checks, which must all hold or the read is not trustworthy:
+
+- Each designated rule reproduces its seed-0 oracle ceiling recall within 0.05 absolute, on the toy that plants its target class.
+- The worst null false-positive rate across every rule and every toy is at or below 0.01.
+- No expression row reads INVALID, and every arm row carries its counts for all four populations (corrupted, touched, intact, null).
+- Absorption at `beta = 0, eta = 0` reproduces that toy's undamaged cell exactly. These are the same dictionary, so any difference is a bug in the damage path, not a result.
+- Composition at `pi = 0` under the `union` readout reproduces that toy's undamaged cell exactly, per the invariant recorded in `synthdict/PARAMETERS.md`.
+- Every damage cell has a non-empty intact arm. Coverage is 0.5 precisely to guarantee this; a cell that arrives without one is reported as uncontrolled rather than compared.
+
+Registered expectations, declared so that confirming them is not mistaken for discovery and contradicting them is not quietly absorbed:
+
+- `orthogonal_v6` reads 0 recall and `overlap_v6` leaks fully onto `firing_only`, on every toy and every read. The geometry channel does not separate the two classes at any `k`; this is settled and is not reopened by this run.
+- `frequency_v6` and `topical_v6` cap at 0.25 and 0.33 because their classes are labelled on both orderings while the rules are directional. Those are ceilings, not failures, and the 0.80 bar does not apply to those rows.
+- Under absorption on `only_superparent` the `superparent` class has no corrupted pairs by construction, because absorbed edges are `firing_only`. Its signal is in the touched arm.
+- Hedging is not run on `only_isa`. Every parent there has exactly one child, so hedging deletes the parent's only `is_a` pair and `gamma_rel` cannot move recall by any amount. Measured seed 0: corrupted and touched arms are 0 at every coverage. The column runs on `only_superparent` instead, where the same coverage gives 1686 corrupted and 3144 intact pairs.
+
+Reporting discipline:
+
+- Counts are printed beside every rate. `only_frequency` and `only_topical` reach only about 8 corrupted pairs, so their rates carry wide intervals.
+- No difference is called real unless its interval excludes the comparison. A gap inside the interval is reported as within noise, in those words.
+- Seed 0 is a regression check against the recorded ceiling and is never quoted as evidence for a constant, because it selected `sres_rank_top_k = 2` and the `topical_v6` clauses.
+
 Expected findings are hypotheses, not requirements imposed on the outputs.
 If a previously failing rule succeeds, report that result with the same checks; do not engineer either success or failure.
 After freezing, an implementation bug requires a versioned correction and rerunning affected results with the same seed plan.

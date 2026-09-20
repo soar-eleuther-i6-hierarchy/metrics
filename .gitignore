@@ -49,6 +49,7 @@ synthdict/tests
 *.pdf
 scoring/MATCHING_METHODS.md
 synthdict/*.md
+/scripts
 
 # Transitional: a one-shot 5.x->6.x checkpoint-boundary probe, retired once training
 # moves to the sae-training repo. Kept local, not tracked.
