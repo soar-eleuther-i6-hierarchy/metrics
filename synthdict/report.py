@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from scoring.benchmark.registry import EXPRESSIONS
+from scoring.benchmark.registry import EXPRESSIONS, GATES
 from toygen import labels
 
 # The pair classes each toy's damages are read against. only_superparent has two: its dense
@@ -25,18 +25,35 @@ TARGET_CLASSES_BY_TOY = {"only_isa": ("is_a",), "only_firing": ("firing_only",),
                          "only_superparent": ("superparent", "firing_only"),
                          "only_frequency": ("frequency",), "only_topical": ("topical",)}
 KEY_DETECTORS = ("G", "S_res", "coverage_R", "asymmetry_R", "pmi", "recon_2a",
-                 "token_freq_survival", "wide")
+                 "token_freq_survival", "wide",
+                 # the three adopted from metrics/ when the fixed gates went in
+                 "recon_child_gain", "joint_child_supp", "sibling_redundancy_pc")
+# Gates are reported as a PASS RATE per arm, never as a median. A gate is a tristate over
+# {1.0, 0.0, NaN}, and the median of that is either a bare 0/1 or a meaningless interpolation;
+# what a dose-response needs is what fraction of the arm the rule accepted. `__defined` carries
+# the denominator, because "the gate rejected these pairs" and "the gate could not see them"
+# are different results and a rate alone cannot tell them apart.
+KEY_GATES = GATES
 DIAL_COLUMNS = ("beta", "eta", "edge_fraction", "gamma_rel", "k", "roles", "skew",
                 "fraction", "pi")
 DIALS_BY_KIND = {"absorption": ["beta", "eta", "edge_fraction"],
                  "hedging": ["gamma_rel", "edge_fraction"],
                  "split": ["k", "roles", "skew", "fraction"],
-                 "composition": ["pi", "fraction"]}
+                 "composition": ["pi", "fraction"],
+                 # the two non-damage columns have no dials; without this they fall back to
+                 # every column in DIAL_COLUMNS and print nine empty cells per row
+                 "none": []}
 
 
 def _median(x: np.ndarray) -> float:
     x = x[np.isfinite(x)]
     return float(np.median(x)) if x.size else float("nan")
+
+
+def _pass_rate(x: np.ndarray) -> tuple[float, int]:
+    """`(share of MEASURABLE cells that passed, how many were measurable)` for a tristate."""
+    fin = x[np.isfinite(x)]
+    return (float((fin > 0.5).mean()) if fin.size else float("nan"), int(fin.size))
 
 
 def _median_or_none(values) -> float | None:
@@ -57,7 +74,10 @@ def collect_point(d: Path) -> list[dict]:
     y = npz["y"]
     corr_mask = npz["corrupted_pair"].astype(bool)
     touched_mask = npz["touched_pair"].astype(bool) | corr_mask
-    null_eval = (y == labels._index("unrelated")) & (npz["split"] == 2)
+    # `split` is 1 for a null pair. It was three-valued until the calibration/evaluation split
+    # collapsed (schema 3), where 2 meant the evaluation half; `> 0` reads both contracts, so a
+    # tree holding artifacts from either one still collects.
+    null_eval = (y == labels._index("unrelated")) & (npz["split"] > 0)
 
     dials = meta.get("dials") or {}
     base = {
@@ -112,17 +132,30 @@ def collect_point(d: Path) -> list[dict]:
             "target_total": report["class_totals"].get(target) if target else None,
         }
         for det in KEY_DETECTORS:
+            if det not in npz.files:
+                continue                      # a pre-gate artifact predates the last three
             v = npz[det]
             for side, m in arms:
                 row[f"{det}__{side}"] = _median(v[m])
             row[f"{det}__null"] = _median(v[null_eval])
-        # The fitted null thresholds: the evaluator refits them from THIS read's own null, so a
-        # damaged dictionary moves the bar as well as the target.
-        for m in ("G", "coverage_R", "pmi", "abs_asymmetry_R", "S_res"):
-            th = report["thresholds"].get(m, {})
-            row[f"{m}__q99"] = th.get("q99")
-            if m == "G":
-                row["G__q01"] = th.get("q01")
+        for gate in KEY_GATES:
+            if gate not in npz.files:
+                continue                      # a pre-gate artifact in the same tree
+            v = npz[gate]
+            for side, m in list(arms) + [("null", null_eval)]:
+                rate, n_def = _pass_rate(v[m])
+                row[f"{gate}__{side}"] = rate
+                row[f"{gate}__{side}_defined"] = n_def
+        # The thresholds block is gone with the quantile rule: nothing is fitted, so the bar no
+        # longer moves when the dictionary is damaged. The constants that replaced it are
+        # stamped in `__meta__.gate_constants` and are the same in every row of a tag.
+        row["gate_constants"] = json.dumps(meta.get("gate_constants") or {}, sort_keys=True)
+        # From the REPORT, not the npz `__meta__`: `run_read` writes it there, and a driver
+        # that forgets to copy it into its own meta block would silently give a blank column
+        # rather than an error.
+        sup = report.get("support") or meta.get("support") or {}
+        row["support_frac_excluded"] = sup.get("frac_excluded")
+        row["support_n_excluded"] = sup.get("n_excluded")
         for name in EXPRESSIONS:
             e = report["expressions"][name]
             row[f"{name}__recall"] = e["target_rollup"].get("recall_given_recovery")
@@ -205,10 +238,18 @@ READING_RULES = [
     "Under `own` a composed feature's own coverage is 1 - pi x partner density. Under `union` "
     "rows are averaged by activation mass, so the combination direction enters each feature's "
     "row in proportion to how much it fires (not at all at pi = 0).",
-    "- edge_fraction = 1.0 or fraction = 1.0: the per-read calibration null is itself damaged "
-    "(see the `__q99` columns) and the intact arm may be empty.",
+    "- edge_fraction = 1.0 or fraction = 1.0: the intact arm may be empty. This used to also "
+    "damage the per-read calibration null, which moved the bar along with the target; nothing "
+    "is fitted any more, so the gates hold still and only the arms move.",
     "- `token_freq_survival` cannot inform a claim about random holes: they are "
     "frequency-uniform by construction, so its flatness licenses nothing about systematic holes.",
+    "- Gate columns are PASS RATES over the measurable cells of that arm, with `__defined` "
+    "giving how many cells were measurable. A rate of 0.0 over 200 defined cells and a NaN "
+    "over 0 defined cells are different results; only the first is a rejection.",
+    "- `support_frac_excluded` is the share of ordered pairs the scorability guard removed "
+    "(both endpoints must fire >= min_fire_count, and they must co-fire >= support_min_joint). "
+    "It rises sharply at small n_tokens and under splitting, which divides firing by k and "
+    "co-firing by roughly k^2.",
     "- Units: census `theta_hat` is RADIANS, `severity` is a COSINE; severity = sin(theta_hat) "
     "on an orthogonal edge.",
     "- Severity on only_isa includes the DESIGNED alpha = 0.48 overlap at beta = 0; cross-toy "
@@ -218,8 +259,10 @@ READING_RULES = [
 
 def write_md(rows: list[dict], path: Path, tag: str) -> None:
     lines = [f"# Dose-response — synthetic dictionary damage ({tag})", ""]
-    lines += ["Every detector/expression cell is median-over-pairs or a rate, split corrupted "
-              "vs intact within the target class. A flat curve is a result, not a bug.", ""]
+    lines += ["Every detector cell is a median over pairs, every GATE cell a pass rate over the "
+              "measurable pairs, and every expression cell a rate -- each split corrupted vs "
+              "touched vs intact within the target class. A flat curve is a result, not a bug.",
+              ""]
     lines += ["Reading rules:", ""] + READING_RULES + [""]
     groups = sorted({(r["toy"], r["kind"], r["readout"] or "", r["target_class"] or "")
                      for r in rows})
@@ -237,12 +280,21 @@ def write_md(rows: list[dict], path: Path, tag: str) -> None:
              for s in ("recall", "pass_corrupted", "pass_touched", "pass_intact", "fpr")]
         # Arm sizes belong in the rendered table: an empty arm must read as "nothing to say",
         # not as "the metric said nothing".
+        # `__defined` beside every rate, because the reading rules tell the reader to check it:
+        # a rate of 0.0 over 200 measurable cells and a NaN over 0 are different results, and
+        # a table that omits the denominator cannot distinguish them.
+        gate_cols = dial_cols + [f"{g}__{side}{suffix}"
+                                 for g in ("gate_parent_of", "gate_recon", "gate_sres_rank",
+                                           "gate_freq_survives")
+                                 for side in ("corrupted", "intact", "null")
+                                 for suffix in ("", "_defined")] + \
+            ["support_frac_excluded"]
         rec_cols = dial_cols + ["n_corrupted_pairs", "n_touched_pairs", "n_intact_pairs",
                                 "n_recovered_features", "n_lost_features", "target_recovered",
                                 "target_total", "n_latents", "L_over_F", "latent_l0",
                                 "feature_l0", "fvu", "zeroed_rate", "zeroed_rate_damaged",
                                 "census_absorbed", "census_absorbed_among_planted"]
-        for cols in (det_cols, ex_cols, rec_cols):
+        for cols in (det_cols, gate_cols, ex_cols, rec_cols):
             lines += ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
             lines += ["| " + " | ".join(_fmt(r.get(c)) for c in cols) + " |" for r in sub]
             lines += [""]

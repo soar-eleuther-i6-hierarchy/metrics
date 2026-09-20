@@ -23,6 +23,8 @@ Usage (one dial point; run_grid launches many of these in parallel):
   python -m synthdict.run_synth --toy only_superparent --kind split --k 4 \\
       --roles superparent dense_parent --readout union ...
   python -m synthdict.run_synth --toy only_isa --kind composition --pi 0.5 --readout own ...
+  python -m synthdict.run_synth --toy only_isa --kind none --acts-mode true_A ...   # oracle
+  python -m synthdict.run_synth --toy only_isa --kind none --acts-mode nnls  ...   # undamaged
 """
 
 from __future__ import annotations
@@ -38,8 +40,9 @@ from pathlib import Path
 import numpy as np
 
 from scoring.benchmark.manifest import evaluator_sha256
-from scoring.benchmark.registry import REPORT_SCHEMA
+from scoring.benchmark.registry import GATES, REPORT_SCHEMA
 from scoring.benchmark.run_benchmark import git_provenance, run_read, write_artifacts
+from scoring.core.gates import GATE_CONSTANT_KEYS
 from scoring.core.grid import held_out_sample_seed
 from scoring.core.registry import CONSTANTS
 from scoring.core.world import regenerate_world
@@ -48,7 +51,7 @@ from synthdict.census import absorption_classifier_sha256, run_census
 from synthdict.corruptions import (SPLIT_ROLES, AbsorptionDials, CompositionDials,
                                    HedgingDials, SplitDials, build_corruption)
 from synthdict.planted import READOUTS
-from synthdict.read import resolved_config, synthetic_read
+from synthdict.read import ACTS_MODELS, resolved_config, synthetic_read
 
 SYNTHDICT_SOURCES = ("synthdict",)
 _ROOT = Path(__file__).resolve().parents[1]
@@ -76,8 +79,44 @@ def toygen_commit(root: Path = _ROOT) -> str:
         return "unavailable"
 
 
+@dataclasses.dataclass(frozen=True)
+class NoDamageDials:
+    """No damage at all: the perfect dictionary, W = g. `acts_mode` picks which of the two
+    non-damage columns this is - `true_A` is the oracle (the true coefficients, which
+    `test_read.py` pins bit-for-bit against the real `oracle_read`) and `nnls` is the
+    undamaged column (the same perfect dictionary read through the encoder).
+
+    This is a dials class only so it can travel the existing (kind, dials, readout) addressing;
+    it never reaches `build_corruption`, which keeps taking None.
+    """
+
+    KIND = "none"
+
+    acts_mode: str
+
+    def __post_init__(self) -> None:
+        if self.acts_mode not in ACTS_MODELS:
+            raise ValueError(f"unknown acts_mode {self.acts_mode!r}; the encoder is 'nnls' "
+                             f"('true_A' is the passthrough anchor)")
+
+
+def damage_of(dials) -> object | None:
+    """The damage `dials` describes, or None for the no-damage point. One place to ask, so a
+    caller cannot half-handle the no-damage case."""
+    return None if isinstance(dials, NoDamageDials) else dials
+
+
+def acts_mode_of(dials) -> str:
+    """The encoder a point runs under. Only the no-damage point may choose."""
+    return dials.acts_mode if isinstance(dials, NoDamageDials) else "nnls"
+
+
 def dial_dirname(dials) -> str:
     """The dial point's directory name, one branch per damage."""
+    if isinstance(dials, NoDamageDials):
+        # The encoder is the ONLY thing separating oracle from undamaged; leave it out of the
+        # path and the two collide on one directory and silently overwrite each other.
+        return f"acts_{dials.acts_mode}"
     if isinstance(dials, AbsorptionDials):
         return f"beta{dials.beta:g}-eta{dials.eta:g}-f{dials.edge_fraction:g}"
     if isinstance(dials, HedgingDials):
@@ -144,7 +183,7 @@ def build_run_config(read, toy: str, seed: int, dials, n_tokens: int,
         "L": L, "F": F, "L_over_F": L / F,
         "n_lost_features": int(ex["n_lost_features"]),
         "detector_constants": dict(CONSTANTS),
-        "thresholds_location": "expressions.json -> thresholds (fitted on this read's null)",
+        "gates_location": "expressions.json -> __meta__.gate_constants (fixed; nothing fitted)",
         "code": {"evaluator_sha256": evaluator_sha256(),
                  "synthdict_sha256": synthdict_sha256(),
                  "toygen_commit": toygen_commit(),
@@ -159,9 +198,10 @@ def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: st
                    cfg_overrides: dict | None = None) -> list[Path]:
     """Score one (toy, seed, dials) under the declared readout; write its artifacts."""
     rc = resolved_config(toy, seed, cfg_overrides)
+    damage, acts_mode = damage_of(dials), acts_mode_of(dials)
     t0 = time.time()
-    read = synthetic_read(toy, seed, dials, readout, n_tokens, with_probe=with_probe,
-                          cfg_overrides=cfg_overrides)
+    read = synthetic_read(toy, seed, damage, readout, n_tokens, with_probe=with_probe,
+                          acts_mode=acts_mode, cfg_overrides=cfg_overrides)
     report, arrays = run_read(read)
     report["secs"] = round(time.time() - t0, 1)
     ex = read.extra
@@ -193,7 +233,8 @@ def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: st
         # and geometry is draw-independent, so any draw reproduces it exactly.
         world = regenerate_world(rc, sample_seed=held_out_sample_seed(int(seed)),
                                  n_tokens=n_tokens)
-        corruption = build_corruption(world, dials, world_seed=int(seed), readout=readout)
+        corruption = (build_corruption(world, damage, world_seed=int(seed), readout=readout)
+                      if damage is not None else None)
         cen = run_census(rc, corruption, seed, n_tokens=n_tokens, readout=readout)
     run_config = build_run_config(read, toy, seed, dials, n_tokens,
                                   census_seed=cen["sample_seed"] if cen is not None else None)
@@ -216,6 +257,11 @@ def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: st
         "corrupted_features": list(ex["corrupted_features"]),
         "severity_kind": ex["severity_kind"],
         "corrupted_pair_rule": ex["corrupted_pair_rule"],
+        # With nothing fitted, WHICH CONSTANT a gate compared against is the whole of what
+        # decided a pass, so it belongs in the provenance beside the code hashes.
+        "gates": list(GATES),
+        "gate_constants": {k: CONSTANTS[k] for k in GATE_CONSTANT_KEYS},
+        "support": report.get("support"),
         "readout": readout, "acts_model": ex["acts_model"],
         "planted_map_sha256": ex["planted_map_sha256"],
         "n_latents": ex["n_latents"],
@@ -248,6 +294,9 @@ DIALS_BY_KIND = {
     "hedging": (HedgingDials, ("gamma_rel", "edge_fraction")),
     "split": (SplitDials, ("k", "roles", "skew", "fraction")),
     "composition": (CompositionDials, ("pi", "fraction")),
+    # The benchmark matrix' two non-damage columns. `acts_mode` is this kind's only knob, and
+    # it is refused on every other kind by the foreign-knob check below.
+    "none": (NoDamageDials, ("acts_mode",)),
 }
 
 
@@ -295,6 +344,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="split: share per role; composition: share of partner pairs "
                          "(default 1.0)")
     ap.add_argument("--pi", type=float, help="composition: share of co-firing tokens")
+    ap.add_argument("--acts-mode", choices=ACTS_MODELS,
+                    help="none: true_A = oracle column, nnls = undamaged column")
     ap.add_argument("--n-tokens", type=int, default=200_000)
     ap.add_argument("--tag", default="SYNTH-R1")
     ap.add_argument("--out", default="outputs_local/synthdict")

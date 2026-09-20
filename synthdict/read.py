@@ -29,9 +29,9 @@ import dataclasses
 
 import torch
 
-from scoring.benchmark.reads import Read, assemble_metrics
+from scoring.benchmark.reads import Read, assemble_gates, assemble_metrics
 from scoring.benchmark.registry import probe_fit_sample_seed
-from scoring.core.detectors import (DetectorInputs, compute_all, fit_probe_directions,
+from scoring.core.detectors import (DetectorInputs, compute_bundle, fit_probe_directions,
                                     s_res_cosine, s_res_from_directions)
 from scoring.core.grid import held_out_sample_seed, pair_frame
 from scoring.core.registry import CONSTANTS
@@ -192,10 +192,8 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
                         W_raw=pmap.reduce_raw(W_raw, acts_ho), h=score.h, b_dec=b_dec,
                         tokens=score.tokens, vocab=score.cfg.vocab)
 
-    dets = compute_all(di, CONSTANTS, s_res_mode="cosine")
-
     fit_seed = probe_fit_sample_seed(int(seed)) if probe_fit_seed is None else int(probe_fit_seed)
-    probe = None
+    probe, P, avail = None, None, None
     if with_probe:
         fw = regenerate_world(rc, sample_seed=fit_seed, n_tokens=n_tokens)
         acts_f, support_f, holed_f = synth_encode(fw, corruption, seed, fit_seed, acts_mode)
@@ -211,6 +209,13 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
         zeroed_damaged["probe_fit"] = zeroed_rate(acts_f[:, dl], support_f[:, dl])
         holed["probe_fit"] = holed_f
 
+    # Detectors and gates from one pass, with the probe directions already frozen — the same
+    # order `reads.oracle_read` uses, so the two paths cannot diverge on which draw the
+    # rank gate saw.
+    bnd = compute_bundle(di, CONSTANTS, s_res_mode="cosine",
+                         probe_directions=P, probe_available=avail)
+    dets = bnd["detectors"]
+
     pairs, y = pair_frame(feats, score.pair_labels)
 
     corrupted_pair = corrupted_pair_mask(corruption, feats, pairs)
@@ -225,6 +230,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
     sev = (corruption.realized_severity if corruption is not None
            else torch.zeros(0, dtype=torch.float64))
     extra = {
+        "support": bnd["support"],
         "dials": (dataclasses.asdict(dials) if dials is not None else None),
         "corruption_kind": (corruption.kind if corruption is not None else "none"),
         "corrupted_edges": (tuple(corruption.corrupted_edges) if corruption is not None else ()),
@@ -271,6 +277,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
         s_res_mode="probe" if with_probe else "absent",
         F=F, feats=feats, pairs=pairs, y=y,
         vals=assemble_metrics(dets, di.W_unit, probe, pairs),
+        gate_vals=assemble_gates(bnd["gates"], pairs),
         pair_labels=score.pair_labels, W_unit=di.W_unit,
         recovered=recovered, detector_matrices=dets, extra=extra,
     )
@@ -293,22 +300,25 @@ def oracle_equivalent_read(toy: str, seed: int, n_tokens: int,
     feats = list(range(F))
     idx = torch.tensor(feats, dtype=torch.long)
     inp = pure_inputs(bundle, feats, bundle.A[:, idx])
-    dets = compute_all(inp, CONSTANTS, s_res_mode="cosine")
-    probe = None
+    probe, P, avail = None, None, None
     if with_probe:
         fw = regenerate_world(rc, sample_seed=probe_fit_sample_seed(int(seed)),
                               n_tokens=n_tokens)
         fi = pure_inputs(fw, feats, fw.A[:, idx])
         P, avail = fit_probe_directions(fi.h, fi.acts_rec, CONSTANTS)
         probe = s_res_from_directions(P, avail, inp.W_unit)
+    bnd = compute_bundle(inp, CONSTANTS, s_res_mode="cosine",
+                         probe_directions=P, probe_available=avail)
+    dets = bnd["detectors"]
     pairs, y = pair_frame(feats, bundle.pair_labels)
     return Read(
         toy=toy, seed=int(seed), read="oracle", n_tokens=n_tokens,
         s_res_mode="probe" if with_probe else "absent",
         F=F, feats=feats, pairs=pairs, y=y,
         vals=assemble_metrics(dets, inp.W_unit, probe, pairs),
+        gate_vals=assemble_gates(bnd["gates"], pairs),
         pair_labels=bundle.pair_labels, W_unit=inp.W_unit,
         recovered=torch.ones(F, dtype=torch.bool),
         detector_matrices=dets,
-        extra={"resolved_config": rc},
+        extra={"support": bnd["support"], "resolved_config": rc},
     )

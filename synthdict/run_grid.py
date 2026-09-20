@@ -26,7 +26,8 @@ import time
 from pathlib import Path
 
 from synthdict.planted import READOUTS
-from synthdict.run_synth import DIALS_BY_KIND, dial_dirname, point_dir, provenance_tuple
+from synthdict.run_synth import (DIALS_BY_KIND, acts_mode_of, dial_dirname, point_dir,
+                                 provenance_tuple)
 
 
 def point_dials(point: dict):
@@ -76,16 +77,48 @@ def resume_npz(out, tag: str, seed: int, toy: str, dials, readout: str) -> Path:
     return point_dir(out, tag, seed, toy, type(dials).KIND, dials, readout) / "scores.npz"
 
 
+POLL_SECS = 2.0
+
+
+def reap_finished(running: list, block: bool, report) -> int:
+    """Drop finished children from `running`, calling `report(name, rc, secs)` for each.
+
+    Under `block=True` this waits for ONE child and returns. It must not keep going while any
+    child is alive: the caller uses it to free a single slot, so draining the pool turns
+    `n_jobs` parallel slots into sequential waves, each as slow as its slowest member.
+    """
+    reaped = 0
+    while running and ((block and reaped == 0)
+                       or any(p.poll() is not None for p, _, _, _ in running)):
+        for i, (proc, name, t0, log) in enumerate(running):
+            rc = proc.poll()
+            if rc is None:
+                continue
+            log.close()
+            report(name, rc, time.time() - t0)
+            running.pop(i)
+            reaped += 1
+            break
+        else:
+            time.sleep(POLL_SECS)
+    return reaped
+
+
 def _artifact_provenance(npz_path: Path) -> tuple:
     import numpy as np
 
     return provenance_tuple(json.loads(str(np.load(npz_path, allow_pickle=False)["__meta__"])))
 
 
-def _requested_provenance(args, kind: str, readout: str) -> tuple:
-    """The same tuple for the run ABOUT to happen, so the two are compared in one place."""
+def _requested_provenance(args, kind: str, readout: str, acts_mode: str = "nnls") -> tuple:
+    """The same tuple for the run ABOUT to happen, so the two are compared in one place.
+
+    `acts_mode` must come from the POINT: the oracle and undamaged columns differ in nothing
+    else, so a hardcoded 'nnls' here compares an oracle artifact against an nnls request and
+    resume either skips the point or refuses it.
+    """
     overrides = {"n_roots": args.n_roots} if args.n_roots is not None else None
-    return provenance_tuple({"acts_model": "nnls", "readout": readout, "corruption": kind,
+    return provenance_tuple({"acts_model": acts_mode, "readout": readout, "corruption": kind,
                              "n_tokens": int(args.n_tokens), "cfg_overrides": overrides,
                              "s_res_mode": "absent" if args.no_probe else "probe"})
 
@@ -135,24 +168,16 @@ def main() -> None:
     done = 0
     t_start = time.time()
 
-    def reap(block: bool) -> None:
+    def on_done(name: str, rc: int, secs: float) -> None:
         nonlocal done
-        while running and (block or any(p.poll() is not None for p, _, _, _ in running)):
-            for i, (proc, name, t0, log) in enumerate(running):
-                rc = proc.poll()
-                if rc is None:
-                    continue
-                log.close()
-                done += 1
-                status = "ok" if rc == 0 else f"FAILED rc={rc}"
-                print(f"[{done}/{len(pts)}] {name}: {status} ({time.time() - t0:.0f}s)",
-                      flush=True)
-                if rc != 0:
-                    failed.append(name)
-                running.pop(i)
-                break
-            else:
-                time.sleep(2.0)
+        done += 1
+        status = "ok" if rc == 0 else f"FAILED rc={rc}"
+        print(f"[{done}/{len(pts)}] {name}: {status} ({secs:.0f}s)", flush=True)
+        if rc != 0:
+            failed.append(name)
+
+    def reap(block: bool) -> None:
+        reap_finished(running, block, on_done)
 
     for i, (point, cmd) in enumerate(zip(pts, cmds)):
         dials = point_dials(point)
@@ -161,7 +186,8 @@ def main() -> None:
         npz = resume_npz(args.out, args.tag, args.seed, point["toy"], dials, readout)
         census_missing = not args.no_census and not (npz.parent / "census.json").exists()
         if not args.force and npz.exists() and not census_missing:
-            have, want = _artifact_provenance(npz), _requested_provenance(args, kind, readout)
+            have = _artifact_provenance(npz)
+            want = _requested_provenance(args, kind, readout, acts_mode_of(dials))
             if have == want:
                 done += 1
                 print(f"[{done}/{len(pts)}] {name}: skipped (artifacts exist)", flush=True)
