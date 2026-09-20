@@ -6,7 +6,8 @@ Sections 4, 5 and 6 are rewritten for that contract; Sections 2, 3 and 11 keep t
 Stop searching for a subtype separator in this study.
 Keep the committed expressions, including valid failures, and test whether their behavior replicates.
 Do not open the fresh seeds until the freeze checklist is complete.
-This revision updates this document only; it trains nothing and reruns nothing.
+Revised again 2026-09-20 to record the three-seed damage matrix in Section 3 and the pass criteria in Section 9.
+The 2026-09-19 revision updated the document only; the 2026-09-20 one reports 333 runs and changes no rule.
 
 ## 1. Immediate next actions
 
@@ -15,8 +16,8 @@ Work in this order:
 1. DONE 2026-09-19: `sres_rank_top_k` is 2 and `topical_v6` reads `PASSES(parent_of) AND PASSES(freq_survives)`, both measured at the ceiling before and after (Section 3).
 2. DONE 2026-09-19: the 0.25 and 0.33 caps are accepted, the target populations stay symmetric, and `BAR_RECALL` does not apply to those two rows (Sections 4 and 8).
 3. DONE 2026-09-19: G stays out of every rule and remains a reported diagnostic, so the geometry failure is a registered negative result rather than an open search (Sections 3 and 4).
-4. Fill the mutation anchors for the seven gates, then re-run the oracle ceiling on all five toys.
-5. Write the confirmation-seed pass criteria into Section 9 BEFORE the seed runs.
+4. DONE 2026-09-20: gate mutation anchors filled and killed, and the oracle ceiling re-run on all five toys, reproducing the Section 3 table exactly.
+5. DONE 2026-09-20: the pass criteria were written into Section 9 before any seed 1-3 result existed, and the three-seed damage matrix was run and met all of them (Section 3).
 6. Approve the registry in Section 4 and fill the remaining settings in Section 8.
 No rule needs to pass to be included.
 7. Freeze the document, registry, evaluator revision and seed plan together.
@@ -227,6 +228,116 @@ So no constant inside the current rules separates the classes, and a value thres
 
 The decoder cosine does separate them, cleanly and identically in every world, and it is bounded and dictionary-size independent, so a fixed cut would carry to Gemma.
 It is a reported diagnostic here and is read by no rule, which is a deliberate decision recorded in Section 4.
+
+### The damage matrix, three seeds, measured 2026-09-20
+
+333 runs: 111 dial points on each of seeds 1, 2 and 3, at 50k tokens, written under the criteria declared in Section 9 before any of these numbers existed.
+Seed 0 was run separately as a regression check against the ceiling recorded above and is not quoted as evidence, because it selected `sres_rank_top_k` and the `topical_v6` clauses.
+All three seeds met every declared criterion, 15 of 15 each.
+
+Replication is near-exact.
+Every rule reproduces to three decimals on all three seeds, with one exception: `orthogonal_v6` on `only_superparent` reads 0.833, 0.917 and 0.750, which is 10, 11 and 9 of 12 pairs.
+Every null false-positive rate is 0.0000, on every rule, in every toy, on every seed.
+
+### Recall was the wrong instrument: the set does not discriminate
+
+The null rate of 0.0000 is flattering rather than informative.
+`unrelated` pairs sit at coverage 0.11 to 0.18 against a cut of 0.5, so they are trivially separable.
+The informative negatives are the other STRUCTURED classes, and measured against those the set largely fails.
+
+Pass rate on each rule's own target, beside its worst pass rate on a class it does not target, at the oracle ceiling with no damage:
+
+| Rule | On target | Worst off-target | On which class |
+| --- | --- | --- | --- |
+| `frequency_v6` | 0.250 | **0.000** | nothing; clean |
+| `orthogonal_v6` | 0.833 | 0.468 | `superparent` |
+| `overlap_v6` | 1.000 | **1.000** | `firing_only` |
+| `superparent_v5` | 1.000 | **1.000** | `firing_only` and `reversed` |
+| `topical_v6` | 0.333 | **1.000** | `is_a` and `firing_only` |
+
+Three specific readings.
+
+`topical_v6` fires more often on classes that are not topical than on the class that is.
+It reads `PASSES(parent_of) AND PASSES(freq_survives)`, which contains nothing topic-specific, so every true containment edge passes it.
+The change recorded above took it from a structural zero to a structural false positive, and the cross-class table is what should have been run at the time.
+
+`superparent_v5` passes `reversed` at 1.000.
+A rule that accepts the flipped ordering of a pair is not testing a directional relation.
+Its single gate reads an ENDPOINT's out-degree, which is symmetric in the pair by construction.
+
+`frequency_v6` is the only rule in the set with clean specificity: 0.000 on every non-target class in every toy.
+Its 0.250 is the directional ceiling, not a failure.
+
+Two structural notes.
+Each discriminator partitions containment exhaustively: every containment pair either passes `sres_rank` or fails it, and either passes `freq_survives` or fails it, so no rule in either pair can abstain.
+That is the direct cause of the leakage above.
+And 25% of `frequency` pairs and 33% of `topical` pairs lie inside containment, which is exactly the recall those two rules achieve; the caps are containment fractions, not rule failures.
+
+### The encoder costs nothing, because the rules barely read it
+
+Oracle and undamaged differ only in how activations are obtained on the same perfect dictionary.
+The largest recall shift caused by the encoder alone is **0.0000**, on every rule, in every toy, on all three seeds.
+
+The mechanism is not encoder accuracy.
+Of the eight registered metrics, six are bit-identical between the two columns (`coverage_R`, `asymmetry_R`, `pmi`, `token_freq_survival`, `S_res`, `G`) because they are functions of the firing pattern and the decoder directions, both of which are fixed.
+Only `recon_2a` and `recon_child_gain` move, and `gate_recon` shows zero flips.
+NNLS is solved ON the planted support and `zeroed_rate` is exactly 0, so the realized support equals the planted support.
+
+The correct statement is therefore that the rule set is almost entirely a FIRING-PATTERN test, so an encoder that only errs in magnitudes is invisible to it.
+This will not transfer to a trained SAE, where the encoder determines the support and every firing-derived quantity moves.
+
+NNLS also reconstructs BETTER than the true coefficients in every toy and seed (for example 0.0069 against 0.0089 on `only_isa`), because it minimizes squared error on the support while the true coefficients are the generative values.
+Reconstruction quality is therefore not evidence of correct recovery.
+
+### One clause carries every damage result
+
+On `only_isa` under absorption, at all twelve dial points, `PASSES(parent_of)` alone, `parent_of AND sres_rank`, and `parent_of AND recon AND sres_rank` return the SAME number.
+`gate_recon` and `gate_sres_rank` never change a verdict.
+`gate_recon` changes an answer in 25 of about 950 comparisons across the whole matrix, all of them in one cell (`only_superparent`, composition, `union` readout), where its own question is ill-posed because the readout has deliberately merged two features into a shared latent.
+`gate_duplicate` is read by no rule at all.
+
+Absorption acts only through coverage.
+`eta` removes the parent on a share of co-firing tokens, so coverage falls to about 1 minus eta and crosses the cut between eta 0.3 and 0.6; `beta` removes no firing but rewrites the child's row, so the solver attributes parent mass to the child and suppresses the parent's own coefficient, which surfaces as a firing effect only at beta 0.75.
+Ten of twelve cells read exactly 1.00 or exactly 0.00: the rules do not degrade, they switch at the threshold.
+
+Splitting acts only through coverage too, and its effect is arithmetic.
+Reading a feature on one of k shards gives coverage of exactly 1/k, measured at 0.50, 0.33, 0.25 and 0.17 for k of 2, 3, 4 and 6.
+The rule dies when 1/k falls below the cut, so at k above 2.
+The single intermediate value in the sweep, 0.522 at k = 2, is a coin flip because 1/2 equals the cut exactly.
+The `union` readout restores coverage to its undamaged value at every k and the rules read 1.000 throughout, so splitting SCATTERS information rather than destroying it.
+That is an oracle repair, not a capability: the readout is handed the true shard grouping, which a real pipeline would have to discover.
+
+### The geometry channel does not respond to damage either
+
+`gate_sres_rank` is unmoved by every damage applied.
+Under absorption it reads 1.000 at all twelve dial points in `only_firing` and 0.056 at all twelve in `only_superparent` — pinned at opposite ends of its range, responding to neither.
+Under splitting it is likewise flat.
+Absorption at beta 0.75 rewrites the child's decoder row to carry three quarters of the parent direction, and the only gate that claims to read geometry does not move.
+
+The decoder cosine does respond, and separates the two damages:
+
+| | coverage | G |
+| --- | --- | --- |
+| splitting, k = 2, 3, 4, 6 | falls as 1/k | 0.480, 0.480, 0.480, 0.480 |
+| absorption, beta = 0, 0.25, 0.5, 0.75 | unchanged | 0.480, 0.640, 0.745, 0.814 |
+| absorption, eta = 0, 0.3, 0.6 | falls | unchanged at every beta |
+
+G is a clean monotone readout of the geometry half of absorption, blind to eta and to k, and the rule set reads only the other sensor.
+This is the second independent argument for a fixed-cut G gate; the first is that G is the only measurement separating `is_a` from `firing_only`.
+No rule change is made here, per Section 9.
+
+### Caveats on the above
+
+`only_frequency` and `only_topical` reach only 24 pooled corrupted pairs, and their non-trivial cells are the least stable: `frequency_v6` at beta 0.75, eta 0 reads 0.12, 0.38 and 0.75 across the three seeds.
+The cells reading exactly 0.00 or 1.00 are unanimous across seeds; the transition cells, which are the interesting ones, are the ones measured worst.
+
+`transitive` and `sibling` are not planted in any pure toy, so no rule is exercised against them here.
+
+`topical_v6` recall is reported above for completeness but should not be read as a measurement of topical detection, since the rule has no topic-specific clause.
+
+The matrix is indexed by (toy, CLASS), not by toy: `only_superparent` carries two planted classes, and absorption damages only its `firing_only` edges while splitting as configured damages only its `superparent` pairs.
+
+Leakage under damage is NOT measured: the damaged cells report target pass rates only.
 
 ## 4. Registry: the committed expressions
 

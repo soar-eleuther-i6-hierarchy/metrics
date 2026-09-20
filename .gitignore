@@ -51,9 +51,9 @@ scoring/MATCHING_METHODS.md
 synthdict/*.md
 /scripts
 
-# Transitional: a one-shot 5.x->6.x checkpoint-boundary probe, retired once training
-# moves to the sae-training repo. Kept local, not tracked.
-training/roundtrip_check.py
+# This codebase was used for other toys (not bussman) + SAE training, since this is inactive and not pursuing, removing it from remote for easy understanding of the codebase
+/training
+
 # Sibling repos (MEETING_NOTES/, PCFG/, sae-training/) live BESIDE experiment_0,
 # not inside it — nothing to ignore here. Tier-2 calibration finds the
 # sae-training clone at ../sae-training or via EXP0_SAE_TRAINING.
