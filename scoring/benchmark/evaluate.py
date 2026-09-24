@@ -72,7 +72,7 @@ from toygen import labels
 VERDICTS: tuple[str, ...] = ("MET CRITERIA", "DID NOT MEET CRITERIA",
                              "UNTESTABLE", "INVALID MEASUREMENT")
 
-# A verdict is a statement about ONE world. `containment_baseline` reads MET CRITERIA in
+# A verdict is a statement about ONE world. `rule_containment` reads MET CRITERIA in
 # only_isa and only_firing while accepting 25.8% of frequency pairs and 32.1% of topical pairs
 # in the other two worlds -- where its own target is absent, so it is UNTESTABLE there and the
 # verdict never sees the leak. PRECOMMIT s3 forbids declaring C successful from its two
@@ -389,15 +389,15 @@ def rule_overlap(masks: dict[str, torch.Tensor], y: torch.Tensor,
     is a different failure from either rule missing. And the NO-rule count is what shows a pair
     that every rule abstained on rather than rejected.
 
-    `frequency_v6` and `topical_v6` are exact complements again, now on `gate_freq_survives`
-    within `gate_parent_of`: one reads `FAILS` where the other reads `PASSES`. So they can never
+    `rule_frequency` and `rule_topical` are exact complements again, now on `gate_freq_survives`
+    within `gate_strictly_contains`: one reads `FAILS` where the other reads `PASSES`. So they can never
     collide, and a pair that is a directed containment is forced into one of them rather than
     abstained on -- the same forced-choice shape the fitted `tau_surv` boundary had, with a fixed
     constant in place of the fitted one. A zero in their collision cell is structural rather than
     evidence; the informative cell is the NO-rule count, which is where a pair no rule claims
     shows up.
 
-    The baseline and the two historical comparators are excluded: `containment_baseline` is a
+    The baseline and the two historical comparators are excluded: `rule_containment` is a
     sub-expression of every containment rule and the probe comparators overlap them by
     construction, so counting them would manufacture ambiguity that is not there.
     """
@@ -443,8 +443,8 @@ def rule_overlap(masks: dict[str, torch.Tensor], y: torch.Tensor,
         ev[idx] = True
     by["unrelated_eval"] = block(ev)
 
-    # Which rules collide, not merely that some did: overlap_v6 + orthogonal_v6 colliding means
-    # the subtype split failed; frequency_v6 + topical_v6 colliding would mean the tau boundary
+    # Which rules collide, not merely that some did: rule_is_a + rule_firing_only colliding means
+    # the subtype split failed; rule_frequency + rule_topical colliding would mean the tau boundary
     # is not the partition it is claimed to be.
     collisions: dict[str, int] = {}
     for i, a in enumerate(names):
@@ -512,7 +512,7 @@ def evaluate_read(vals: dict[str, torch.Tensor], y: torch.Tensor,
 #       joint_child_J, joint_child_mass, sibling_redundancy, joint_child_supp,
 #       sibling_redundancy_pc
 #   per-CHILD, broadcast down a COLUMN (`detectors._broadcast_child`): recon_child_gain
-#   both endpoints: wide, gate_superparent
+#   both endpoints: wide, gate_high_outdegree
 #
 # No pair-level split holds any of these out: on the seed-0 worlds 100% of evaluation-half
 # pairs shared both endpoints with some calibration-half pair, back when there were halves.
@@ -526,7 +526,7 @@ def evaluate_read(vals: dict[str, torch.Tensor], y: torch.Tensor,
 ENDPOINT_BROADCAST: tuple[str, ...] = ("outdegree", "joint_child_J", "joint_child_mass",
                                        "sibling_redundancy", "joint_child_supp",
                                        "sibling_redundancy_pc", "recon_child_gain",
-                                       "wide", "gate_superparent")
+                                       "wide", "gate_high_outdegree")
 
 # Detectors symmetric in (parent, child). Both orderings of a pair take the SAME value, so the
 # two decisions are one decision and the reported denominator is twice the number of
@@ -541,15 +541,15 @@ ENDPOINT_BROADCAST: tuple[str, ...] = ("outdegree", "joint_child_J", "joint_chil
 # margin -- and `G` is the cosine one. Listing `S_res` here halved its effective null denominator
 # on a metric that never had the symmetry that justifies halving.
 #
-# The GATES are in this list too, and three of them belong: `gate_duplicate` is `ge & ge.T`,
-# `gate_superparent` is `flag[p] | flag[c]` and `gate_support` is built from a symmetric
+# The GATES are in this list too, and three of them belong: `gate_mutually_contains` is `ge & ge.T`,
+# `gate_high_outdegree` is `flag[p] | flag[c]` and `gate_support` is built from a symmetric
 # co-firing count, so each takes the same value on (p, c) and (c, p). Leaving them out was the
-# live case, not a hypothetical: `topical_v6` and `superparent_v5` read exactly those, so the
+# live case, not a hypothetical: `rule_topical` and `rule_superparent` read exactly those, so the
 # two rules whose null denominators are doubled were the two reported as undoubled.
-# `gate_parent_of` is deliberately absent -- it is antisymmetric by construction, which is the
+# `gate_strictly_contains` is deliberately absent -- it is antisymmetric by construction, which is the
 # opposite property.
 SYMMETRIC_METRICS: tuple[str, ...] = ("pmi", "G", "wide", "abs_asymmetry_R",
-                                      "gate_duplicate", "gate_superparent", "gate_support")
+                                      "gate_mutually_contains", "gate_high_outdegree", "gate_support")
 
 
 def metric_diagnostics(vals: dict[str, torch.Tensor], y: torch.Tensor,

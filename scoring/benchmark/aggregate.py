@@ -1,7 +1,7 @@
 """The cross-world verdict: one rule, all five worlds, one label.
 
 A rule's TARGET lives in one world and its LEAKAGE lives in the others, so no per-world verdict
-can see it. `containment_baseline` reads MET CRITERIA in `only_isa` and `only_firing` while
+can see it. `rule_containment` reads MET CRITERIA in `only_isa` and `only_firing` while
 accepting 25.8% of `frequency` pairs and 32.1% of `topical` pairs in the two worlds where its own
 target is absent -- and it is UNTESTABLE there, so its verdict never looks at the pairs it is
 happily accepting. `PRECOMMIT.md` s3 forbids declaring C successful from its two positive worlds;
@@ -15,7 +15,7 @@ THE TWO COMBINATION RULES ARE DELIBERATELY DIFFERENT.
   eval-null FPR   WORST WORLD. `PRECOMMIT.md` s8 words the bar as holding "in each tested
                   world", so the quantity that faces it is the worst one; a pooled rate lets four
                   quiet worlds absorb one loud one. This is not hypothetical: measured on the
-                  saved seed-0 arrays, `topical_v6` flips on BOTH reads.
+                  saved seed-0 arrays, `rule_topical` flips on BOTH reads.
 
                       read     worst world        worst    pooled   at the 0.01 bar
                       oracle   only_superparent   0.0115   0.0093   pooled would PASS it
@@ -58,9 +58,10 @@ from scoring.benchmark.registry import MIN_SCORABLE_SUPPORT, NULL_CLASS, REPORT_
 MUST_DIFFER: tuple[str, ...] = ("toy",)
 
 # Keys that must be IDENTICAL: pooling across any of these mixes incomparable numbers.
-# `report_schema` is here because `recall_given_recovery` means a different quotient under
-# schema 1, so pooling a schema-1 artifact under schema-2 names is a silent denominator mix.
-MUST_MATCH: tuple[str, ...] = ("seed", "read", "freeze_tag", "report_schema", "settings_sha256")
+# `report_schema` is NOT here because it is checked more strictly below: every world must be on
+# the CURRENT schema, which also rules out a mixed pool. Pooling a schema-1 artifact under
+# schema-2 names is a silent denominator mix, and schema-3 artifacts carry the old rule names.
+MUST_MATCH: tuple[str, ...] = ("seed", "read", "freeze_tag", "settings_sha256")
 
 VERDICT_SCOPE = "benchmark-wide"
 
@@ -91,6 +92,13 @@ def _check_guards(worlds: list[dict]) -> None:
         if len(seen) > 1:
             raise ValueError(
                 f"{key} must be IDENTICAL across the blocks being pooled, got {sorted(seen)}")
+    # Every world on the CURRENT schema, not merely on the same one: a tree written entirely
+    # under an older schema agrees with itself, and under schema 3 the rules are keyed by their
+    # old names, so every block lookup below would miss and read UNTESTABLE instead of failing.
+    stale = sorted({str(w.get("report_schema")) for w in worlds} - {str(REPORT_SCHEMA)})
+    if stale:
+        raise ValueError(f"report_schema {stale} is not the current {REPORT_SCHEMA}; see "
+                         f"scoring/benchmark/registry.py REPORT_SCHEMA for what changed")
     for key in MUST_DIFFER:
         seen = [w.get(key) for w in worlds]
         dupes = {v for v in seen if seen.count(v) > 1}

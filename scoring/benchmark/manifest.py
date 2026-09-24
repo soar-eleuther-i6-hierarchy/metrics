@@ -40,7 +40,7 @@ from scoring.benchmark.registry import (BAR_CONFOUND_LEAK, BAR_EVAL_NULL_FPR, BA
                                         METRICS, MIN_SCORABLE_SUPPORT, NULL_CLASS,
                                         REPORT_SCHEMA)
 from scoring.core.gates import GATE_CONSTANT_KEYS
-from scoring.core.registry import CONSTANTS
+from scoring.core.registry import CONSTANTS, ruleset_stamp
 
 FROZEN_DOC = "PRECOMMIT.md"
 MANIFEST_NAME = "MANIFEST.json"
@@ -51,6 +51,9 @@ MANIFEST_NAME = "MANIFEST.json"
 # `test_the_evaluator_content_hash_is_stable_and_covers_the_evaluator` asserts each path exists.
 EVALUATOR_SOURCES: tuple[str, ...] = (
     "scoring/benchmark", "scoring/core", "toygen", "metrics/sres.py",
+    # The shared gates, rules and constant sets decide every verdict, so an edit there must
+    # move this hash. The gates import nothing else from `metrics/`.
+    "metrics/rules",
     # Named individually, not as `scoring/oracle` and `scoring/trained`. Both directories hold
     # teammate code the benchmark never imports (absorption, retrieval, run_scoring), and hashing
     # those would make the freeze hash move whenever unrelated work is edited. These two files ARE
@@ -161,6 +164,7 @@ def build_manifest(tag: str, seeds: list[int], toys: list[str],
             # a second copy: two lists would let an eighth constant land in the freeze record
             # and not in the provenance, or the other way round, with each side complete.
             "gate_constants": {k: CONSTANTS[k] for k in GATE_CONSTANT_KEYS},
+            **ruleset_stamp(),
             "null_population": "the WHOLE null; nothing is fitted, so there is no split",
             "constant_tol": CONSTANT_TOL,
             "null_class": NULL_CLASS,

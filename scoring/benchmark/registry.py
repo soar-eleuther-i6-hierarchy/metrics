@@ -34,6 +34,7 @@ The rest are the registry names from `scoring.core.registry.DETECTORS`.
 
 from __future__ import annotations
 
+from metrics.rules import RULES
 from scoring.core.gates import GATE_NAMES
 from scoring.core.registry import DETECTORS
 
@@ -57,12 +58,17 @@ from scoring.core.registry import DETECTORS
 #      `pmi`, `coverage_R` and `asymmetry_R` additionally carry the scorability mask. The key
 #      names did not change and the arithmetic under them did, which is what this number exists
 #      to make visible.
+#   4  the shared-rules contract (2026-09-23). Every rule and three gates were RENAMED
+#      (PRECOMMIT.md s4 name map) when they moved to `metrics.rules`; the arithmetic is
+#      unchanged. A schema-3 artifact keys its rules as `overlap_v6` etc., and a rollup reading
+#      it under the new names would find nothing and report every rule UNTESTABLE instead of
+#      failing, so schema-3 trees are refused rather than read.
 #
 # This exists because `recall_given_recovery` KEPT ITS NAME and CHANGED ITS ARITHMETIC, and a
 # schema-1 artifact is on disk. Pooling one of those under the new names is a silent denominator
 # mix -- the exact class of error this package exists to prevent -- so the cross-world rollup and
 # `verify_manifest` REQUIRE this value rather than defaulting it.
-REPORT_SCHEMA = 3
+REPORT_SCHEMA = 4
 
 # `Q_LO`/`Q_HI`, `TAU_SURV`, `MIN_CAL_SUPPORT` and `CAL_SPLIT_SEED` are GONE. Nothing is fitted
 # any more: every rule compares against a constant in `scoring.core.registry.CONSTANTS`, so
@@ -135,7 +141,7 @@ assert not set(METRICS) & set(GATES), (
 # `C` is gone. It was `HIGH(coverage_R) AND HIGH(asymmetry_R) AND HIGH(pmi)`, and the first two
 # of those are exactly what `metrics.in_block.directed_coverage` decides at a fixed tau:
 # containment one way (`R >= tau`) and NOT the other (`R_reverse < tau`), on a supported pair.
-# That is `gate_parent_of`, one clause in place of two.
+# That is `gate_strictly_contains`, one clause in place of two.
 #
 # PMI HAS NO GATE, so the PMI clause has no successor and is simply gone from every rule.
 # `metrics/` computes PMI (`independence_null.py`) but thresholds it nowhere, and `config.py`
@@ -153,87 +159,19 @@ assert not set(METRICS) & set(GATES), (
 # two; `PROBE_EXPRESSIONS` records it, so a `--no-probe` run marks them INVALID MEASUREMENT
 # rather than reading an absent probe as a rejection.
 #
-# The `v6` / `v5` / `v3` suffixes are kept so an artifact written under the quantile rule and one
-# written under the gates are comparable by NAME across the schema bump, which is what
-# `REPORT_SCHEMA` is for. The rules are not the same rules.
-EXPRESSIONS: dict[str, dict] = {
-    "overlap_v6": {
-        # The full metrics/ cascade: coverage direction, then the reconstruction contribution
-        # filter, then Tree SAE's refinement rank.
-        "target": ("is_a",),
-        "clauses": (("PASSES", "gate_parent_of"), ("PASSES", "gate_recon"),
-                    ("PASSES", "gate_sres_rank")),
-        "text": "PASSES(parent_of) AND PASSES(recon) AND PASSES(sres_rank)",
-    },
-    "orthogonal_v6": {
-        # Same containment and the same reconstruction mass, but the parent decoder does NOT
-        # rank against the child's concept: co-firing without refinement.
-        "target": ("firing_only",),
-        "clauses": (("PASSES", "gate_parent_of"), ("PASSES", "gate_recon"),
-                    ("FAILS", "gate_sres_rank")),
-        "text": "PASSES(parent_of) AND PASSES(recon) AND FAILS(sres_rank)",
-    },
-    "superparent_v5": {
-        # One clause, because `metrics.outdegree.find_superparents` is one clause: the flag is
-        # on out-degree ALONE, with the firing rate demoted to a reported attribute after the
-        # AND-gate was found to miss high-fanout low-firing parents. The deleted
-        # `NOT-HIGH(pmi)` half has no gated successor.
-        "target": ("superparent",),
-        "clauses": (("PASSES", "gate_superparent"),),
-        "text": "PASSES(superparent)",
-    },
-    "frequency_v6": {
-        # A directed containment that does not survive conditioning away the frequent tokens.
-        "target": ("frequency",),
-        "clauses": (("PASSES", "gate_parent_of"), ("FAILS", "gate_freq_survives")),
-        "text": "PASSES(parent_of) AND FAILS(freq_survives)",
-    },
-    "topical_v6": {
-        # Directed containment that DOES survive conditioning the frequent tokens away -- the
-        # exact complement of `frequency_v6` within `gate_parent_of`, which is what separates a
-        # topic-caused container from a token-caused one.
-        #
-        # It read `PASSES(gate_duplicate)` until 2026-09-19 and scored 0 recall at the oracle
-        # ceiling: duplicate needs coverage >= tau in BOTH directions, and the toy plants a
-        # register at 0.9 with members at 0.32, so no topical pair is ever a duplicate. No tau
-        # rescues that -- any cut below 0.32 also makes every is_a pair a duplicate. Measured at
-        # the ceiling, the register->member pairs pass `gate_parent_of` and `gate_freq_survives`
-        # 100%, while the frequency class fails survival 100%. PRECOMMIT.md s4.
-        #
-        # `metrics.independence_null` states that topical co-occurrence passes both PMI and Dev
-        # and needs a model-based co-occurrence null that is not implemented, so this is the most
-        # the fixed gates can say about it.
-        "target": ("topical",),
-        "clauses": (("PASSES", "gate_parent_of"), ("PASSES", "gate_freq_survives")),
-        "text": "PASSES(parent_of) AND PASSES(freq_survives)",
-    },
-    "containment_baseline": {
-        # Generated direct containment = is_a UNION firing_only. The two primary code labels
-        # stay separate in every table; only this baseline's target row combines them.
-        "target": ("is_a", "firing_only"),
-        "clauses": (("PASSES", "gate_parent_of"),),
-        "text": "PASSES(parent_of)",
-    },
-    "probe_overlap_v3": {
-        # The historical comparator, which was `overlap_v6` minus one clause. It dropped PMI
-        # then; it drops the reconstruction filter now, keeping the same relationship.
-        "target": ("is_a",),
-        "clauses": (("PASSES", "gate_parent_of"), ("PASSES", "gate_sres_rank")),
-        "text": "PASSES(parent_of) AND PASSES(sres_rank)",
-    },
-    "probe_orthogonal_v3": {
-        "target": ("firing_only",),
-        "clauses": (("PASSES", "gate_parent_of"), ("FAILS", "gate_sres_rank")),
-        "text": "PASSES(parent_of) AND FAILS(sres_rank)",
-    },
-}
+# The rules themselves live in `metrics.rules.RULES`, shared with the Gemma pipeline, and are
+# named after the class they target with no version suffix. Until 2026-09-23 they were defined
+# here as overlap_v6, orthogonal_v6, superparent_v5, frequency_v6, topical_v6,
+# containment_baseline, probe_overlap_v3 and probe_orthogonal_v3; PRECOMMIT.md s4 maps the old
+# names to the new. A change to a rule now bumps `metrics.rules.RULESET_VERSION` instead.
+EXPRESSIONS: dict[str, dict] = RULES
 
-# The five DESIGNATED rules: one per planted property. `containment_baseline` is excluded (it
+# The five DESIGNATED rules: one per planted property. `rule_containment` is excluded (it
 # is a sub-expression of both G rules) and so are the two historical probe comparators (they
 # overlap the G rules by construction). Only these five are counted for the multiple-rule /
 # no-rule outcomes PRECOMMIT s6 requires -- including the others would manufacture ambiguity.
-DESIGNATED: tuple[str, ...] = ("overlap_v6", "orthogonal_v6", "superparent_v5",
-                               "frequency_v6", "topical_v6")
+DESIGNATED: tuple[str, ...] = ("rule_is_a", "rule_firing_only", "rule_superparent",
+                               "rule_frequency", "rule_topical")
 
 # Expressions that read the probe -- FOUR of them since the gate rebuild, not two, because the
 # geometry channel is now `gate_sres_rank` alone (see the note above EXPRESSIONS). A run
@@ -241,8 +179,8 @@ DESIGNATED: tuple[str, ...] = ("overlap_v6", "orthogonal_v6", "superparent_v5",
 # as a rejection, and the artifact records `s_res_mode="absent"`. The run is still written --
 # it is a labelled partial run, not a refused one. With four of the five DESIGNATED rules
 # reading the probe, a `--no-probe` run now measures very little.
-PROBE_EXPRESSIONS: tuple[str, ...] = ("overlap_v6", "orthogonal_v6",
-                                      "probe_overlap_v3", "probe_orthogonal_v3")
+PROBE_EXPRESSIONS: tuple[str, ...] = ("rule_is_a", "rule_firing_only",
+                                      "rule_is_a_no_recon", "rule_firing_only_no_recon")
 
 TOYS: tuple[str, ...] = ("only_isa", "only_firing", "only_superparent",
                          "only_frequency", "only_topical")

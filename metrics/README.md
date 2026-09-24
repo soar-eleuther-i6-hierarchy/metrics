@@ -218,3 +218,27 @@ rank verdict on the surviving shortlist.
 Feature indices are **global** (0–32767). `config.block_of()` and `sae_utils.block_slice()` convert
 to and from block-local indices, and `analyse_pair` mixes both — watch which space a variable is in
 (`parent_local` vs `parent_global`).
+
+## `rules/` — shared gates, rules and constant sets
+
+The metrics above compute statistics. [`rules/`](rules/) decides on them, once, for every pipeline:
+
+| File | Holds |
+| ---- | ----- |
+| [`rules/gates.py`](rules/gates.py) | eight fixed-threshold gates on a `[P, C]` candidate frame, each `1.0` / `0.0` / `NaN` (not measurable) |
+| [`rules/rules.py`](rules/rules.py) | the named rules (conjunctions of gates), the `PASSES` / `FAILS` evaluator, and `RULESET_VERSION` |
+| [`rules/constants.py`](rules/constants.py) | named constant sets: `GEMMA_MATRYOSHKA` (read by `config.py`) and `SYNTHETIC_TOYS` (read by `scoring/`) |
+
+The gates take plain tensors, so a block pair, a within-block frame or a square toy frame all work.
+The edge gates, in terms of reverse coverage `R(p,c) = P(p fires | c fires)`:
+
+| Gate | Test | Same as |
+| ---- | ---- | ------- |
+| `gate_contains` | `R(p,c) >= tau` | the cross-block edge, `keep_edges` |
+| `gate_strictly_contains` | `R(p,c) >= tau` and `R(c,p) < tau` | in-block `parent_of` |
+| `gate_mutually_contains` | both directions `>= tau` | in-block `duplicate` |
+
+Rules are named after the pair class they target (`rule_is_a`, `rule_firing_only`, `rule_superparent`,
+`rule_frequency`, `rule_topical`, ...), never after a toy. Names carry no version: change a rule, a gate
+or a constant and bump `RULESET_VERSION`, and stamp it with the constant set's `name` on every result.
+The rules are not in `metrics.__all__`, which lists the metric functions the Tier-1 calibration must call.

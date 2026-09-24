@@ -44,7 +44,7 @@ from scoring.benchmark.registry import GATES, REPORT_SCHEMA
 from scoring.benchmark.run_benchmark import git_provenance, run_read, write_artifacts
 from scoring.core.gates import GATE_CONSTANT_KEYS
 from scoring.core.grid import held_out_sample_seed
-from scoring.core.registry import CONSTANTS
+from scoring.core.registry import CONSTANTS, ruleset_stamp
 from scoring.core.world import regenerate_world
 
 from synthdict.census import absorption_classifier_sha256, run_census
@@ -261,6 +261,7 @@ def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: st
         # decided a pass, so it belongs in the provenance beside the code hashes.
         "gates": list(GATES),
         "gate_constants": {k: CONSTANTS[k] for k in GATE_CONSTANT_KEYS},
+        **ruleset_stamp(),
         "support": report.get("support"),
         "readout": readout, "acts_model": ex["acts_model"],
         "planted_map_sha256": ex["planted_map_sha256"],

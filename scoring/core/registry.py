@@ -7,6 +7,8 @@ against is-a, and the numeric constants the detectors look up by name.
 
 from __future__ import annotations
 
+from metrics.rules import RULESET_VERSION, SYNTHETIC_TOYS
+
 # The per-ordered-pair detector scalars, in a fixed order. The last three were added when the
 # package adopted `metrics/`'s definitions: each is a quantity `metrics/` computes and the
 # frozen ten did not.
@@ -45,22 +47,32 @@ POSITIVE_LABEL: str = "is_a"
 # Detectors symmetric in (parent, child): a symmetric negative class counts (a,b) and (b,a) as two identical negatives.
 SYMMETRIC_DETECTORS: tuple[str, ...] = ("pmi",)
 
+# The named gate-constant set this pipeline decides with. Its values fill the gate keys of
+# CONSTANTS below; stamp its name beside any result.
+GATE_CONSTANT_SET = SYNTHETIC_TOYS
+_SET = GATE_CONSTANT_SET
+
+
+def ruleset_stamp() -> dict:
+    """Which rules and which constant set decided a result. Written beside every artifact."""
+    return {"ruleset_version": RULESET_VERSION, "gate_constant_set": GATE_CONSTANT_SET.name}
+
 # Numeric knobs the detectors and scorer read by name.
 CONSTANTS: dict[str, float] = {
-    "fire_thresh": 0.0,        # firing := activation > 0 (BatchTopK nonzero == top-k)
-    "edge_tau": 0.5,           # reverse-coverage cut for the inferred edge set
-    "min_fire_count": 20,      # both endpoints must fire this often to form an edge
+    "fire_thresh": _SET.fire_threshold,   # firing := activation > 0 (BatchTopK nonzero == top-k)
+    "edge_tau": _SET.edge_tau,           # reverse-coverage cut for the inferred edge set
+    "min_fire_count": _SET.min_fire_count,   # both endpoints must fire this often to form an edge
     "min_joint": 30,           # min co-firing tokens for a supported edge
     # The SCORABILITY guard's own joint floor, deliberately named apart from `min_joint` even
     # though it starts at the same value. `min_joint` already has two readers (`edge_mask` and
     # `token_freq_survival`, which applies it internally); tuning the mask through that name
     # would silently retune the frequency detector as well.
-    "support_min_joint": 30,
-    "recon_rel_gain_min": 0.01,   # config.RECON_REL_GAIN_MIN: >=1% relative error increase
-    "superparent_outdeg_frac": 0.30,   # config.SUPERPARENT_OUTDEG_FRAC; the flag is out-degree alone
-    # config.FREQ_SURVIVAL_MIN, stated on the RAW ratio. `token_freq_survival` reports the
-    # squashed ratio x/(1+x), so it must go through `gates.squash` before any comparison.
-    "freq_survival_min_raw": 0.5,
+    "support_min_joint": _SET.min_joint,
+    "recon_rel_gain_min": _SET.recon_rel_gain_min,   # >=1% relative error increase
+    "superparent_outdeg_frac": _SET.superparent_outdeg_frac,   # the flag is out-degree alone
+    # Stated on the RAW ratio. `token_freq_survival` reports the squashed ratio x/(1+x), so
+    # `gates.freq_survives_gate` compares with `scale="squashed"`.
+    "freq_survival_min_raw": _SET.freq_survival_min,
     "pmi_laplace": 1.0,        # +1 smoothing in the PMI ratio
     "coverage_eps": 1e-6,      # coverage denominator floor
     "r_disp_m": 5,             # top-m competitors for the dispersion readout
@@ -78,7 +90,7 @@ CONSTANTS: dict[str, float] = {
     # firing_only, i.e. the rule separated nothing. k=2 asks that the parent be the child's
     # single strongest competitor after itself. Departure from config.py is deliberate and is
     # recorded in PRECOMMIT.md s4.
-    "sres_rank_top_k": 2,
+    "sres_rank_top_k": _SET.sres_rank_top_k,
     "sres_min_probe_pos": 50,  # min child-firing tokens to train probe, below this the column is NaN
     "sres_neg_ratio": 4,       # negatives sampled per positive
     "sres_max_probe_tokens": 20000,  # cap on (pos + neg) tokens per probe

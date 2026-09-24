@@ -275,8 +275,8 @@ def write_md(rows: list[dict], path: Path, tag: str) -> None:
             [f"{d}__{s}" for d in ("G", "S_res", "coverage_R", "pmi")
              for s in ("corrupted", "touched", "intact", "null")]
         ex_cols = dial_cols + \
-            [f"{n}__{s}" for n in ("overlap_v6", "orthogonal_v6", "containment_baseline",
-                                   "probe_overlap_v3", "probe_orthogonal_v3")
+            [f"{n}__{s}" for n in ("rule_is_a", "rule_firing_only", "rule_containment",
+                                   "rule_is_a_no_recon", "rule_firing_only_no_recon")
              for s in ("recall", "pass_corrupted", "pass_touched", "pass_intact", "fpr")]
         # Arm sizes belong in the rendered table: an empty arm must read as "nothing to say",
         # not as "the metric said nothing".
@@ -284,7 +284,7 @@ def write_md(rows: list[dict], path: Path, tag: str) -> None:
         # a rate of 0.0 over 200 measurable cells and a NaN over 0 are different results, and
         # a table that omits the denominator cannot distinguish them.
         gate_cols = dial_cols + [f"{g}__{side}{suffix}"
-                                 for g in ("gate_parent_of", "gate_recon", "gate_sres_rank",
+                                 for g in ("gate_strictly_contains", "gate_recon", "gate_sres_rank",
                                            "gate_freq_survives")
                                  for side in ("corrupted", "intact", "null")
                                  for suffix in ("", "_defined")] + \

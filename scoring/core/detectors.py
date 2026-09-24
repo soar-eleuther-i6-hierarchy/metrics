@@ -656,7 +656,7 @@ def compute_bundle(inputs: DetectorInputs, constants: dict, s_res_mode: str = "c
     """`{"detectors", "gates", "support"}` — the detectors plus the fixed-threshold rules.
 
     The gates are built from the SAME firing counts, edge set and reconstruction gains as the
-    detectors, which is the point of computing them together: `gate_parent_of` and
+    detectors, which is the point of computing them together: `gate_strictly_contains` and
     `coverage_R` must be two readings of one matrix, not two matrices that agree by habit.
 
     `support` carries `gates.support_mask`'s counts. The excluded fraction is a first-class
@@ -680,11 +680,11 @@ def compute_bundle(inputs: DetectorInputs, constants: dict, s_res_mode: str = "c
     # this has to be written down rather than relied on.
     gate_vals["gate_recon"] = gates.recon_contributes(
         raw["recon_2a"], ctx["child_gain"], constants["recon_rel_gain_min"])
-    gate_vals["gate_superparent"] = gates.superparent_flag(
+    gate_vals["gate_high_outdegree"] = gates.high_outdegree_flag(
         ctx["em"], ctx["fire"], constants["superparent_outdeg_frac"],
         constants["min_fire_count"])
     gate_vals["gate_freq_survives"] = gates.freq_survives_gate(
-        raw["token_freq_survival"], gates.squash(constants["freq_survival_min_raw"]))
+        raw["token_freq_survival"], constants["freq_survival_min_raw"])
     if probe_directions is None or probe_available is None:
         gate_vals["gate_sres_rank"] = torch.full((R, R), _NAN, dtype=DT,
                                                  device=inputs.W_unit.device)

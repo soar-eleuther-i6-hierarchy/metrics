@@ -41,7 +41,7 @@ from scoring.benchmark import reads as RD
 from scoring.benchmark.registry import (DESIGNATED, EXPRESSIONS, GATES, METRICS,
                                         MIN_SCORABLE_SUPPORT, NULL_CLASS, REPORT_SCHEMA, TOYS)
 from scoring.core.gates import GATE_CONSTANT_KEYS, GATE_SOURCES
-from scoring.core.registry import CONSTANTS
+from scoring.core.registry import CONSTANTS, ruleset_stamp
 from toygen import labels
 
 GATE_TOL = 1e-5          # the saved trained arrays are stored float32
@@ -385,6 +385,7 @@ def _cross_world_main(args) -> None:
                     # settings that decide a verdict are fingerprinted and required to match.
                     "settings_sha256": hashlib.sha256(json.dumps(
                         {k: meta.get(k) for k in ("gates", "gate_constants",
+                                                  "ruleset_version", "gate_constant_set",
                                                   "min_scorable_support")},
                         sort_keys=True, default=str).encode()).hexdigest()[:16],
                     "expressions": blob.get("expressions") or {},
@@ -507,6 +508,7 @@ def main() -> None:
             # fitted, WHICH CONSTANT was used is the whole of what decided a pass.
             "gates": list(GATES),
             "gate_constants": {k: CONSTANTS[k] for k in GATE_CONSTANT_KEYS},
+            **ruleset_stamp(),
             "min_scorable_support": MIN_SCORABLE_SUPPORT,
             "scoring_precision": "float64",
             "support": report.get("support"),
