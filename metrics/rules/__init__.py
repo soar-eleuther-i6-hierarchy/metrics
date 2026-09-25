@@ -1,13 +1,9 @@
 """
 The shared decision layer: gates, rules, grading and constant sets.
 
-`metrics/` computes statistics; this package decides on them. `score_pairs` turns one frame's
-statistics into gates and rule decisions; `grade_rules` grades those decisions against labelled
-pairs. Each pipeline picks a named constant set and stamps it, with `RULESET_VERSION`, on every
-result.
-
-Not listed in `metrics.__all__`, which is the set of metric functions the Tier-1 calibration
-must exercise.
+`score_pairs` turns one frame's statistics into gates and rule decisions; `grade_rules` grades
+those decisions against labelled pairs. Kept out of `metrics.__all__`, which lists only the
+metric functions the Tier-1 calibration must exercise.
 """
 
 from .classes import LABELS, NULL_CLASS

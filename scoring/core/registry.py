@@ -1,9 +1,4 @@
-"""
-Configuration for the retrieval scorer.
-
-Defines the detector set and their orientation, the confound columns scored
-against is-a, and the numeric constants the detectors look up by name.
-"""
+"""Detector names and signs, the scored pair columns, and the named constants detectors and gates read."""
 
 from __future__ import annotations
 
@@ -11,57 +6,49 @@ from dataclasses import replace
 
 from metrics.rules import RULESET_VERSION, SYNTHETIC_TOYS, GateConstants
 
-# The per-ordered-pair detector scalars, in a fixed order. The last three were added when the
-# package adopted `metrics/`'s definitions: each is a quantity `metrics/` computes and the
-# frozen ten did not.
+# Per-ordered-pair detector scalars, in a fixed order.
 DETECTORS: tuple[str, ...] = (
     "coverage_R", "asymmetry_R", "joint_child_J", "pmi", "token_freq_survival",
     "recon_2a", "s_res", "sibling_redundancy", "joint_child_mass", "outdegree",
     "recon_child_gain", "joint_child_supp", "sibling_redundancy_pc",
 )
 
-# Orientation per detector: +1 if higher raw value already means "more is-a-like", -1 if negated.
+# +1 if a higher raw value is more is-a-like, -1 if the detector is negated.
 DETECTOR_SIGN: dict[str, int] = {
     "coverage_R": 1, "asymmetry_R": 1, "joint_child_J": 1, "pmi": 1,
     "token_freq_survival": 1, "recon_2a": 1, "s_res": 1,
     "sibling_redundancy": -1, "joint_child_mass": 1, "outdegree": -1,
-    # the child half of the reconstruction condition: more damage from ablating the child
-    # means the child carries something of its own, so higher is more is-a-like
-    "recon_child_gain": 1,
-    # exact union form of joint_child_J, same orientation as the bound it replaces
-    "joint_child_supp": 1,
-    # parent-conditioned sibling overlap: high means the children are near-copies (splitting),
-    # so the sign flips exactly as it does for the global form
-    "sibling_redundancy_pc": -1,
+    "recon_child_gain": 1,         # child half of the reconstruction condition
+    "joint_child_supp": 1,         # exact union form of joint_child_J
+    "sibling_redundancy_pc": -1,   # parent-conditioned sibling overlap; high means splitting
 }
 
-# The confound columns scored against is_a
+# Confound columns scored against is_a.
 SCORED_COLUMNS: tuple[str, ...] = (
     "firing_only", "sibling", "superparent", "frequency", "topical",
     "transitive", "reversed", "unrelated",
 )
 
-# Latent-side scoring columns (dictionary damage), not generative pair_label classes; positives come from absorption classification, not the answer key. `split` is per-latent, so it's a side readout, not a pair column.
+# Dictionary-damage columns, labelled by absorption classification rather than pair_labels.
 LATENT_COLUMNS: tuple[str, ...] = ("absorbed", "merged")
 
 POSITIVE_LABEL: str = "is_a"
 
-# Detectors symmetric in (parent, child): a symmetric negative class counts (a,b) and (b,a) as two identical negatives.
+# Symmetric in (parent, child), so CIs count (a, b) and (b, a) as one pair.
 SYMMETRIC_DETECTORS: tuple[str, ...] = ("pmi",)
 
-# The named gate-constant set this pipeline decides with. Its values fill the gate keys of
-# CONSTANTS below; stamp its name beside any result.
+# The named gate-constant set; it fills the gate keys of CONSTANTS below.
 GATE_CONSTANT_SET = SYNTHETIC_TOYS
 _SET = GATE_CONSTANT_SET
 
 
 def ruleset_stamp() -> dict:
-    """Which rules and which constant set decided a result. Written beside every artifact."""
+    """The ruleset version and gate-constant set name, written beside every artifact."""
     return {"ruleset_version": RULESET_VERSION, "gate_constant_set": GATE_CONSTANT_SET.name}
 
 
 def gate_constants(constants: dict) -> GateConstants:
-    """The gate constants of a CONSTANTS-shaped dict, so an override reaches `score_pairs`."""
+    """`GateConstants` built from a CONSTANTS-shaped dict, so an override reaches `score_pairs`."""
     return replace(GATE_CONSTANT_SET, edge_tau=constants["edge_tau"],
                    min_fire_count=constants["min_fire_count"],
                    min_joint=constants["support_min_joint"],
@@ -73,19 +60,15 @@ def gate_constants(constants: dict) -> GateConstants:
 
 # Numeric knobs the detectors and scorer read by name.
 CONSTANTS: dict[str, float] = {
-    "fire_thresh": _SET.fire_threshold,   # firing := activation > 0 (BatchTopK nonzero == top-k)
+    "fire_thresh": _SET.fire_threshold,   # firing means activation > 0
     "edge_tau": _SET.edge_tau,           # reverse-coverage cut for the inferred edge set
     "min_fire_count": _SET.min_fire_count,   # both endpoints must fire this often to form an edge
     "min_joint": 30,           # min co-firing tokens for a supported edge
-    # The SCORABILITY guard's own joint floor, deliberately named apart from `min_joint` even
-    # though it starts at the same value. `min_joint` already has two readers (`edge_mask` and
-    # `token_freq_survival`, which applies it internally); tuning the mask through that name
-    # would silently retune the frequency detector as well.
+    # support gate's joint floor; separate from min_joint, which token_freq_survival also reads
     "support_min_joint": _SET.min_joint,
     "recon_rel_gain_min": _SET.recon_rel_gain_min,   # >=1% relative error increase
-    "superparent_outdeg_frac": _SET.superparent_outdeg_frac,   # the flag is out-degree alone
-    # Stated on the RAW ratio. `token_freq_survival` reports the squashed ratio x/(1+x), so
-    # `gates.square_pair_stats` marks it `survival_scale="squashed"`.
+    "superparent_outdeg_frac": _SET.superparent_outdeg_frac,   # child share that flags high out-degree
+    # raw ratio; the detector reports x / (1 + x), so square_pair_stats marks it squashed
     "freq_survival_min_raw": _SET.freq_survival_min,
     "pmi_laplace": 1.0,        # +1 smoothing in the PMI ratio
     "coverage_eps": 1e-6,      # coverage denominator floor
@@ -96,19 +79,14 @@ CONSTANTS: dict[str, float] = {
     "freq_min_fire_low": 5,    # below this, the rare-token survival cell is underpowered
     "rho_star": 0.5,           # recovery threshold the recovered universe is built on
     "auroc_clamp": 1e-6,       # clamp AUROC to [clamp, 1-clamp] before the logit CI
-    # --- probe s_res, mirror config.py so compute_all is self-contained ---
-    # Both decoders in the top-k probe correlations. `config.SRES_RANK_TOP_K` and Tree SAE are
-    # 5; this benchmark uses 2, decided 2026-09-19. The probe is fitted on the child's own
-    # firing, so the child's decoder is rank 1 by construction and k=5 admits any parent in
-    # ranks 2-5 -- measured at the oracle ceiling that passed 100% of is_a AND 100% of
-    # firing_only, i.e. the rule separated nothing. k=2 asks that the parent be the child's
-    # single strongest competitor after itself. Departure from config.py is deliberate and is
-    # recorded in PRECOMMIT.md s4.
+    # --- probe s_res ---
+    # both decoders must rank in the child probe's top k
+    # 2 here, 5 in config.py and Tree SAE; the departure is recorded in PRECOMMIT.md s4
     "sres_rank_top_k": _SET.sres_rank_top_k,
-    "sres_min_probe_pos": 50,  # min child-firing tokens to train probe, below this the column is NaN
+    "sres_min_probe_pos": 50,  # min child-firing tokens to train a probe, else NaN
     "sres_neg_ratio": 4,       # negatives sampled per positive
     "sres_max_probe_tokens": 20000,  # cap on (pos + neg) tokens per probe
     "sres_min_neg": 10,        # fewer negatives than this -> child untestable (no probe)
-    "sres_steps": 300,         # probe Adam steps (calibration knob)
-    "sres_lr": 0.05,           # probe Adam lr (calibration knob)
+    "sres_steps": 300,         # probe Adam steps
+    "sres_lr": 0.05,           # probe Adam lr
 }

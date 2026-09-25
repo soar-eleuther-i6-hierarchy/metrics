@@ -1,26 +1,9 @@
-"""synthetic_read — a benchmark `Read` built from a synthetic dictionary. No SAE anywhere.
+"""A benchmark `Read` built from a synthetic dictionary: `reads.oracle_read` with no matcher.
 
-Mirrors `scoring/benchmark/reads.py::oracle_read` at its seams, with one deliberate
-difference: NO MATCHER. Matching solves an inverse problem — whose dictionary is this? —
-and synthesis has none, because we built it. The feature->latent correspondence is the
-PLANTED map (`synthdict.planted`), and `readout` declares how a feature carried by several
-latents is reduced to one scored column.
-
-Two frames, kept apart on purpose. The DICTIONARY frame is `[., L]`:
-one column per decoder row, which is one per feature only while the map is 1-1. The SCORED
-frame is `[., R]`: one column per feature that has a latent, after the readout reduction.
-`synth_encode` returns the dictionary frame; everything the detectors see is the scored one.
-Under a 1-1 map both are the identity gather, so the readout seam is inert there.
-
-Two draws, same derivations as the benchmark: scoring = `held_out_sample_seed(seed)`, probe
-fit = `probe_fit_sample_seed(seed)`. (The benchmark's third, in-sample MATCHING draw has no
-purpose here and is not taken.) The synthetic "encoder" is a deterministic function of a draw:
-planted support (true `A > 0` plus the damage's firing transform) -> per-token NNLS strengths
-against the draw's real `h`.
-
-`signed_normalized_decoder` runs on every synthetic path (parity with the trained read); on a
-planted dictionary it must be a no-op, which the passthrough anchor proves bit-for-bit
-against the real `oracle_read` (W7 in the plan).
+The planted map (`synthdict.planted`) is the feature->latent correspondence. `synth_encode`
+returns the dictionary frame [., L], one column per decoder row; the detectors see the scored
+frame [., R], one column per feature after the readout. Draws follow the benchmark: scoring on
+`held_out_sample_seed(seed)`, probe fit on `probe_fit_sample_seed(seed)`.
 """
 
 from __future__ import annotations
@@ -50,9 +33,8 @@ _NAN = float("nan")
 
 
 def resolved_config(toy: str, seed: int, cfg_overrides: dict | None = None) -> dict:
-    """The benchmark's own config idiom (`spec.replace` on the frozen dataclass), plus
-    test-only shape overrides. Overrides land in the recorded `resolved_config`, so a
-    shrunken world can never masquerade as the real toy."""
+    """The benchmark's config idiom (`spec.replace`) plus test-only shape overrides, which land
+    in the recorded config so a shrunken world cannot pass as the real toy."""
     cfg = spec.replace(resolve_config(toy), seed=int(seed), **(cfg_overrides or {}))
     return dataclasses.asdict(cfg)
 
@@ -64,10 +46,10 @@ NNLS_LAMBDA = RIDGE_LAMBDA           # the regularizer the encoder is run with a
 def synth_encode(bundle: WorldBundle, corruption: Corruption | None, world_seed: int,
                  sample_seed: int, acts_mode: str = "nnls"
                  ) -> tuple[torch.Tensor, torch.Tensor, int]:
-    """(acts [n, L], LATENT-space support, total holed tokens) for one draw.
+    """(acts [n, L], latent-space support, total holed tokens) for one draw.
 
-    `acts_mode="true_A"` passes the oracle coefficients through untouched — the passthrough
-    anchor only, and therefore refused when a corruption is present.
+    `acts_mode="true_A"` passes the true coefficients through: the passthrough anchor only, so
+    it refuses a corruption.
     """
     if acts_mode not in ACTS_MODELS:
         raise ValueError(f"unknown acts_mode {acts_mode!r}; the encoder is 'nnls' "
@@ -84,8 +66,7 @@ def synth_encode(bundle: WorldBundle, corruption: Corruption | None, world_seed:
                              "a corruption (the damage would be silently ignored)")
         return bundle.A, support, 0
     W_raw = corruption.W_raw if corruption is not None else bundle.g.double()
-    # Feature space -> LATENT space, once, immediately before the solve. Below this line every
-    # array is indexed by decoder row.
+    # feature space -> latent space, once; from here every array is indexed by decoder row
     if corruption is not None:
         support = expand_support(support, corruption, world_seed, sample_seed)
     return nnls_acts(bundle.h, W_raw, support, lam=NNLS_LAMBDA), support, n_holed
@@ -97,10 +78,10 @@ def corrupted_pair_mask(corruption: Corruption | None, feats: list[int],
 
     ordered_edge              (parent, child) is an absorbed edge
     either_endpoint_feature   either feature is damaged (a hedged parent)
-    candidate_parent_feature  the candidate parent, the pair's FIRST feature, is damaged
+    candidate_parent_feature  the candidate parent, the pair's first feature, is damaged
 
-    The rule travels with the corruption: the edge rule on a feature damage would return an
-    all-False mask and make `intact` the whole target class in `export.py`.
+    The rule travels with the corruption: the edge rule on a feature damage would mark nothing
+    and make `intact` the whole target class in `export.py`.
     """
     if corruption is None:
         return torch.zeros(len(pairs), dtype=torch.bool)
@@ -121,11 +102,10 @@ def corrupted_pair_mask(corruption: Corruption | None, feats: list[int],
 
 def touched_pair_mask(corruption: Corruption | None, feats: list[int],
                       pairs: list[tuple[int, int]]) -> torch.Tensor:
-    """`[n_pairs]` bool: pairs with either feature touched by the damage (row or firing changed).
+    """`[n_pairs]` bool: pairs with either feature's row or firing changed by the damage.
 
-    A superset of the corrupted mask. Classes labelled in both orderings (superparent,
-    frequency, topical) put a pair whose SECOND feature was damaged outside the corrupted arm;
-    counting it as intact would contaminate the control.
+    A superset of the corrupted mask; it keeps a pair whose second feature was damaged out of
+    the intact control.
     """
     if corruption is None:
         return torch.zeros(len(pairs), dtype=torch.bool)
@@ -146,13 +126,8 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
                    probe_fit_seed: int | None = None) -> Read:
     """Build, encode, and score one synthetic dictionary as a `Read(read="synthetic")`.
 
-    `dials` is any damage's dial dataclass; the damage is chosen by its type. `dials=None` is
-    the uncorrupted dictionary (W = g), and with `acts_mode="true_A"` that is the passthrough
-    anchor, which must reproduce `oracle_read` bit-for-bit (tested).
-
-    NO MATCHER RUNS HERE. The feature->latent correspondence is the PLANTED map (see
-    `synthdict.planted`), and `readout` declares how a multi-latent feature is reduced to one
-    scored column. On a 1-1 map every readout is the same gather, bit-for-bit.
+    The dials type picks the damage; `dials=None` is the undamaged dictionary (W = g), and with
+    `acts_mode="true_A"` it must reproduce `oracle_read` bit-for-bit.
     """
     if readout not in READOUTS:
         raise ValueError(f"readout must be one of {READOUTS}, got {readout!r}")
@@ -161,9 +136,8 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
     score = regenerate_world(rc, sample_seed=score_seed, n_tokens=n_tokens)
     F = int(score.g.shape[0])
 
-    # The dictionary is a property of the WORLD: geometry and tree are identical across the
-    # three draws (both come from cfg.seed), so building the corruption from the scoring
-    # bundle's g/CONT is the same dictionary every draw sees.
+    # geometry and tree come from cfg.seed, so the corruption built on the scoring draw is the
+    # dictionary every draw sees
     corruption = None
     if dials is not None:
         corruption = build_corruption(score, dials, world_seed=int(seed), readout=readout)
@@ -182,9 +156,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
     zeroed_damaged = {"scoring": zeroed_rate(acts_ho[:, dl], support_ho[:, dl])}
     holed = {"scoring": holed_ho}
 
-    # The planted correspondence, not an inferred one. The reductions take the [., L]
-    # dictionary frame to the [., R] SCORED frame under the declared readout; for a one-to-one
-    # map every one of them is a gather over `arange(F)` and the seam is inert.
+    # reduce the [., L] dictionary frame to the [., R] scored frame; a plain gather under a 1-1 map
     feats = pmap.feats()
     recovered = pmap.recovered()
     di = DetectorInputs(acts_rec=pmap.reduce_acts(acts_ho),
@@ -197,10 +169,8 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
     if with_probe:
         fw = regenerate_world(rc, sample_seed=fit_seed, n_tokens=n_tokens)
         acts_f, support_f, holed_f = synth_encode(fw, corruption, seed, fit_seed, acts_mode)
-        # SELF-label: the synthetic SAE's own activations, restricted to the scored universe —
-        # the deployed `probe_self_W` convention (trained_read does the same with L.encode).
-        # Fitting labels come from the SAME planted columns the scoring frame reads, so the
-        # fitted direction for position k belongs to the latent whose decoder row k carries.
+        # labels are the dictionary's own activations on the scored columns, as in trained_read,
+        # so the probe at position k belongs to the latent scored at k
         acts_f_rec = pmap.reduce_acts(acts_f)
         P, avail = fit_probe_directions(fw.h, acts_f_rec, CONSTANTS)
         probe = s_res_from_directions(P, avail, di.W_unit)
@@ -209,9 +179,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
         zeroed_damaged["probe_fit"] = zeroed_rate(acts_f[:, dl], support_f[:, dl])
         holed["probe_fit"] = holed_f
 
-    # Detectors and gates from one pass, with the probe directions already frozen — the same
-    # order `reads.oracle_read` uses, so the two paths cannot diverge on which draw the
-    # rank gate saw.
+    # probe directions are fixed before this pass, in the same order as `reads.oracle_read`
     bnd = compute_bundle(di, CONSTANTS, s_res_mode="cosine",
                          probe_directions=P, probe_available=avail)
     dets = bnd["detectors"]
@@ -221,7 +189,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
     corrupted_pair = corrupted_pair_mask(corruption, feats, pairs)
     touched_pair = touched_pair_mask(corruption, feats, pairs)
 
-    # True-direction cosine on the same universe — the trained read's diagnostic control.
+    # true-direction cosine on the same features, the trained read's diagnostic control
     g_unit = (score.g / score.g.norm(dim=1, keepdim=True).clamp_min(_TINY)).double()
     g_matched = s_res_cosine(g_unit[torch.tensor(feats, dtype=torch.long)])
     pa = torch.tensor([a for a, _ in pairs], dtype=torch.long)
@@ -238,7 +206,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
                                if corruption is not None else ()),
         "realized_severity": sev,
         "realized_severity_median": (float(sev.median()) if sev.numel() else _NAN),
-        # WHAT that severity measures, and WHICH pairs the mask marks. Both are per-damage.
+        # what the severity measures and which pairs the mask marks, both per damage
         "severity_kind": (corruption.severity_kind if corruption is not None else "none"),
         "corrupted_pair_rule": (corruption.corrupted_pair_rule
                                 if corruption is not None else "ordered_edge"),
@@ -267,8 +235,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
         "probe_fit_sample_seed": (fit_seed if with_probe else None),
         "probe_fit_labels": ("the synthetic SAE's own activations" if with_probe else None),
         "true_l0": float(score.A.gt(0).double().sum(dim=1).mean()),
-        # Two L0s that coincide only while the map is 1-1. `latent_l0` counts columns of the
-        # [n, L] DICTIONARY frame; `feature_l0` counts the [n, R] SCORED frame.
+        # latent_l0 on the [n, L] dictionary frame, feature_l0 on the [n, R] scored frame
         "latent_l0": float(acts_ho.gt(0).double().sum(dim=1).mean()),
         "feature_l0": float(di.acts_rec.gt(0).double().sum(dim=1).mean()),
     }
@@ -286,13 +253,8 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
 def oracle_equivalent_read(toy: str, seed: int, n_tokens: int,
                            cfg_overrides: dict | None = None,
                            with_probe: bool = True) -> Read:
-    """A transcription of `reads.oracle_read` that accepts shape overrides, used ONLY as the
-    reference side of the small-world probe anchor.
-
-    It deliberately shares NO synthdict code (no synth_encode, no orientation): the anchor
-    would be circular otherwise. That it matches the real `oracle_read` bit-for-bit at the
-    unshrunken config is itself asserted by the full-size anchor test.
-    """
+    """A copy of `reads.oracle_read` that accepts shape overrides, the reference side of the
+    small-world anchor. It shares no synthdict code, or the anchor would be circular."""
     rc = resolved_config(toy, seed, cfg_overrides)
     score_seed = held_out_sample_seed(int(seed))
     bundle = regenerate_world(rc, sample_seed=score_seed, n_tokens=n_tokens)

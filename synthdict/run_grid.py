@@ -1,15 +1,7 @@
-"""Launcher: run a given list of dial points as N parallel `synthdict.run_synth` subprocesses.
+"""Run a JSON list of dial points as parallel `synthdict.run_synth` subprocesses.
 
-The points come from a JSON file, one object per point (the launcher holds no experiment of
-its own):
-
-  [{"toy": "only_isa", "kind": "hedging", "readout": "identity",
-    "dials": {"gamma_rel": 1.0, "edge_fraction": 0.5}},
-   {"toy": "only_superparent", "kind": "split", "readout": "union",
-    "dials": {"k": 4, "roles": ["superparent", "dense_parent"]}}]
-
-Each point is its own subprocess (one failed point leaves the others' artifacts), logging to
-<out>/<tag>/logs/. Points whose artifacts already exist under the same construct are skipped.
+Each point is {"toy", "kind", "readout", "dials": {...}}. Points whose artifacts already exist
+under the same construct are skipped; logs go to <out>/<tag>/logs/.
 
   python -m synthdict.run_grid --points points.json --tag T --n-jobs 8 [--dry-run]
 """
@@ -32,7 +24,7 @@ from synthdict.run_synth import (DIALS_BY_KIND, acts_mode_of, dial_dirname, poin
 
 def point_dials(point: dict):
     """The dials object a point describes. A field the CLI cannot carry must stay at its
-    default, or the subprocess would silently run a different point than the one named."""
+    default, or the subprocess would run a different point."""
     kind = point["kind"]
     if kind not in DIALS_BY_KIND:
         raise SystemExit(f"unknown kind {kind!r}; kinds are {tuple(DIALS_BY_KIND)}")
@@ -73,7 +65,7 @@ def point_cmd(point: dict, args) -> list[str]:
 
 
 def resume_npz(out, tag: str, seed: int, toy: str, dials, readout: str) -> Path:
-    """Where resume LOOKS — the driver's own `point_dir`, never a second copy of the path."""
+    """The artifact resume checks, from the driver's own `point_dir`."""
     return point_dir(out, tag, seed, toy, type(dials).KIND, dials, readout) / "scores.npz"
 
 
@@ -83,9 +75,8 @@ POLL_SECS = 2.0
 def reap_finished(running: list, block: bool, report) -> int:
     """Drop finished children from `running`, calling `report(name, rc, secs)` for each.
 
-    Under `block=True` this waits for ONE child and returns. It must not keep going while any
-    child is alive: the caller uses it to free a single slot, so draining the pool turns
-    `n_jobs` parallel slots into sequential waves, each as slow as its slowest member.
+    With `block=True` it waits for one child only; draining the pool would turn the parallel
+    slots into sequential waves.
     """
     reaped = 0
     while running and ((block and reaped == 0)
@@ -111,12 +102,8 @@ def _artifact_provenance(npz_path: Path) -> tuple:
 
 
 def _requested_provenance(args, kind: str, readout: str, acts_mode: str = "nnls") -> tuple:
-    """The same tuple for the run ABOUT to happen, so the two are compared in one place.
-
-    `acts_mode` must come from the POINT: the oracle and undamaged columns differ in nothing
-    else, so a hardcoded 'nnls' here compares an oracle artifact against an nnls request and
-    resume either skips the point or refuses it.
-    """
+    """`provenance_tuple` for the run about to happen. `acts_mode` must come from the point:
+    it is all that separates the oracle and undamaged columns."""
     overrides = {"n_roots": args.n_roots} if args.n_roots is not None else None
     return provenance_tuple({"acts_model": acts_mode, "readout": readout, "corruption": kind,
                              "n_tokens": int(args.n_tokens), "cfg_overrides": overrides,

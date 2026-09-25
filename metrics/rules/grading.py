@@ -1,10 +1,10 @@
 """
 Grading: rule decisions over labelled pairs, turned into counts, rates and a verdict.
 
-Per (rule, class) there are four nested counts: N_total (generated pairs), N_recovered (both
-endpoints in the scored frame), N_scorable (every gate the rule reads is defined) and N_pass.
-Recall rides on N_recovered, so an unscorable target is a miss; FPR and leaks ride on
-N_scorable, so an unscorable null or confound pair cannot dilute them. PRECOMMIT.md s6 and s8.
+Per (rule, class) the counts nest: N_total (generated pairs), N_recovered (both endpoints in
+the scored frame), N_scorable (every gate the rule reads is defined), N_pass. Recall rides on
+N_recovered, so an unscorable target is a miss; FPR and leaks ride on N_scorable, so unscorable
+null or confound pairs cannot dilute them. PRECOMMIT.md s6 and s8.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import torch
 from .classes import LABELS, NULL_CLASS
 from .rules import RULES, evaluate
 
-# Version of the keys and arithmetic `grade_rules` writes. History in PRECOMMIT.md s8.
+# Version of the keys and arithmetic `grade_rules` writes. PRECOMMIT.md s8.
 REPORT_SCHEMA = 4
 
 BAR_RECALL = 0.80            # recall given recovery, >=
@@ -81,7 +81,7 @@ def class_counts(y: torch.Tensor, mask: torch.Tensor, scorable: torch.Tensor,
     n_ev = int(idx.numel())
     n_ev_sc = int(scorable[idx].sum()) if n_ev else 0
     n_ev_pass = int(mask[idx].sum()) if n_ev else 0
-    # keyed `unrelated_eval` for the artifacts on disk, though the null is no longer split
+    # key kept as `unrelated_eval` to match artifacts on disk; the null is not split
     out["unrelated_eval"] = {
         "N_null": n_ev, "N_scorable": n_ev_sc, "N_pass": n_ev_pass,
         "fpr_given_scorable": _rate(n_ev_pass, n_ev_sc),

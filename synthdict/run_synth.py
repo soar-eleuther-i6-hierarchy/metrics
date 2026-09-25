@@ -1,30 +1,11 @@
-"""CLI driver: score one dial point through the FROZEN evaluator. No matcher anywhere.
+"""Score one dial point through the frozen evaluator and write its artifacts. No matcher.
 
-Ships its own CLI because the benchmark's is deliberately closed (`--read choices=
-("oracle","trained")`, `--toy choices=TOYS`); `run_read` and `write_artifacts` themselves are
-name-agnostic and are reused verbatim. Artifacts land under their own root
-(`outputs_local/synthdict/<TAG>/...`), NEVER under a benchmark tag.
+Has its own CLI because the benchmark's limits `--read` and `--toy` to fixed choices;
+`run_read` and `write_artifacts` are reused as is. Artifacts go to
+<out>/<tag>/seed<N>/<toy>/<kind>/<dials>/<readout>/ (scores.npz, expressions.json,
+run_config.json, census.json), never under a benchmark tag.
 
-Layout:  <out>/<tag>/seed<N>/<toy>/<kind>/<dials>/<readout>/
-           scores.npz         run_read arrays + corrupted_pair, realized_severity
-           expressions.json   run_read report | __meta__
-           run_config.json    everything needed to reinterpret the point (also in __meta__)
-           census.json        annotation (manipulation check; see synthdict/census.py)
-
-`<kind>` and `<dials>` come from the dials TYPE, so two damages under one tag never collide:
-  absorption/beta0.4-eta0.4-f0.1 · hedging/gamma1-f0.5 · split/k8-skew0-f1-roles_parent ·
-  composition/pi0.5-f1
-
-Usage (one dial point; run_grid launches many of these in parallel):
-  python -m synthdict.run_synth --toy only_isa --seed 0 --beta 0.4 --eta 0.4 \\
-      --edge-fraction 0.1 --tag SYNTH-R1 [--n-tokens 200000] [--no-probe] [--no-census]
-      [--readout identity] [--out outputs_local/synthdict] [--force] [--n-roots 12]
-  python -m synthdict.run_synth --toy only_isa --kind hedging --gamma-rel 1 --edge-fraction 0.5 ...
-  python -m synthdict.run_synth --toy only_superparent --kind split --k 4 \\
-      --roles superparent dense_parent --readout union ...
-  python -m synthdict.run_synth --toy only_isa --kind composition --pi 0.5 --readout own ...
-  python -m synthdict.run_synth --toy only_isa --kind none --acts-mode true_A ...   # oracle
-  python -m synthdict.run_synth --toy only_isa --kind none --acts-mode nnls  ...   # undamaged
+  python -m synthdict.run_synth --toy only_isa --kind hedging --gamma-rel 1 --tag T [--no-probe]
 """
 
 from __future__ import annotations
@@ -58,8 +39,8 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 
 def synthdict_sha256(root: Path | None = None) -> str:
-    """Content hash of this package's `.py` files — the study-side analogue of
-    `evaluator_sha256`, for runs on the git-less server copy."""
+    """Content hash of this package's `.py` files, the study-side analogue of
+    `evaluator_sha256` for the git-less server copy."""
     root = _ROOT if root is None else Path(root)
     h = hashlib.sha256()
     for rel in SYNTHDICT_SOURCES:
@@ -81,13 +62,11 @@ def toygen_commit(root: Path = _ROOT) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class NoDamageDials:
-    """No damage at all: the perfect dictionary, W = g. `acts_mode` picks which of the two
-    non-damage columns this is - `true_A` is the oracle (the true coefficients, which
-    `test_read.py` pins bit-for-bit against the real `oracle_read`) and `nnls` is the
-    undamaged column (the same perfect dictionary read through the encoder).
+    """No damage: the perfect dictionary, W = g. `acts_mode` picks the oracle column (`true_A`,
+    the true coefficients) or the undamaged one (`nnls`, read through the encoder).
 
-    This is a dials class only so it can travel the existing (kind, dials, readout) addressing;
-    it never reaches `build_corruption`, which keeps taking None.
+    A dials class only to fit the (kind, dials, readout) addressing; it never reaches
+    `build_corruption`.
     """
 
     KIND = "none"
@@ -101,8 +80,7 @@ class NoDamageDials:
 
 
 def damage_of(dials) -> object | None:
-    """The damage `dials` describes, or None for the no-damage point. One place to ask, so a
-    caller cannot half-handle the no-damage case."""
+    """The damage `dials` describes, or None for the no-damage point."""
     return None if isinstance(dials, NoDamageDials) else dials
 
 
@@ -114,8 +92,8 @@ def acts_mode_of(dials) -> str:
 def dial_dirname(dials) -> str:
     """The dial point's directory name, one branch per damage."""
     if isinstance(dials, NoDamageDials):
-        # The encoder is the ONLY thing separating oracle from undamaged; leave it out of the
-        # path and the two collide on one directory and silently overwrite each other.
+        # the encoder is all that separates oracle from undamaged; without it they share a
+        # directory and overwrite each other
         return f"acts_{dials.acts_mode}"
     if isinstance(dials, AbsorptionDials):
         return f"beta{dials.beta:g}-eta{dials.eta:g}-f{dials.edge_fraction:g}"
@@ -130,15 +108,14 @@ def dial_dirname(dials) -> str:
 
 
 def point_dir(out, tag: str, seed: int, toy: str, kind: str, dials, readout: str) -> Path:
-    """THE artifact path for one dial point, shared by the driver's write and the launcher's
-    resume probe so the two cannot desync."""
+    """The artifact path for one dial point, shared by the driver and the launcher's resume
+    check."""
     return (Path(out) / tag / f"seed{int(seed)}" / toy / kind / dial_dirname(dials) / readout)
 
 
 def provenance_tuple(meta: dict) -> tuple:
-    """What one tag must not mix, read from an artifact's meta: encoder, readout, damage, world
-    shape and whether the probe ran. None of these is in the path, so a shrunken `--n-roots`
-    or `--no-probe` run would otherwise land on top of (or be resumed as) a full one."""
+    """What one tag must not mix, from an artifact's meta. None of it is in the path, so a
+    shrunken or probe-less run could otherwise overwrite, or be resumed as, a full one."""
     return (meta.get("acts_model"), meta.get("readout"),
             meta.get("corruption", "absorption"), int(meta.get("n_tokens", -1)),
             json.dumps(meta.get("cfg_overrides"), sort_keys=True),
@@ -147,8 +124,8 @@ def provenance_tuple(meta: dict) -> tuple:
 
 def build_run_config(read, toy: str, seed: int, dials, n_tokens: int,
                      census_seed: int | None) -> dict:
-    """The complete record of one dial point: world, dials, derived values, explicit
-    selections, encoder, readout and rules, constants, and code identity."""
+    """The full record of one dial point: world, dials, selections, encoder, readout,
+    constants and code identity."""
     ex = read.extra
     L, F = int(ex["n_latents"]), int(read.F)
     ftl = ex["feature_to_latents"]
@@ -229,8 +206,7 @@ def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: st
 
     cen = None
     if with_census:
-        # Rebuild the same corruption the read used — deterministic in (world seed, dials),
-        # and geometry is draw-independent, so any draw reproduces it exactly.
+        # the read's corruption depends on (world seed, dials) only, so any draw rebuilds it
         world = regenerate_world(rc, sample_seed=held_out_sample_seed(int(seed)),
                                  n_tokens=n_tokens)
         corruption = (build_corruption(world, damage, world_seed=int(seed), readout=readout)
@@ -242,7 +218,7 @@ def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: st
     meta = {
         "toy": toy, "seed": int(seed), "read": "synthetic", "n_tokens": int(n_tokens),
         "s_res_mode": read.s_res_mode, "report_schema": REPORT_SCHEMA,
-        "freeze_tag": tag,                      # a study tag, explicitly NOT a benchmark freeze
+        "freeze_tag": tag,                      # a study tag, not a benchmark freeze
         "checkpoint": "synthetic:none",
         "checkpoint_weights_sha256": hashlib.sha256(ex["W_raw"].numpy().tobytes()).hexdigest(),
         "evaluator_sha256": run_config["code"]["evaluator_sha256"],
@@ -257,8 +233,7 @@ def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: st
         "corrupted_features": list(ex["corrupted_features"]),
         "severity_kind": ex["severity_kind"],
         "corrupted_pair_rule": ex["corrupted_pair_rule"],
-        # With nothing fitted, WHICH CONSTANT a gate compared against is the whole of what
-        # decided a pass, so it belongs in the provenance beside the code hashes.
+        # with nothing fitted, the gate constants alone decide a pass
         "gates": list(GATES),
         "gate_constants": {k: CONSTANTS[k] for k in GATE_CONSTANT_KEYS},
         **ruleset_stamp(),
@@ -288,24 +263,22 @@ def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: st
     return [d]
 
 
-# CLI kind -> which knobs that damage takes. Each damage reads ONLY its own, so a `--beta`
-# passed to a split run is refused rather than silently ignored.
+# CLI kind -> (dials class, its knobs); a knob of another kind is refused, not ignored
 DIALS_BY_KIND = {
     "absorption": (AbsorptionDials, ("beta", "eta", "edge_fraction")),
     "hedging": (HedgingDials, ("gamma_rel", "edge_fraction")),
     "split": (SplitDials, ("k", "roles", "skew", "fraction")),
     "composition": (CompositionDials, ("pi", "fraction")),
-    # The benchmark matrix' two non-damage columns. `acts_mode` is this kind's only knob, and
-    # it is refused on every other kind by the foreign-knob check below.
+    # the oracle and undamaged columns
     "none": (NoDamageDials, ("acts_mode",)),
 }
 
 
 def dials_from_args(args) -> object:
-    """Build the damage's dials from the CLI, refusing knobs that belong to another damage.
+    """The damage's dials from the CLI, refusing another damage's knobs.
 
-    Which knobs are REQUIRED is read off the dials dataclass: a field with no default must be
-    supplied, so a shared flag cannot inherit another damage's default.
+    A dials field with no default must be supplied, so a shared flag cannot inherit another
+    damage's default.
     """
     cls, names = DIALS_BY_KIND[args.kind]
     required = {f.name for f in dataclasses.fields(cls)

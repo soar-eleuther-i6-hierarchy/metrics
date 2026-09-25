@@ -1,2 +1,1 @@
-"""Stage 1: mathematical validation of the detector machinery (`validate_metrics`).
-No AUROC. Depends only on `scoring.core`."""
+"""Detector checks on ground-truth inputs (`validate_metrics`); depends on `scoring.core` only."""

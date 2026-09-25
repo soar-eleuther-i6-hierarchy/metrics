@@ -1,23 +1,8 @@
-"""
-Decompose the damage a trained dictionary does to the true features — absorption, splitting,
-and composition (merging).
+"""Classify a dictionary's damage to the true features: absorption, split or duplicate firing, composition.
 
-Uses standard, null-calibrated definitions measured against the toy's ground-truth match:
+Reads ground truth (`g`, `A`, the match, the tree) but never `pair_labels`.
 
-  - ABSORPTION: a specific child latent soaks up its general parent's direction (child decoder
-    carries the parent direction) AND the parent develops a firing hole. Reported as the signed
-    absorbed angle `theta_hat`.
-  - DECODER MULTIPLICITY ("splitting"): one feature's direction tracked by several latents,
-    reported as EXCESS over the null count, never a raw count.
-  - COMPOSITION / MERGING: a single conjunction latent for a co-hyponym pair (the "red triangle"
-    case).
-
-`eps` is null-calibrated: the q-quantile of |cos| between random directions in the decoder
-signal span and the trained decoders. Always report the EXCESS, not the raw count.
-
-FIREWALL: this is a fidelity diagnostic, not a detector. It uses ground truth (`g`/`A`/match)
-plus the containment/sibling tree structure; it never touches `pair_labels` and is never a
-detector or an AUROC input.
+    python -m scoring.trained.absorption <ckpt_dir> [--n-tokens N] [--out report.json]
 """
 
 from __future__ import annotations
@@ -34,16 +19,16 @@ _TINY = 1e-12
 
 ABSORPTION_CONSTANTS: dict[str, float] = {
     "hole_min": 0.15,        # parent recall must drop this far below 1 to count as a hole
-    "solo_min": 0.10,        # min parent recall on parent-solo tokens for absorption (vs ~0 for merging)
-    "conj_min": 0.10,        # excess conjunction cos (K) above baseline to count as composition; raised from 0.05 (defense-in-depth alongside the sum-alignment + own-latent gates in conjunction_strength)
+    "solo_min": 0.10,        # min parent recall on parent-solo tokens; near 0 means merging
+    "conj_min": 0.10,        # min conjunction cos K above baseline to count as composition
     "null_target_exceedances": 0.01,  # Bonferroni target on expected chance latents dictionary-wide
     "n_null_perm": 1000,     # random in-span directions for a stable tail quantile
-    "multiplicity_excess_min": 1.5,   # excess needed to flag genuine multiplicity over a clean latent (geometry diagnostic `parent_multiplicity_excess` only)
-    # --- firing multiplicity (exclusive-support split/duplicate; the deployed orchestration test) ---
-    "mult_prec_min": 0.5,    # a candidate latent must fire mostly within the feature: P(feat | latent) >= this
-    "mult_recall_min": 0.25, # a candidate counts as a shard if it recalls this fraction of the feature's EXCLUSIVE support
-    "dup_recall_min": 0.8,   # a single shard recalling this much of the exclusive support is a duplicate (redundant), not a split
-    "split_union_min": 0.8,  # >=2 shards must jointly recall this much of the exclusive support to count as a genuine split
+    "multiplicity_excess_min": 1.5,   # flag threshold for parent_multiplicity_excess; nothing here reads it
+    # --- firing multiplicity (split vs duplicate on exclusive support) ---
+    "mult_prec_min": 0.5,    # candidate latent needs P(feature | latent) >= this
+    "mult_recall_min": 0.25, # a shard recalls at least this much of the exclusive support
+    "dup_recall_min": 0.8,   # one shard recalling this much is a duplicate, not a split
+    "split_union_min": 0.8,  # >= 2 shards must jointly recall this much to be a split
 }
 
 
@@ -52,10 +37,9 @@ def _unit(x: torch.Tensor) -> torch.Tensor:
 
 
 def _decoder_span_basis(W_dec: torch.Tensor) -> torch.Tensor:
-    """Orthonormal basis [r, D] of the trained decoders' row space (the signal span).
+    """Orthonormal basis [r, D] of the decoders' row space.
 
-    Computed here, not in R^D: decoders concentrate in the signal span where random |cos| is heavier.
-    """
+    Null directions are drawn here, not in all of R^D, since decoders concentrate in this span."""
     Wu = _unit(W_dec.double())
     _, S, Vh = torch.linalg.svd(Wu, full_matrices=False)
     r = int((S > 1e-6 * S[0]).sum()) if S.numel() else 0
@@ -64,24 +48,22 @@ def _decoder_span_basis(W_dec: torch.Tensor) -> torch.Tensor:
 
 def null_cos_threshold(W_dec: torch.Tensor, g: torch.Tensor, n_perm: int = 200,
                        q: float = 0.95, seed: int = 0) -> float:
-    """eps = the q-quantile of |cos| between random in-span unit directions and the decoders.
+    """eps: the q-quantile of |cos| between random in-span unit directions and the decoders.
 
-    Deterministic (fixed generator). `g` is accepted for signature parity only.
-    """
+    Seeded, so deterministic. `g` is unused."""
     basis = _decoder_span_basis(W_dec)                     # [r, D]
     Wu = _unit(W_dec.double())
     r = basis.shape[0]
     gen = torch.Generator().manual_seed(int(seed))
     z = torch.randn(n_perm, r, generator=gen, dtype=DT)    # [n_perm, r]
-    V = _unit(z @ basis)                                   # [n_perm, D] random unit vecs in span
+    V = _unit(z @ basis)                                   # [n_perm, D]
     null_cos = (V @ Wu.transpose(0, 1)).abs()              # [n_perm, d_sae]
     return float(torch.quantile(null_cos.flatten(), q))
 
 
 def _expected_null_count(W_dec: torch.Tensor, eps: float, n_perm: int = 200,
                          seed: int = 1) -> float:
-    """E[ #{j : |cos(v, W_dec[j])| > eps} ] for a random in-span direction v — the chance count
-    that `parent_multiplicity_excess` subtracts off to recover the genuine count."""
+    """Expected number of decoders with |cos| > eps against a random in-span direction."""
     basis = _decoder_span_basis(W_dec)
     Wu = _unit(W_dec.double())
     gen = torch.Generator().manual_seed(int(seed))
@@ -91,37 +73,21 @@ def _expected_null_count(W_dec: torch.Tensor, eps: float, n_perm: int = 200,
     return float(counts.mean())
 
 
-# --------------------------------------------------------------------------
-# firing multiplicity (exclusive-support split vs duplicate) -- the deployed detector
-# --------------------------------------------------------------------------
+# --- firing multiplicity (split vs duplicate on exclusive support) ---
 def firing_precision(A: torch.Tensor, acts: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """`(fire_lat, prec_all)` computed once: `fire_lat` = boolean latent-firing mask `[n, S]`;
-    `prec_all[L, f] = P(f fires | L fires)` `[S, F]`. Hoisted out of the per-feature loop so the
-    large `[n, S]` cast and the `[S, F]` matmul are done a single time per dictionary.
-    """
+    """`(fire_lat [n, S] bool, prec_all [S, F])` with `prec_all[L, f] = P(f fires | L fires)`."""
     fire_lat = acts > 0
     fld = fire_lat.double()
-    lat_fire = fld.sum(0).clamp_min(1.0)                                       # [S] latent firing counts
+    lat_fire = fld.sum(0).clamp_min(1.0)                                       # [S]
     prec_all = (fld.transpose(0, 1) @ (A > 0).double()) / lat_fire[:, None]    # [S, F] = P(f | L)
     return fire_lat, prec_all
 
 
 def latent_owner(A: torch.Tensor, acts: torch.Tensor, descendants: dict[int, set[int]] | None,
                  constants: dict, prec_all: torch.Tensor | None = None) -> torch.Tensor:
-    """`owner[L]` = the MOST SPECIFIC feature latent `L` fires mostly within.
+    """Per latent, the most specific feature it fires mostly within (`P(f | L) >= mult_prec_min`).
 
-    Firing is strictly nested in the tree (child => parent), so an ancestor's precision
-    `P(ancestor | L)` is always >= a contained feature's `P(f | L)`. A plain `argmax P(f | L)` would
-    therefore attribute a child's own latent to its ancestor (worse, to the topmost root, since ties
-    break to the lowest id) and hide every genuine split of a non-root feature. Instead: among the
-    features `L` fires mostly within (`P(f | L) >= mult_prec_min`), drop any feature that has a
-    descendant also in that set (an ancestor is superseded by its more-specific descendant), then take
-    the argmax precision over what remains. This keeps a latent attributed to the child it belongs to,
-    while still sending an unrelated but higher-precision feature its own latents.
-
-    `descendants` is the tree's transitive-closure `descendents` map; with None/empty it degrades to a
-    plain argmax over the high-precision features (no tree to resolve specificity).
-    """
+    Nested firing gives ancestors the higher precision, so a feature loses to a qualifying descendant."""
     if prec_all is None:
         _, prec_all = firing_precision(A, acts)
     F = int(A.shape[1])
@@ -142,31 +108,9 @@ def firing_multiplicity(A: torch.Tensor, acts: torch.Tensor,
                         f: int, constants: dict, owner: torch.Tensor | None = None,
                         prec_all: torch.Tensor | None = None,
                         fire_lat: torch.Tensor | None = None) -> dict:
-    """Split vs duplicate by firing recall on feature `f`'s EXCLUSIVE support.
+    """Label feature `f` split, duplicate, clean or unclassified by shard recall on its exclusive support.
 
-    Exclusive support = tokens where `f` fires AND every ground-truth descendant of `f` is silent.
-    A descendant's own latent is silent there, so the is-a containment confound (child => parent, so
-    a clean child's latent fires *within* the parent) is removed exactly for firing that tracks the
-    ground truth: a clean parent's child-latent scores recall ~0 on the parent's exclusive support and
-    is dropped (a leaky trained latent that fires on the parent's solo tokens can still land there).
-
-    Candidates are latents that fire mostly within `f` (`P(f | latent) >= mult_prec_min`) AND are
-    attributed to `f` by `latent_owner` (their most-specific containing feature is `f`); attribution
-    stops both an unrelated latent that incidentally co-fires inside `f` and an ancestor's latent from
-    being miscounted as a shard of `f`. The exclusive-support recall then filters: a candidate counts
-    as a shard if its recall on the exclusive support >= `mult_recall_min`. With >=2 shards:
-      - duplicate: a single shard already recalls the whole support (`best >= dup_recall_min`) --
-        redundant copies;
-      - split: no single shard covers it but the shards jointly do (`union >= split_union_min`) --
-        fragmented firing;
-      - clean: otherwise.
-    A feature with no exclusive support (`n_excl == 0`, i.e. it never fires without a descendant) is
-    NOT evaluable and returns `kind="unclassified"` -- never silently folded into clean.
-
-    `descendants` is the tree's transitive-closure `descendents` map; a feature with no descendants (a
-    leaf, or an empty/None map) uses its full firing set as the exclusive support. `owner`/`prec_all`/
-    `fire_lat` are computed once here if not supplied (the caller passes them to avoid recomputation).
-    """
+    Exclusive support is where `f` fires and no descendant does; when it is empty, `f` is unclassified."""
     if fire_lat is None or prec_all is None:
         fire_lat, prec_all = firing_precision(A, acts)
     if owner is None:
@@ -176,11 +120,11 @@ def firing_multiplicity(A: torch.Tensor, acts: torch.Tensor,
     desc = [d for d in descendants.get(f, set()) if d != f] if descendants else []
     excl = (fire_f & ~fire[:, desc].any(dim=1)) if desc else fire_f
     n_excl = int(excl.sum())
-    if n_excl == 0:                                                            # no exclusive support: not evaluable
+    if n_excl == 0:
         return {"feature": int(f), "kind": "unclassified", "shards": [], "n_shards": 0,
                 "best_recall": float("nan"), "union_recall": float("nan"), "n_excl": 0}
     cand = ((prec_all[:, f] >= constants["mult_prec_min"]) & (owner == f)).nonzero(as_tuple=True)[0].tolist()
-    recalls = {L: float(fire_lat[excl, L].double().mean()) for L in cand}      # recall on the EXCLUSIVE support
+    recalls = {L: float(fire_lat[excl, L].double().mean()) for L in cand}
     shards = [L for L, r in recalls.items() if r >= constants["mult_recall_min"]]
     if len(shards) < 2:
         return {"feature": int(f), "kind": "clean", "shards": shards, "n_shards": len(shards),
@@ -198,46 +142,25 @@ def firing_multiplicity(A: torch.Tensor, acts: torch.Tensor,
             "n_excl": n_excl}
 
 
-# --------------------------------------------------------------------------
-# splitting (parent multiplicity, excess over null) -- standalone geometry diagnostic
-# --------------------------------------------------------------------------
+# --- decoder multiplicity over null (geometry diagnostic, not used by classify_dictionary) ---
 def parent_multiplicity_excess(g: torch.Tensor, W_dec: torch.Tensor, f: int, eps: float) -> dict:
-    """`M_P = #{j : |cos(W_dec[j], g[f])| > eps AND f = argmax_f' |cos(W_dec[j], g[f'])|}`, and
-    `excess = M_P - E[M_P|null]`.
+    """`M_P` counts latents with |cos| > eps to `g[f]` whose best feature is `f`; `excess` subtracts the null.
 
-    A latent counts toward feature f only if f is that latent's best-matching true feature — needed
-    on this overcomplete, non-orthogonal toy so a parent's latent isn't miscounted into every
-    correlated child's multiplicity. A clean feature scores M_P=1, a real split scores >=2.
-    """
+    The best-match condition keeps a parent's latent out of every correlated child's count."""
     Wu = _unit(W_dec.double())
     cosmat = (_unit(g.double()) @ Wu.transpose(0, 1)).abs()   # [F, d_sae]
-    best_f = cosmat.argmax(dim=0)                             # [d_sae] each latent's best feature
+    best_f = cosmat.argmax(dim=0)                             # [d_sae]
     M_P = int(((cosmat[f] > eps) & (best_f == f)).sum())
     en = _expected_null_count(W_dec, eps)
     return {"M_P": M_P, "expected_null": en, "excess": M_P - en}
 
 
-# --------------------------------------------------------------------------
-# Chanin absorption (child latent carries parent + parent hole)
-# --------------------------------------------------------------------------
+# --- Chanin absorption ---
 def absorption_signals(g: torch.Tensor, W_dec: torch.Tensor, acts: torch.Tensor, A: torch.Tensor,
                        match: torch.Tensor, p: int, c: int, eps: float, constants: dict) -> dict:
-    """Chanin absorption for a containment edge parent=p, child=c.
+    """Chanin absorption on edge p -> c: `resid_parent > eps`, a parent firing hole, and `R_solo > solo_min`.
 
-    `absorbed = (child latent carries the residual parent direction beyond the null) AND (parent has
-    a firing hole on the child's tokens) AND (a standalone parent latent survives on parent-solo
-    tokens)`. Three gates:
-
-      - `resid_parent`: child decoder's overlap with the parent direction orthogonal to the child's
-        own direction (removes the toy's designed is-a overlap so a clean child scores exactly 0).
-        `parent_component`/`child_component`/`theta_hat` are also reported as the raw decomposition.
-      - `R_P`: parent recall on child-firing tokens; a hole (`R_P` well below 1) means absorption,
-        not hedging (which keeps the parent firing).
-      - `R_solo`: parent recall on parent-solo tokens; near-zero means a merging latent, not
-        absorption, so `R_solo > solo_min` vetoes merging.
-
-    A `match[c] < 0` or `match[p] < 0` (child/parent unrecovered) gives `absorbed=False`.
-    """
+    `R_solo` near 0 means a merging latent, not absorption. An unmatched endpoint gives `absorbed=False`."""
     mc, mp = int(match[c]), int(match[p])
     if mc < 0 or mp < 0:
         return {"parent_component": float("nan"), "child_component": float("nan"),
@@ -246,10 +169,10 @@ def absorption_signals(g: torch.Tensor, W_dec: torch.Tensor, acts: torch.Tensor,
     gp_u = _unit(g[p].double())
     gc_u = _unit(g[c].double())
     dec_c = _unit(W_dec[mc].double())
-    parent_component = float(dec_c @ gp_u)                         # absorbed-angle numerator (signed, raw)
-    child_component = float(dec_c @ gc_u)                          # absorbed-angle denominator (signed)
+    parent_component = float(dec_c @ gp_u)
+    child_component = float(dec_c @ gc_u)
     theta_hat = math.atan2(parent_component, child_component)
-    # Parent direction with the child's designed overlap removed; a clean is-a child reads 0 here.
+    # parent direction with the child's designed overlap removed, so a clean is-a child reads 0
     resid_dir = gp_u - (gp_u @ gc_u) * gc_u
     if float(resid_dir.norm()) < _TINY:
         resid_parent = 0.0
@@ -262,7 +185,7 @@ def absorption_signals(g: torch.Tensor, W_dec: torch.Tensor, acts: torch.Tensor,
     else:
         R_P = float((acts[child_fires, mp].double() > 0).double().mean())   # parent recall
         hole = R_P < (1.0 - constants["hole_min"])
-    parent_solo = (A[:, p].double() > 0) & (~child_fires)         # parent active, child absent
+    parent_solo = (A[:, p].double() > 0) & (~child_fires)
     n_solo = int(parent_solo.sum())
     R_solo = (float((acts[parent_solo, mp].double() > 0).double().mean())
               if n_solo > 0 else float("nan"))
@@ -273,26 +196,12 @@ def absorption_signals(g: torch.Tensor, W_dec: torch.Tensor, acts: torch.Tensor,
             "R_solo": R_solo, "hole": hole, "absorbed": absorbed}
 
 
-# --------------------------------------------------------------------------
-# composition / merging (conjunction latent)
-# --------------------------------------------------------------------------
+# --- composition (conjunction latent) ---
 def conjunction_strength(g: torch.Tensor, W_dec: torch.Tensor, a: int, b: int,
                          match: torch.Tensor | None = None, conj_min: float | None = None) -> dict:
-    """`K = cos(W_dec[j*], unit(g_a+g_b)) - baseline` over ELIGIBLE latents; composed iff `K > conj_min`.
+    """`K = cos(W_dec[j*], unit(g_a + g_b))` minus the larger single-feature cos; composed if `K > conj_min`.
 
-    A real conjunction latent is a THIRD latent that points along the normalized sum of the two true
-    directions. Two guards make `j*` that latent rather than a masquerade:
-      * **sum-alignment gate** — `j*` must be closer to the sum than to either single feature
-        (`cos(W_j, conj) > cos(W_j, g_a)` and `> cos(W_j, g_b)`). A latent that merely recovers one
-        feature (its own entanglement-contaminated decoder) is single-aligned, so it is excluded.
-        This is geometric and needs no `match`.
-      * **own-latent exclusion** — when `match` is given, the pair's own matched latents
-        (`match[a]`, `match[b]`) are excluded outright; a feature's own latent can never be the
-        pair's conjunction.
-    Without these, ~90% of flagged "composites" were a feature's own latent clearing a low `conj_min`.
-    The baseline is the larger single-feature cosine onto the sum (actual geometry, not `1/sqrt(2)`,
-    since the dictionary is overcomplete/non-orthogonal); composition is the excess over it.
-    """
+    `j*` must sit closer to the sum than to either feature and, given `match`, not be either one's own latent."""
     Wu = _unit(W_dec.double())
     ga, gb = _unit(g[a].double()), _unit(g[b].double())
     conj = _unit(g[a].double() + g[b].double())
@@ -313,9 +222,7 @@ def conjunction_strength(g: torch.Tensor, W_dec: torch.Tensor, a: int, b: int,
     return {"K": K, "latent": jstar, "baseline": baseline, "composed": bool(K > cmin)}
 
 
-# --------------------------------------------------------------------------
-# orchestration
-# --------------------------------------------------------------------------
+# --- orchestration ---
 def classify_dictionary(g: torch.Tensor, W_dec: torch.Tensor, A: torch.Tensor, acts: torch.Tensor,
                         match: torch.Tensor, matched_corr: torch.Tensor, recovered: torch.Tensor,
                         cont_edges: Sequence[tuple[int, int]],
@@ -323,34 +230,24 @@ def classify_dictionary(g: torch.Tensor, W_dec: torch.Tensor, A: torch.Tensor, a
                         isa_child: dict[int, bool],
                         descendants: dict[int, set[int]] | None = None,
                         constants: dict | None = None) -> dict:
-    """Per-mechanism tallies (coexistence expected — not a forced single label per feature).
+    """Absorption per containment edge, split or duplicate firing per feature, composition per sibling pair.
 
-    Absorption per containment edge, firing multiplicity (split / duplicate) per feature, composition
-    per sibling pair — all null-calibrated. `cont_edges`/`sibling_pairs`/`isa_child`/`descendants`
-    come from the tree (identity truth); `pair_labels` is deliberately not a parameter (firewall).
-    `descendants` is the tree's transitive-closure `descendents` map, used to remove the is-a
-    containment confound from the multiplicity read (see `firing_multiplicity`).
-    """
+    Mechanisms can coexist on one feature. Structure comes from the tree; `pair_labels` is not an input."""
     constants = ABSORPTION_CONSTANTS if constants is None else constants
     F = int(g.shape[0])
     d_sae = int(W_dec.shape[0])
-    # Bonferroni-adaptive quantile targeting a small expected chance count dictionary-wide (a fixed
-    # p95 is too noisy at large d_sae); gates both the multiplicity count and the absorption resid gate.
-    # KNOWN LIMIT: this dictionary-wide eps is over-conservative for a targeted per-edge test, so some
-    # shallow absorbed cells can read clean; a principled per-checkpoint floor is not yet derivable
-    # for the deployed BatchTopK activation.
+    # eps is a Bonferroni quantile over the whole dictionary. Known limit: conservative for one
+    # edge, so some shallow absorbed edges read clean.
     q_eff = 1.0 - constants["null_target_exceedances"] / max(d_sae, 1)
     eps = null_cos_threshold(W_dec, g, n_perm=int(constants["n_null_perm"]), q=q_eff)
     expected_null = _expected_null_count(W_dec, eps, n_perm=int(constants["n_null_perm"]))
 
     absorbed_edges: list[dict] = []
     absorbed_children: set[int] = set()
-    # Unclassified (catch-all): an edge whose absorption gates couldn't be evaluated (unrecovered,
-    # child never fires, or no parent-solo tokens); must not be silently folded into `clean`.
+    # edges whose absorption gates could not be evaluated; kept out of clean
     unclassified_edges: list[dict] = []
     unclassified_children: set[int] = set()
-    # Below-rho: an endpoint assigned by the Hungarian match but not recovered (matched_corr < rho)
-    # is an arbitrary weak match, not a real mechanism — excluded from every bucket, reported separately.
+    # edges with an unrecovered endpoint; kept out of every bucket and reported separately
     below_rho_edges: list[dict] = []
     below_rho_children: set[int] = set()
     for (p, c) in cont_edges:
@@ -374,19 +271,15 @@ def classify_dictionary(g: torch.Tensor, W_dec: torch.Tensor, A: torch.Tensor, a
     unclassified_children -= absorbed_children
     below_rho_children -= (absorbed_children | unclassified_children)
 
-    # Firing multiplicity on each recovered feature's EXCLUSIVE support: split (fragmented firing) vs
-    # duplicate (redundant firing). Exclusive support removes the is-a containment confound exactly,
-    # so a clean parent is not miscounted from its child's latent (see `firing_multiplicity`).
     descendants = {} if descendants is None else descendants
-    fire_lat, prec_all = firing_precision(A, acts)       # hoisted once: [n, S] mask + [S, F] precision
+    fire_lat, prec_all = firing_precision(A, acts)
     owner = latent_owner(A, acts, descendants, constants, prec_all=prec_all)
-    multiplicity_features: list[dict] = []      # genuine splits (fragmented firing)
-    duplicate_features: list[dict] = []         # redundant copies (full-recall shards)
-    # A recovered feature with no exclusive support can't be assessed for multiplicity; it is held
-    # out of `clean` in its own not-evaluable bucket (parity with the absorption `unclassified` path).
+    multiplicity_features: list[dict] = []      # splits (fragmented firing)
+    duplicate_features: list[dict] = []         # redundant copies
+    # recovered features with no exclusive support; kept out of clean
     multiplicity_unclassified: set[int] = set()
     for f in range(F):
-        if not bool(recovered[f]):        # recovered-gated (parity with absorbed/clean)
+        if not bool(recovered[f]):
             continue
         fm = firing_multiplicity(A, acts, descendants, f, constants,
                                  owner=owner, prec_all=prec_all, fire_lat=fire_lat)
@@ -399,7 +292,7 @@ def classify_dictionary(g: torch.Tensor, W_dec: torch.Tensor, A: torch.Tensor, a
 
     composed_pairs: list[dict] = []
     for (a, b) in sibling_pairs:
-        if not (bool(recovered[int(a)]) and bool(recovered[int(b)])):   # recovered-gated
+        if not (bool(recovered[int(a)]) and bool(recovered[int(b)])):
             continue
         cs = conjunction_strength(g, W_dec, int(a), int(b), match=match,
                                   conj_min=constants["conj_min"])
@@ -442,34 +335,22 @@ def classify_dictionary(g: torch.Tensor, W_dec: torch.Tensor, A: torch.Tensor, a
 
 def latent_pair_masks(classification: dict, feats: list[int],
                       pairs: list[tuple[int, int]]) -> dict[str, torch.Tensor]:
-    """Boolean masks over `pairs` (positions into `feats`) for the latent-side scoring columns.
-
-      absorbed — per ordered recovered (parent, child) pair that is a Chanin-absorbed edge.
-      merged   — per symmetric recovered pair that is a composed sibling conjunction.
-
-    `feats[pos]` maps a pair position back to its true feature id. FIREWALL: these are scoring-only
-    labels — the 10 detectors never see them.
-    """
+    """Bool masks over `pairs` (positions into `feats`): `absorbed` per ordered edge, `merged` in both orders."""
     absorbed_set = {(int(e["parent"]), int(e["child"])) for e in classification["absorbed_edges"]}
     merged_set: set[tuple[int, int]] = set()
     for e in classification["composed_pairs"]:
         a, b = int(e["a"]), int(e["b"])
         merged_set.add((a, b))
-        merged_set.add((b, a))                         # symmetric: both orderings are merged
+        merged_set.add((b, a))
     ids = [(feats[a], feats[b]) for (a, b) in pairs]
-    # CPU masks (the whole toy scoring path is CPU); would need `.to(device)` for a real CUDA checkpoint.
+    # CPU masks; a CUDA caller must move them
     absorbed = torch.tensor([pid in absorbed_set for pid in ids], dtype=torch.bool)
     merged = torch.tensor([pid in merged_set for pid in ids], dtype=torch.bool)
     return {"absorbed": absorbed, "merged": merged}
 
 
 def split_readout(classification: dict, feats: list[int]) -> dict:
-    """Per-feature split readout (firing multiplicity) — not a pair column.
-
-    A split is per-feature, not a relation over a pair, so it's reported as a side readout: the
-    recovered features whose firing fragments across >=2 shards on their exclusive support (genuine
-    splits; duplicates are reported separately). Scoped to `feats` for grid parity.
-    """
+    """The features in `feats` whose firing splits across >= 2 shards; per feature, so not a pair column."""
     recovered_ids = {int(f) for f in feats}
     out = [{"feature": int(d["feature"]), "n_shards": int(d["n_shards"]),
             "union_recall": float(d["union_recall"]), "n_excl": int(d["n_excl"])}
@@ -479,13 +360,9 @@ def split_readout(classification: dict, feats: list[int]) -> dict:
 
 def tree_edges_and_siblings(tree) -> tuple[list[tuple[int, int]], list[tuple[int, int]],
                                            dict[int, bool], dict[int, set[int]]]:
-    """`(cont_edges, sibling_pairs, isa_child, descendants)` derived from the tree (identity truth).
+    """`(cont_edges, sibling_pairs, isa_child, descendants)` from the tree.
 
-    Shared by `run_absorption` and `run_retrieval` so the two reports can't drift on schema changes.
-    `cont_edges` are ordered (parent, child) pairs; `isa_child[c]` is True iff non-zero overlap;
-    `sibling_pairs` are unordered co-hyponym pairs; `descendants` is the transitive-closure
-    `descendents` map (used by the firing-multiplicity confound removal).
-    """
+    `cont_edges` are ordered (parent, child); `isa_child[c]` means alpha > 0; `sibling_pairs` are unordered."""
     cont_edges = [(p, c) for c in range(tree.F) for p, _, _ in tree.parents.get(c, [])]
     isa_child = {c: (tree.alpha_of(c) > 0.0) for _, c in cont_edges}
     sibling_pairs = [(kids[i], kids[j]) for kids in tree.children.values()
@@ -494,11 +371,7 @@ def tree_edges_and_siblings(tree) -> tuple[list[tuple[int, int]], list[tuple[int
 
 
 def run_absorption(ckpt_dir, n_tokens: int = 200_000, rho: float | None = None) -> dict:
-    """Orchestrator (server; needs sae_training): decompose one checkpoint's dictionary damage.
-
-    Not unit-tested (loads a real checkpoint); the pure functions above carry the coverage.
-    Uses the SAME in-sample match as run_recovery, then classifies against truth.
-    """
+    """Load a checkpoint (needs sae_training), match it on training-seed tokens, and classify its damage."""
     from scoring.trained.loaders import load_sae
     from scoring.core.world import regenerate_world, signed_normalized_decoder
     from scoring.core.registry import CONSTANTS

@@ -1,10 +1,7 @@
-"""
-The shared gates (`metrics.rules`) in scoring's square [R, R] frame: one set of recovered
-features against itself.
+"""The shared `metrics.rules` gates in scoring's square [R, R] frame of recovered features.
 
-What the square frame fixes: self-pairs are NaN on every gate, reverse coverage is `R.T`,
-out-degree counts over the R - 1 other features and a pair is flagged when either end is wide,
-the probe ranks against the scored frame's decoders, and survival arrives squashed x / (1 + x).
+Self-pairs are NaN, reverse coverage is `R.T`, out-degree counts the other R - 1 features, and
+survival arrives squashed as x / (1 + x).
 """
 
 from __future__ import annotations
@@ -17,13 +14,13 @@ DT = torch.float64
 
 GATE_NAMES: tuple[str, ...] = MR.GATE_NAMES
 
-# The CONSTANTS keys the gates read; stamped on the freeze record and every artifact.
+# CONSTANTS keys the gates read; stamped on every artifact.
 GATE_CONSTANT_KEYS: tuple[str, ...] = (
     "edge_tau", "min_fire_count", "support_min_joint", "recon_rel_gain_min",
     "sres_rank_top_k", "superparent_outdeg_frac", "freq_survival_min_raw",
 )
 
-# The registered metrics each gate decides on, so a metric can inherit a rule's target.
+# Metrics each gate decides on, so a metric can inherit a rule's target.
 GATE_SOURCES: dict[str, tuple[str, ...]] = {
     "gate_support": (),
     "gate_contains": ("coverage_R",),
@@ -39,8 +36,9 @@ assert set(GATE_SOURCES) == set(GATE_NAMES), "a gate has no declared source metr
 
 def support_mask(cofire: torch.Tensor, fire: torch.Tensor, min_fire: int,
                  min_joint: int) -> tuple[torch.Tensor, dict]:
-    """`(bool [R, R], counts)`: the pairs with enough evidence to score, and how many were
-    excluded and why. Counts leave out the diagonal."""
+    """Bool [R, R] of pairs with enough firing and co-firing to score, plus exclusion counts by cause.
+
+    Counts leave out the diagonal."""
     keep = MR.supported(cofire, fire, fire, min_fire, min_joint)
     enough = fire >= float(min_fire)
     R = int(keep.shape[0])

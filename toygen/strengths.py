@@ -1,12 +1,7 @@
-"""
-Firing rates and activation strengths for the toy generator.
+"""Firing rates and activation strengths.
 
-Two deliberately flat design choices: firing rate walks down the forest (p_child = p_parent
-* p_edge), and every feature is equally loud (mean strength = q * sqrt(E0)) -- there is no
-built-in loudness ladder.
-
-`topic_rates` is the per-topic firing profile used by the topical confounds; it averages
-back to exactly the feature's overall rate.
+Firing rate walks down the forest (p_child = p_parent * p_edge), and every feature has the
+same mean strength.
 """
 
 from __future__ import annotations
@@ -39,21 +34,16 @@ def firing_rates(tree: Tree) -> torch.Tensor:
 
 
 def target_l0(tree: Tree) -> float:
-    """The world's expected L0 = mean active features per token = sum of firing rates.
-
-    This is the number the SAE's top-k should match -- a starved `k` can't represent an
-    average token, so callers derive `k` from this rather than a fixed constant.
-    """
+    """Expected L0 (mean active features per token) = sum of firing rates; world.choose_k uses it."""
     return float(firing_rates(tree).sum())
 
 
 def topic_rates(p_i: float | torch.Tensor, kappa: float, z_i: int | None,
                 pi: torch.Tensor) -> torch.Tensor:
-    """Per-topic firing rate that averages back to `p_i` under a uniform topic prior.
+    """Per-topic firing rates that average back to `p_i` under a uniform topic prior.
 
-    The `- pi[z_i]` centring makes that average exact when `pi` is uniform (as
-    `build_strengths` always builds); without it the average would drift while still
-    looking like a valid probability.
+    Centring by `pi` makes the average exact; without it the rates drift yet still look like
+    valid probabilities.
     """
     Z = pi.numel()
     if z_i is None or kappa == 0.0:
@@ -64,11 +54,10 @@ def topic_rates(p_i: float | torch.Tensor, kappa: float, z_i: int | None,
 
 
 def build_strengths(cfg: ToyConfig, tree: Tree) -> StrengthSpec:
-    """Firing rates, a flat loudness, and a uniform topic prior.
+    """Firing rates, one mean strength for every feature, and a uniform topic prior.
 
-    mean_strength = q * sqrt(E0) with q = 1 / sqrt(1 + strength_spread^2), the same for every
-    feature: the toy has no designed energy ladder, so the only energy spread is whatever
-    firing itself produces.
+    mean_strength = q * sqrt(E0) with q = 1 / sqrt(1 + strength_spread^2), so the mean squared
+    active strength is E0.
     """
     p = firing_rates(tree)
     q = 1.0 / math.sqrt(1.0 + cfg.strength_spread ** 2)

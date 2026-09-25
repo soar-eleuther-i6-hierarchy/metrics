@@ -1,15 +1,9 @@
 """
-Named constant sets for the gates.
+Named gate constant sets, one per pipeline, since some values do not transfer across dictionary
+sizes. Stamp `name` and `rules.RULESET_VERSION` beside any reported number.
 
-A gate compares a statistic against a fixed constant, so the constant set is part of the
-decision rule. Each pipeline keeps its own values, because some of them do not transfer
-across dictionary sizes (a top-2 rank among a few hundred latents is not a top-5 rank among
-32k). What must hold instead is that every result says which set decided it: stamp `name`
-and `rules.RULESET_VERSION` beside any reported number.
-
-`config.py` reads its thresholds from `GEMMA_MATRYOSHKA`; `scoring/core/registry.py` reads
-its gate constants from `SYNTHETIC_TOYS`. Changing a value here changes a pipeline's
-verdicts, so bump `rules.RULESET_VERSION` with it.
+`config.py` reads `GEMMA_MATRYOSHKA` and `scoring/core/registry.py` reads `SYNTHETIC_TOYS`.
+Changing a value changes that pipeline's verdicts, so bump `rules.RULESET_VERSION` with it.
 """
 
 from __future__ import annotations
@@ -27,7 +21,7 @@ class GateConstants:
     recon_rel_gain_min: float     # relative reconstruction gain for gate_recon
     sres_rank_top_k: int          # rank cut for gate_sres_rank
     superparent_outdeg_frac: float  # share of candidate children for gate_high_outdegree
-    freq_survival_min: float      # on the RAW ratio R_rare / R_all, for gate_freq_survives
+    freq_survival_min: float      # on the raw ratio R_rare / R_all, for gate_freq_survives
     sres_rank_pool: str           # what the probe ranks against: "dictionary" or "scored_frame"
     freq_buckets: str             # how tokens are called frequent: "global" (by id) or "local"
 
@@ -58,9 +52,8 @@ SYNTHETIC_TOYS = GateConstants(
     min_fire_count=20,
     min_joint=30,
     recon_rel_gain_min=0.01,
-    # k=2, decided 2026-09-19: the probe is fitted on the child's own firing, so the child is
-    # rank 1 by construction and k=5 admitted any parent in ranks 2-5, which at the oracle
-    # ceiling passed 100% of is_a AND 100% of firing_only. PRECOMMIT.md s4.
+    # k=2: the probe is fitted on the child's own firing, so the child is rank 1 by
+    # construction and k=5 let through any parent in ranks 2-5. PRECOMMIT.md s4.
     sres_rank_top_k=2,
     superparent_outdeg_frac=0.30,
     freq_survival_min=0.5,

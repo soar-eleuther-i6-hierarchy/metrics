@@ -1,23 +1,7 @@
-"""The two reads, reduced to one shape.
+"""The oracle and trained reads, reduced to one `Read` shape.
 
-An ORACLE read scores the true coefficients `A` against the true directions `g`: no SAE, no
-recovery loss, every feature in the universe. A TRAINED read loads a checkpoint, matches
-learned latents to true features with the Hungarian matcher at `rho_star`, reduces to the
-recovered universe, and scores a HELD-OUT draw. The trained path mirrors
-`training/score_trained.py` exactly, so its scores land on the identical universe as the saved
-trained arrays and the harness gate in `run_benchmark.py` can hold it to them.
-
-Both produce a `Read` with the same field names, so `evaluate` never branches on which one it
-got. Two things differ and are recorded rather than hidden:
-
-  `G`      cosine over unit decoders. On the oracle read those ARE the true `g`, so this is
-           `G_g`; on the trained read they are the learned `W_dec`, so it is `G_W`.
-  `S_res`  the Tree-SAE probe: `probe_true_g` on the oracle read (true firing labels, true
-           directions) and `probe_self_W` on the trained read (the deployed detector).
-
-PRECOMMIT s5 forbids the cosine-mode `s_res` key from populating the probe comparator rows, so
-the two are computed separately and named separately; the internal `s_res` key never leaves
-this module.
+The oracle read scores true coefficients against true directions; the trained read matches a
+checkpoint's latents to true features and scores the recovered universe on a held-out draw.
 """
 
 from __future__ import annotations
@@ -45,16 +29,10 @@ _TINY = 1e-12
 
 @dataclass(frozen=True)
 class Read:
-    """One (toy, seed, read) scored universe.
+    """One (toy, seed, read) scored universe. `pairs` are positions into `feats`, the true ids.
 
-    feats     true feature id at each recovered POSITION; `pairs` are positions into it, so
-              `feats[a]` is the true id the null population keys on.
-    vals      per-ordered-pair score vectors, float64, one per name in `registry.METRICS`.
-    gate_vals per-ordered-pair GATE vectors, float64 tristates over {1.0, 0.0, NaN}, one per
-              name in `registry.GATES`. A separate field rather than more entries in `vals`,
-              whose docstring promises one entry per METRICS name and which is what
-              `detector_matrices` and the AUROC grid iterate blindly -- a tristate scored as a
-              continuous detector would produce an AUROC over a three-valued variable.
+    `vals` holds one float64 score per METRICS name; `gate_vals` one float64 tristate
+    {1.0, 0.0, NaN} per GATES name, kept apart so a gate is never read as a continuous score.
     """
 
     toy: str
@@ -79,19 +57,11 @@ class Read:
         return len(self.feats)
 
 
-# --------------------------------------------------------------------------
-# shared machinery
-# --------------------------------------------------------------------------
+# --- shared machinery ---
 def wide_matrix(outdegree: torch.Tensor) -> torch.Tensor:
-    """`min(outdegree[p,c], outdegree[c,p])`, undefined unless BOTH orderings are finite.
+    """`min(outdegree[p,c], outdegree[c,p])`, NaN unless both orderings are finite (PRECOMMIT s6).
 
-    `torch.minimum` propagates NaN, so a missing reverse ordering yields NaN; `torch.fmin` would
-    return the finite side and manufacture a score for a pair that was never measured
-    (PRECOMMIT s6). But `minimum` does NOT propagate an infinity -- `min(+inf, 5)` is 5 -- so
-    non-finite entries are masked explicitly rather than relying on the reduction. `_orient`
-    already converts inf to NaN before this sees `outdegree`, so today that mask is belt and
-    braces; this function is public and the docstring has to be true of the function, not of
-    one caller.
+    Masked explicitly: `torch.minimum(inf, 5)` is 5, and `fmin` would do the same with a NaN.
     """
     ok = torch.isfinite(outdegree) & torch.isfinite(outdegree.transpose(0, 1))
     w = torch.minimum(outdegree, outdegree.transpose(0, 1))
@@ -106,12 +76,7 @@ def _scored(mat: torch.Tensor, pairs: list[tuple[int, int]]) -> torch.Tensor:
 
 def add_derived(vals: dict[str, torch.Tensor], outdegree_matrix: torch.Tensor | None,
                 pairs: list[tuple[int, int]] | None) -> dict[str, torch.Tensor]:
-    """Add `abs_asymmetry_R` and (when the matrix is given) `wide`.
-
-    `abs_asymmetry_R` was added as a registered metric so the deleted SYM predicate's Q99 could
-    be fitted on the ABSOLUTE distribution rather than the signed one. SYM is gone with the
-    quantile rule; the metric stays because the artifacts carry it and it is still reported.
-    """
+    """Add `abs_asymmetry_R` and, when the outdegree matrix is given, `wide`."""
     out = dict(vals)
     if "asymmetry_R" in out:
         out["abs_asymmetry_R"] = out["asymmetry_R"].abs()
@@ -121,11 +86,9 @@ def add_derived(vals: dict[str, torch.Tensor], outdegree_matrix: torch.Tensor | 
 
 
 def class_totals(pair_labels: torch.Tensor) -> dict[str, int]:
-    """Generated ordered pairs per class over the FULL feature set: the `N_total` denominator.
+    """Generated ordered pairs per class over the full feature set: the `N_total` denominator.
 
-    Taken from the answer key, never from the scored pairs -- on the trained read the latter
-    would silently drop every unrecovered target and turn end-to-end recall into
-    recall-given-recovery under a different name.
+    From the answer key, not the scored pairs, which drop every unrecovered target.
     """
     F = int(pair_labels.shape[0])
     eye = torch.eye(F, dtype=torch.bool)
@@ -142,11 +105,9 @@ def class_recovered(pair_labels: torch.Tensor, in_universe: torch.Tensor) -> dic
 def assemble_metrics(dets: dict[str, torch.Tensor], W_unit: torch.Tensor,
                      probe: torch.Tensor | None, pairs: list[tuple[int, int]]
                      ) -> dict[str, torch.Tensor]:
-    """Every non-`s_res` detector, plus `G` (cosine) and `S_res` (probe), plus derived.
+    """Every detector except `s_res`, plus `G` (cosine), `S_res` (probe) and the derived metrics.
 
-    Public because it is the seam where PRECOMMIT s5's separation is enforced: `G` is cosine
-    over unit decoders and `S_res` is the probe, and neither may be populated from the other.
-    Both reads go through this one function so the two cannot diverge.
+    Both reads go through here, so neither can fill `G` from the probe or `S_res` from the cosine.
     """
     vals = {d: _scored(dets[d], pairs) for d in DETECTORS if d != "s_res"}
     vals["G"] = _scored(s_res_cosine(W_unit), pairs)
@@ -162,11 +123,9 @@ def assemble_metrics(dets: dict[str, torch.Tensor], W_unit: torch.Tensor,
 
 def assemble_gates(gate_mats: dict[str, torch.Tensor],
                    pairs: list[tuple[int, int]]) -> dict[str, torch.Tensor]:
-    """Every registered gate, scored onto the ordered-pair frame.
+    """Every registered gate on the ordered-pair frame; raises if the read lacks one.
 
-    Mirrors `assemble_metrics` and raises for the same reason: a gate missing from the read
-    would make every rule that names it UNSCORABLE, and an expression reported as untestable
-    for a harness reason looks exactly like one untestable for a measurement reason.
+    A missing gate would otherwise pass for a rule that is untestable on the data.
     """
     missing = [g for g in GATES if g not in gate_mats]
     if missing:
@@ -175,39 +134,15 @@ def assemble_gates(gate_mats: dict[str, torch.Tensor],
     return {g: _scored(gate_mats[g], pairs) for g in GATES}
 
 
-# --------------------------------------------------------------------------
-# the oracle read
-# --------------------------------------------------------------------------
+# --- the oracle read ---
 def oracle_read(toy: str, seed: int, n_tokens: int, with_probe: bool = True,
                 probe_fit_seed: int | None = None) -> Read:
-    """Score the true coefficients against the true directions. No SAE, no recovery loss.
+    """Score the true coefficients against the true directions on the held-out draw of `seed`.
 
-    `with_probe=False` skips the per-feature probe training, which dominates the runtime. The
-    resulting `s_res_mode` is recorded as `"absent"`, NOT as `"probe"` with an all-NaN column:
-    the two probe comparators must come out INVALID MEASUREMENT rather than look like
-    rejections, and `run_benchmark` refuses to write such a run as a full one.
-
-    TWO SEEDS, AND THEY DO DIFFERENT THINGS.
-
-      `cfg.seed`      the directions `g` (`geometry.build_directions`), and the tree when
-                      `randomize_structure` is on -- which it is not here.
-      `sample_seed`   the entire Monte-Carlo stream: tokens, doc topics, firing, strengths,
-                      noise.
-
-    `resolve_config` NEVER sets the seed -- every config factory leaves it at the `ToyConfig`
-    default of 0 -- and it REJECTS a `seed=` override, so `spec.replace` on the frozen dataclass
-    is the only typed route. Mutating the `asdict`ed dict would work but silently swallow a
-    typo'd key, because `regenerate_world` filters to known fields. This mirrors
-    `training/train_toy.py:106-107` exactly, which is what lets an oracle read share a world
-    with a checkpoint WITHOUT loading one: the resolved configs come out byte-identical.
-
-    Passing the seed only as `sample_seed` -- which this did until B2.1 -- gives a fresh DRAW
-    over SEED-0 GEOMETRY at every seed. That reads as "a different world" and is not one, and no
-    co-firing detector can see it, because the token draw really did change.
-
-    The scoring draw is `held_out_sample_seed(seed)`, the same offset draw the trained read
-    scores on, so the two reads at one seed are the same world AND the same draw.
+    `with_probe=False` records `s_res_mode="absent"`, so probe rules read INVALID MEASUREMENT.
     """
+    # `cfg.seed` sets the geometry, `sample_seed` the draw. `resolve_config` leaves the seed at 0
+    # and rejects `seed=`, so use `spec.replace`; passing only `sample_seed` scores seed-0 geometry.
     cfg = spec.replace(resolve_config(toy), seed=int(seed))
     rc = dataclasses.asdict(cfg)
     score_seed = held_out_sample_seed(int(seed))
@@ -217,21 +152,14 @@ def oracle_read(toy: str, seed: int, n_tokens: int, with_probe: bool = True,
     idx = torch.tensor(feats, dtype=torch.long)
     inp = pure_inputs(bundle, feats, bundle.A[:, idx])
 
-    # The probe is fitted on its OWN draw and frozen before anything is scored (PRECOMMIT s6
-    # step 2). `probe_fit_seed` overrides the derived draw; passing the SCORING draw is the
-    # bridge that reproduces the unseparated pilot numbers, and is the only gate this change
-    # gets, because `harness_gate` deliberately excludes `s_res`.
-    #
-    # It is fitted BEFORE the detectors now, because `gate_sres_rank` needs the frozen
-    # directions and `compute_bundle` builds the gates alongside the detectors. Neither the
-    # fit nor the detectors touch global RNG, so the reordering moves no number -- which the
-    # phase gate asserted element-wise rather than assumed.
+    # The probe is fitted on its own draw and frozen before the detectors, because
+    # `compute_bundle` builds `gate_sres_rank` from the directions (PRECOMMIT s6).
     fit_seed = probe_fit_sample_seed(int(seed)) if probe_fit_seed is None else int(probe_fit_seed)
     probe, P, avail = None, None, None
     if with_probe:
         fw = regenerate_world(rc, sample_seed=fit_seed, n_tokens=n_tokens)
         fi = pure_inputs(fw, feats, fw.A[:, idx])
-        # TRUE firing as the fitting label on the oracle read; the trained read uses the SAE's.
+        # true firing as the fitting label here; the trained read uses the SAE's own
         P, avail = fit_probe_directions(fi.h, fi.acts_rec, CONSTANTS)
         probe = s_res_from_directions(P, avail, inp.W_unit)
 
@@ -253,8 +181,7 @@ def oracle_read(toy: str, seed: int, n_tokens: int, with_probe: bool = True,
         extra={"support": bnd["support"],
                "true_l0": float(bundle.A.gt(0).double().sum(dim=1).mean()),
                "resolved_config": rc,
-               # Recorded so an artifact says WHICH draw it was scored on, not just which
-               # experiment seed it belongs to. The trained read records the same quantity.
+               # the draw actually scored, not just the experiment seed
                "scoring_sample_seed": score_seed,
                "matching_sample_seed": None,    # the oracle read has no matcher
                "probe_fit_sample_seed": (fit_seed if with_probe else None),
@@ -262,17 +189,12 @@ def oracle_read(toy: str, seed: int, n_tokens: int, with_probe: bool = True,
     )
 
 
-# --------------------------------------------------------------------------
-# the trained read
-# --------------------------------------------------------------------------
+# --- the trained read ---
 def trained_read(ckpt: str, n_tokens: int, with_probe: bool = True,
                  probe_fit_seed: int | None = None) -> Read:
-    """Load a checkpoint and score its recovered universe on a held-out draw.
+    """Load a checkpoint and score its recovered universe on the held-out draw.
 
-    Mirrors `training/score_trained.py:44-56` step for step: the matcher runs on the
-    TRAINING-seed draw, scoring runs on the offset held-out draw, decoders are the oriented
-    normalized ones. That is what lets the harness gate in `run_benchmark` hold the nine
-    non-`s_res` detectors to the checkpoint's own saved arrays element-wise.
+    Matches on the training-seed draw, as the saved run did, so `harness_gate` can compare them.
     """
     from scoring.trained.loaders import load_sae
 
@@ -280,10 +202,8 @@ def trained_read(ckpt: str, n_tokens: int, with_probe: bool = True,
     W, rc = L.W_dec, L.meta["resolved_config"]
     train_seed = int(L.meta["train_seed"])
 
-    # The checkpoint's own stamped config already carries the training seed, so the trained read
-    # is correct for free -- the B2.1 bug lives only on config-building paths. Assert it anyway:
-    # a checkpoint whose `resolved_config.seed` disagreed with its `train_seed` would mean the
-    # trainer scored a different world than it trained on, which no downstream check would see.
+    # A checkpoint whose config seed disagrees with `train_seed` was trained on another world,
+    # and no downstream check would see it.
     cfg_seed = rc.get("seed")
     if cfg_seed is not None and int(cfg_seed) != train_seed:
         raise RuntimeError(
@@ -302,19 +222,15 @@ def trained_read(ckpt: str, n_tokens: int, with_probe: bool = True,
     feats, di, _index_map = reduce_to_recovered(
         ah, oh, W, res.match, res.recovered,
         h=ho.h, b_dec=L.b_dec, tokens=ho.tokens, vocab=ho.cfg.vocab)
-    # Same fitting draw as the oracle read at this seed (identical config, identical seed, so
-    # identical observations), but the SAE's OWN activations as labels -- the deployed
-    # `probe_self_W` detector. The self-LABEL circularity is untouched by this change and stays
-    # recorded; only the shared sampling noise with the scoring draw is removed. Fitted before
-    # the detectors because `gate_sres_rank` reads the frozen directions.
+    # Same fitting draw as the oracle read, but the SAE's own activations as labels
+    # (`probe_self_W`), so the self-label circularity remains. Fitted before the detectors.
     fit_seed = (probe_fit_sample_seed(train_seed) if probe_fit_seed is None
                 else int(probe_fit_seed))
     probe, P, avail = None, None, None
     if with_probe:
         fw = regenerate_world(rc, sample_seed=fit_seed, n_tokens=n_tokens)
         af = L.encode(fw.h)
-        # Restrict to the SAME recovered positions the scoring frame uses, so the fitted
-        # columns line up with `di.W_unit`'s rows.
+        # same recovered positions as the scoring frame, so columns line up with `di.W_unit`
         of = signed_normalized_decoder(W, af, fw.h)
         _f2, dfit, _im2 = reduce_to_recovered(
             af, of, W, res.match, res.recovered,
@@ -328,14 +244,12 @@ def trained_read(ckpt: str, n_tokens: int, with_probe: bool = True,
 
     pairs, y = pair_frame(feats, ho.pair_labels)
 
-    # `reduce_to_recovered` keeps a feature only if it is recovered AND matched, so the scored
-    # universe is that intersection -- not `res.recovered` alone.
+    # `reduce_to_recovered` keeps recovered AND matched features; not `res.recovered` alone.
     in_universe = torch.zeros(int(res.match.shape[0]), dtype=torch.bool)
     in_universe[torch.tensor(feats, dtype=torch.long)] = True
 
-    # The true-direction cosine on the SAME recovered endpoints. A diagnostic control, never a
-    # registered metric: it separates "training moved the geometry" from "recovery dropped the
-    # hard endpoints", which a trained-only number cannot.
+    # True-direction cosine on the same endpoints, a diagnostic control: it separates training
+    # moving the geometry from recovery dropping the hard endpoints.
     g_unit = (ho.g / ho.g.norm(dim=1, keepdim=True).clamp_min(_TINY)).double()
     g_matched = s_res_cosine(g_unit[torch.tensor(feats, dtype=torch.long)])
 
@@ -353,8 +267,7 @@ def trained_read(ckpt: str, n_tokens: int, with_probe: bool = True,
                "effective_alpha": effective_alpha(ho.tree),
                "alpha_designed_in_meta": rc.get("alpha"),
                "resolved_config": rc,
-               # Same two provenance keys the oracle read records, so `verify_manifest` can
-               # cross-check that both reads of a (seed, toy) used one world and one draw.
+               # the same keys the oracle read records, cross-checked by `verify_manifest`
                "scoring_sample_seed": held_out_sample_seed(train_seed),
                "matching_sample_seed": train_seed,
                "probe_fit_sample_seed": (fit_seed if with_probe else None),
@@ -365,11 +278,9 @@ def trained_read(ckpt: str, n_tokens: int, with_probe: bool = True,
 
 
 def effective_alpha(tree) -> dict:
-    """The alpha actually planted on containment edges, per edge.
+    """Summary of the alpha actually planted on containment edges.
 
-    Saved caches record `alpha_designed` from the config's nominal `alpha` field, which reads
-    0.48 even for `only_firing` where `alpha_zero_every=1` zeroes EVERY edge. That is a
-    provenance error in an artifact about to be frozen, so the realized values are recorded.
+    The config's nominal `alpha` reads 0.48 even on `only_firing`, where every edge is zeroed.
     """
     a = [float(al) for c in range(tree.F) for (_p, _pe, al) in tree.parents.get(c, [])]
     if not a:
