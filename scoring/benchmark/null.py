@@ -1,14 +1,14 @@
 """The null population: which ordered pairs the false-positive rate is measured over.
 
 Keyed on true feature ids, not recovered positions, so a true pair is in the null for every
-read of a (toy, seed) (PRECOMMIT.md s7). Nothing is fitted here, despite the module name.
+read of a (toy, seed) (PRECOMMIT.md s7).
 """
 
 from __future__ import annotations
 
 import torch
 
-from scoring.benchmark.registry import NULL_CLASS
+from metrics.rules.grading import NULL_CLASS
 from toygen import labels
 
 Key = tuple[int, int]

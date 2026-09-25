@@ -12,8 +12,9 @@ from pathlib import Path
 
 import torch
 
+from scoring.config import PATHOLOGY
 from scoring.core.world import regenerate_world, signed_normalized_decoder
-from scoring.trained.absorption import classify_dictionary, tree_edges_and_siblings
+from scoring.core.pathologies import classify_dictionary, tree_edges_and_siblings
 
 from synthdict.corruptions import Corruption
 from synthdict.planted import resolve_map
@@ -26,12 +27,11 @@ CAVEAT = ("annotation only: shares definitions with the planted pathology (manip
           "only tree edges are classified, so container/register absorption is invisible")
 
 
-def absorption_classifier_sha256() -> str:
-    """Content hash of `scoring/trained/absorption.py`, which neither evaluator_sha256 nor
-    synthdict_sha256 covers."""
-    import scoring.trained.absorption as _absorption_mod
+def pathology_classifier_sha256() -> str:
+    """Content hash of `scoring/core/pathologies.py`, the census classifier on its own."""
+    import scoring.core.pathologies as _pathologies_mod
 
-    return hashlib.sha256(Path(_absorption_mod.__file__).read_bytes()).hexdigest()
+    return hashlib.sha256(Path(_pathologies_mod.__file__).read_bytes()).hexdigest()
 
 
 def run_census(rc: dict, corruption: Corruption | None, seed: int, n_tokens: int,
@@ -66,11 +66,12 @@ def run_census(rc: dict, corruption: Corruption | None, seed: int, n_tokens: int
     # A rebuild with the wrong seed matches the driver's meta on count but not on this hash.
     edges_list = list(corruption.corrupted_edges) if corruption is not None else []
     edges_sha = hashlib.sha256(json.dumps(edges_list).encode()).hexdigest()  # == the driver's form
-    classifier_sha = absorption_classifier_sha256()
+    classifier_sha = pathology_classifier_sha256()
     return {
         "caveat": CAVEAT,
         "corrupted_edges_sha256": edges_sha,
-        "absorption_classifier_sha256": classifier_sha,
+        "pathology_classifier_sha256": classifier_sha,
+        "pathology_settings": PATHOLOGY.as_dict(),
         "readout": readout,
         "census_latent_policy": census_latent_policy,
         "planted_map_sha256": pmap.sha256(),

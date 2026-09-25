@@ -1,5 +1,6 @@
-"""Score toy SAEs against the toy generator's ground truth.
+"""Score a dictionary's reads against the toy generator's ground truth; synthdict is the caller.
 
-`core` holds the checkpoint-free pieces, `oracle` checks detectors on true inputs, `trained` loads
-checkpoints and classifies absorption, and `benchmark` evaluates the rules per toy, seed and read.
+`core` holds the detectors, gates, pair frame and census classifier; `benchmark` grades one scored
+read under the shared `metrics.rules` rules and writes its artifacts; `config` holds the settings
+only this pipeline uses.
 """

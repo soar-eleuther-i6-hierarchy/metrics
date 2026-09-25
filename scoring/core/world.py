@@ -10,8 +10,6 @@ import torch
 from toygen import geometry, labels, sample, spec, strengths
 from toygen import tree as tree_mod
 
-from scoring.core.recovery import child_direction_dispersion
-
 _TINY = 1e-12
 
 
@@ -54,26 +52,6 @@ def regenerate_world(resolved_config: dict, sample_seed: int, n_tokens: int) -> 
         pair_labels=labels.pair_label(tree), p=strength.p,
         CONT=cont, ISA=isa, cfg=cfg, tokens=world.tokens,
     )
-
-
-def dispersion_clean_floor(bundle: WorldBundle, m: int = 5) -> torch.Tensor:
-    """Child-direction dispersion of the true `g` used as the decoder: the floor for this config.
-
-    The floor moves with the config, so compare a trained dispersion against it, not a fixed number."""
-    gn = bundle.g / bundle.g.norm(dim=1, keepdim=True).clamp_min(_TINY)
-    F = bundle.g.shape[0]
-    isa_children = [c for _, c in bundle.ISA]
-    return child_direction_dispersion(gn, bundle.g, torch.arange(F), isa_children, m=m)
-
-
-def check_world_invariants(bundle: WorldBundle, atol: float = 1e-6) -> None:
-    """Raise unless `A @ g == Atilde @ u` and `g == Lam.T @ u`, i.e. the regenerated world is consistent."""
-    err1 = float((bundle.A @ bundle.g - bundle.Atilde @ bundle.u).abs().max())
-    err2 = float((bundle.g - bundle.Lam.transpose(0, 1) @ bundle.u).abs().max())
-    if err1 > atol or err2 > atol:
-        raise ValueError(
-            f"world invariants violated: |A@g - Atilde@u|={err1:.2e}, "
-            f"|g - Lam.T@u|={err2:.2e} (atol={atol:.1e})")
 
 
 def signed_normalized_decoder(W_dec: torch.Tensor, acts: torch.Tensor, h: torch.Tensor) -> torch.Tensor:

@@ -1,3 +1,2 @@
-"""Checkpoint-free pieces: constants, detectors, gates, recovery matching, pair grids, world regeneration.
-
-Imports no `sae_training`, so it runs in the CPU test environment."""
+"""Detectors, gates, the ordered-pair frame, world regeneration, and the pathology classifier
+the census runs."""

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from metrics.rules import GATE_NAMES, LABELS, RULES
+from metrics.rules import GATE_NAMES, GATE_TRUE, LABELS, NULL_CLASS, RULES
 
 # only_superparent plants two classes: its dense features are superparent, its dense edges firing_only
 TARGET_CLASSES_BY_TOY = {"only_isa": ("is_a",), "only_firing": ("firing_only",),
@@ -33,7 +33,7 @@ def _median(x: np.ndarray) -> float:
 def _pass_rate(x: np.ndarray) -> float:
     """Share of the measurable cells of a gate that passed."""
     x = x[np.isfinite(x)]
-    return float((x > 0.5).mean()) if x.size else float("nan")
+    return float((x > GATE_TRUE).mean()) if x.size else float("nan")
 
 
 def point_rows(d: Path) -> list[dict]:
@@ -44,7 +44,7 @@ def point_rows(d: Path) -> list[dict]:
     y = npz["y"]
     corr = npz["corrupted_pair"].astype(bool)
     damaged = npz["touched_pair"].astype(bool) | corr
-    null = (y == LABELS.index("unrelated")) & (npz["split"] > 0)
+    null = (y == LABELS.index(NULL_CLASS)) & (npz["split"] > 0)
 
     dials = meta.get("dials") or {}
     base = {"toy": meta["toy"], "seed": meta["seed"], "kind": meta["corruption"],

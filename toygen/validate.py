@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from .spec import EDGE_TAU_REFERENCE, ToyConfig
+from metrics.rules import METRIC_SETTINGS, SYNTHETIC_TOYS
+
+from .spec import ToyConfig
 from .strengths import firing_rates, topic_rates
 from .tree import token_mass
 
@@ -141,7 +143,7 @@ def _validate_fixed_rate_causes(cfg: ToyConfig, tree: Tree) -> None:
     """Check roots that fire at a fixed rate inside one cause (token groups, topic registers).
 
     Features on one cause fire independently given it, so P(a | b) = cause_rate[a]; each cause
-    therefore needs a partner and some rate >= EDGE_TAU_REFERENCE to plant containment.
+    therefore needs a partner and some rate >= the scorer's edge tau to plant containment.
     """
     groups: dict[tuple, list[int]] = {}
     cum = None
@@ -161,11 +163,12 @@ def _validate_fixed_rate_causes(cfg: ToyConfig, tree: Tree) -> None:
             if cum is None:
                 w = torch.arange(1, cfg.vocab + 1, dtype=DT) ** (-cfg.zipf_s)
                 cum = torch.cumsum(w / w.sum(), dim=0)
-            if float(cum[max(ids)]) > cfg.freq_high_mass:
+            if float(cum[max(ids)]) > METRIC_SETTINGS.freq_high_mass:
                 raise ValueError(
                     f"feature {k} fires on token id {max(ids)}, outside the design top-frequency "
                     f"bucket (cumulative mass {float(cum[max(ids)]):.4f} > freq_high_mass "
-                    f"{cfg.freq_high_mass}); a frequency control would not remove its whole cause")
+                    f"{METRIC_SETTINGS.freq_high_mass}); a frequency control would not remove its "
+                    f"whole cause")
             want, key = token_mass(cfg, ids) * rate, ("tokens", tuple(sorted(ids)))
         else:
             z = tree.topic[k]
@@ -180,7 +183,7 @@ def _validate_fixed_rate_causes(cfg: ToyConfig, tree: Tree) -> None:
 
     for key, feats in groups.items():
         top = max(tree.cause_rate[k] for k in feats)
-        if len(feats) < 2 or top < EDGE_TAU_REFERENCE:
+        if len(feats) < 2 or top < SYNTHETIC_TOYS.edge_tau:
             raise ValueError(
                 f"cause {key} plants no containment: {len(feats)} feature(s), highest within-cause "
-                f"rate {top} (needs a partner and a rate >= {EDGE_TAU_REFERENCE})")
+                f"rate {top} (needs a partner and a rate >= {SYNTHETIC_TOYS.edge_tau})")

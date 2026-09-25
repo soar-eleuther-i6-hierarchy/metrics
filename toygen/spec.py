@@ -35,14 +35,11 @@ class ToyConfig:
 
     # --- strength ---
     strength_spread: float = 0.35    # sd / mean of active strengths, must be in (0, 0.5)
-    K: int = 6                       # unused; the SAE's k comes from world.choose_k
     E0: float = 1.0                  # strength scale: mean squared active strength is E0
 
     # --- corpus (matters only for the frequency and topical confounds) ---
     vocab: int = 5000                # token-id vocabulary size
     doc_len: int = 128               # tokens per document
-    freq_high_mass: float = 0.50     # corpus-mass cut for the high-frequency token bucket
-    freq_mid_mass: float = 0.40      # corpus-mass cut for the mid-frequency token bucket
     Z: int = 8                       # number of document topics
     zipf_s: float = 1.05             # Zipf exponent of token frequencies
 
@@ -67,10 +64,6 @@ class ToyConfig:
     topic_members: int = 2           # topic-locked members per topic
     topic_register_rate: float = 0.9   # P(register fires | token's document has its topic)
     topic_member_rate: float = 0.32  # P(member fires | token's document has its topic)
-
-
-# Hierarchy cut P(parent | child) >= tau; mirrors scoring.core.registry CONSTANTS["edge_tau"].
-EDGE_TAU_REFERENCE: float = 0.5
 
 
 # --- seed-varied backbone (read only when randomize_structure=True) ---

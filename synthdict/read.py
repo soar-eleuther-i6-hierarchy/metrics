@@ -1,4 +1,4 @@
-"""A benchmark `Read` built from a synthetic dictionary: `reads.oracle_read` with no matcher.
+"""A benchmark `Read` built from a synthetic dictionary: the oracle read's draws, with no matcher.
 
 The planted map (`synthdict.planted`) is the feature->latent correspondence. `synth_encode`
 returns the dictionary frame [., L], one column per decoder row; the detectors see the scored
@@ -13,17 +13,15 @@ import dataclasses
 import torch
 
 from scoring.benchmark.reads import Read, assemble_gates, assemble_metrics
-from scoring.benchmark.registry import probe_fit_sample_seed
-from scoring.core.detectors import (DetectorInputs, compute_bundle, fit_probe_directions,
-                                    s_res_cosine, s_res_from_directions)
-from scoring.core.grid import held_out_sample_seed, pair_frame
-from scoring.core.registry import CONSTANTS
+from scoring.config import BENCHMARK
+from scoring.core.detectors import (DetectorInputs, compute_bundle, decoder_cosine,
+                                    fit_probe_directions, s_res_from_directions)
+from scoring.core.frame import held_out_sample_seed, pair_frame, probe_fit_sample_seed
 from scoring.core.world import WorldBundle, regenerate_world, signed_normalized_decoder
-from scoring.oracle.validate_metrics import RIDGE_LAMBDA, pure_inputs, reconstruction_fvu
 from toygen import spec
 from toygen.world import resolve_config
 
-from synthdict.activations import nnls_acts, zeroed_rate
+from synthdict.activations import nnls_acts, reconstruction_fvu, zeroed_rate
 from synthdict.corruptions import (AbsorptionDials, Corruption, apply_hole, build_corruption,
                                    expand_support)
 from synthdict.planted import READOUTS, resolve_map
@@ -40,7 +38,6 @@ def resolved_config(toy: str, seed: int, cfg_overrides: dict | None = None) -> d
 
 
 ACTS_MODELS = ("nnls", "true_A")
-NNLS_LAMBDA = RIDGE_LAMBDA           # the regularizer the encoder is run with and recorded as
 
 
 def synth_encode(bundle: WorldBundle, corruption: Corruption | None, world_seed: int,
@@ -69,7 +66,7 @@ def synth_encode(bundle: WorldBundle, corruption: Corruption | None, world_seed:
     # feature space -> latent space, once; from here every array is indexed by decoder row
     if corruption is not None:
         support = expand_support(support, corruption, world_seed, sample_seed)
-    return nnls_acts(bundle.h, W_raw, support, lam=NNLS_LAMBDA), support, n_holed
+    return nnls_acts(bundle.h, W_raw, support, lam=BENCHMARK.ridge_lambda), support, n_holed
 
 
 def corrupted_pair_mask(corruption: Corruption | None, feats: list[int],
@@ -127,7 +124,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
     """Build, encode, and score one synthetic dictionary as a `Read(read="synthetic")`.
 
     The dials type picks the damage; `dials=None` is the undamaged dictionary (W = g), and with
-    `acts_mode="true_A"` it must reproduce `oracle_read` bit-for-bit.
+    `acts_mode="true_A"` it must reproduce the benchmark's oracle read bit-for-bit.
     """
     if readout not in READOUTS:
         raise ValueError(f"readout must be one of {READOUTS}, got {readout!r}")
@@ -169,19 +166,18 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
     if with_probe:
         fw = regenerate_world(rc, sample_seed=fit_seed, n_tokens=n_tokens)
         acts_f, support_f, holed_f = synth_encode(fw, corruption, seed, fit_seed, acts_mode)
-        # labels are the dictionary's own activations on the scored columns, as in trained_read,
+        # labels are the dictionary's own activations on the scored columns, as on a trained read,
         # so the probe at position k belongs to the latent scored at k
         acts_f_rec = pmap.reduce_acts(acts_f)
-        P, avail = fit_probe_directions(fw.h, acts_f_rec, CONSTANTS)
+        P, avail = fit_probe_directions(fw.h, acts_f_rec)
         probe = s_res_from_directions(P, avail, di.W_unit)
         fvu["probe_fit"] = reconstruction_fvu(fw.h, acts_f, W_raw)
         zeroed["probe_fit"] = zeroed_rate(acts_f, support_f)
         zeroed_damaged["probe_fit"] = zeroed_rate(acts_f[:, dl], support_f[:, dl])
         holed["probe_fit"] = holed_f
 
-    # probe directions are fixed before this pass, in the same order as `reads.oracle_read`
-    bnd = compute_bundle(di, CONSTANTS, s_res_mode="cosine",
-                         probe_directions=P, probe_available=avail)
+    # probe directions are fixed before this pass, in the same order as the oracle read
+    bnd = compute_bundle(di, probe_directions=P, probe_available=avail)
     dets = bnd["detectors"]
 
     pairs, y = pair_frame(feats, score.pair_labels)
@@ -191,7 +187,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
 
     # true-direction cosine on the same features, the trained read's diagnostic control
     g_unit = (score.g / score.g.norm(dim=1, keepdim=True).clamp_min(_TINY)).double()
-    g_matched = s_res_cosine(g_unit[torch.tensor(feats, dtype=torch.long)])
+    g_matched = decoder_cosine(g_unit[torch.tensor(feats, dtype=torch.long)])
     pa = torch.tensor([a for a, _ in pairs], dtype=torch.long)
     pb = torch.tensor([b for _, b in pairs], dtype=torch.long)
 
@@ -217,7 +213,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
                               if corruption is not None else ()),
         "details": (dict(corruption.details) if corruption is not None else {}),
         "acts_model": acts_mode,
-        "nnls_lambda": NNLS_LAMBDA,
+        "nnls_lambda": BENCHMARK.ridge_lambda,
         "readout": readout,
         "planted_map_sha256": pmap.sha256(),
         "feature_to_latents": pmap.feature_to_latents,
@@ -247,40 +243,4 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
         gate_vals=assemble_gates(bnd["gates"], pairs),
         pair_labels=score.pair_labels, W_unit=di.W_unit,
         recovered=recovered, detector_matrices=dets, extra=extra,
-    )
-
-
-def oracle_equivalent_read(toy: str, seed: int, n_tokens: int,
-                           cfg_overrides: dict | None = None,
-                           with_probe: bool = True) -> Read:
-    """A copy of `reads.oracle_read` that accepts shape overrides, the reference side of the
-    small-world anchor. It shares no synthdict code, or the anchor would be circular."""
-    rc = resolved_config(toy, seed, cfg_overrides)
-    score_seed = held_out_sample_seed(int(seed))
-    bundle = regenerate_world(rc, sample_seed=score_seed, n_tokens=n_tokens)
-    F = int(bundle.g.shape[0])
-    feats = list(range(F))
-    idx = torch.tensor(feats, dtype=torch.long)
-    inp = pure_inputs(bundle, feats, bundle.A[:, idx])
-    probe, P, avail = None, None, None
-    if with_probe:
-        fw = regenerate_world(rc, sample_seed=probe_fit_sample_seed(int(seed)),
-                              n_tokens=n_tokens)
-        fi = pure_inputs(fw, feats, fw.A[:, idx])
-        P, avail = fit_probe_directions(fi.h, fi.acts_rec, CONSTANTS)
-        probe = s_res_from_directions(P, avail, inp.W_unit)
-    bnd = compute_bundle(inp, CONSTANTS, s_res_mode="cosine",
-                         probe_directions=P, probe_available=avail)
-    dets = bnd["detectors"]
-    pairs, y = pair_frame(feats, bundle.pair_labels)
-    return Read(
-        toy=toy, seed=int(seed), read="oracle", n_tokens=n_tokens,
-        s_res_mode="probe" if with_probe else "absent",
-        F=F, feats=feats, pairs=pairs, y=y,
-        vals=assemble_metrics(dets, inp.W_unit, probe, pairs),
-        gate_vals=assemble_gates(bnd["gates"], pairs),
-        pair_labels=bundle.pair_labels, W_unit=inp.W_unit,
-        recovered=torch.ones(F, dtype=torch.bool),
-        detector_matrices=dets,
-        extra={"support": bnd["support"], "resolved_config": rc},
     )

@@ -1,4 +1,5 @@
-"""Fixed-rule benchmark: grade the shared `metrics.rules` rules on oracle and trained toy reads.
+"""Grade one scored read (`reads.Read`) under the shared `metrics.rules` rules; write its artifacts.
 
-`run_benchmark` is the CLI. The null population lives in `calibrate`, which fits nothing.
+`score_read` grades and writes, `null` holds the false-positive population, and `provenance`
+the code stamps.
 """

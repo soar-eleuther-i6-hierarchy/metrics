@@ -55,7 +55,7 @@ Cross-block edges are computed between **adjacent** blocks only.
 Run everything from the `metrics/` directory.
 
 ```bash
-pip install torch sae_lens datasets plotly numpy matplotlib scipy   # scipy: Hungarian feature-matching (scoring.core.recovery.linear_sum_assignment)
+pip install torch sae_lens datasets plotly numpy matplotlib scipy   # scipy: NNLS for the synthetic dictionaries (synthdict/activations.py)
 
 python3 run_pipeline.py         # every stage in order, refusing any whose inputs are missing
 python3 run_pipeline.py --list  # show the order and what is already satisfied

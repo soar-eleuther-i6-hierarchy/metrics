@@ -13,10 +13,6 @@ from metrics.rules.classes import LABELS
 from .tree import Tree
 
 
-def label_name(i: int) -> str:
-    return LABELS[i]
-
-
 def _index(name: str) -> int:
     return LABELS.index(name)
 

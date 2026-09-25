@@ -1,7 +1,6 @@
 """Score one dial point through the frozen evaluator and write its artifacts. No matcher.
 
-Has its own CLI because the benchmark's limits `--read` and `--toy` to fixed choices;
-`run_read` and `write_artifacts` are reused as is. Artifacts go to
+`run_read` and `write_artifacts` (`scoring.benchmark.score_read`) are reused as is. Artifacts go to
 <out>/<tag>/seed<N>/<toy>/<kind>/<dials>/<readout>/ (scores.npz, expressions.json,
 run_config.json, census.json), never under a benchmark tag.
 
@@ -20,15 +19,15 @@ from pathlib import Path
 
 import numpy as np
 
-from scoring.benchmark.manifest import evaluator_sha256
-from scoring.benchmark.registry import GATES, REPORT_SCHEMA
-from scoring.benchmark.run_benchmark import git_provenance, run_read, write_artifacts
-from scoring.core.gates import GATE_CONSTANT_KEYS
-from scoring.core.grid import held_out_sample_seed
-from scoring.core.registry import CONSTANTS, ruleset_stamp
+from metrics.rules import GATE_NAMES, METRIC_SETTINGS, RULESET_VERSION, SYNTHETIC_TOYS
+from metrics.rules.grading import REPORT_SCHEMA
+from scoring.benchmark.provenance import evaluator_sha256, git_provenance
+from scoring.benchmark.score_read import run_read, write_artifacts
+from scoring.config import BENCHMARK
+from scoring.core.frame import held_out_sample_seed
 from scoring.core.world import regenerate_world
 
-from synthdict.census import absorption_classifier_sha256, run_census
+from synthdict.census import pathology_classifier_sha256, run_census
 from synthdict.corruptions import (SPLIT_ROLES, AbsorptionDials, CompositionDials,
                                    HedgingDials, SplitDials, build_corruption)
 from synthdict.planted import READOUTS
@@ -40,11 +39,16 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 def synthdict_sha256(root: Path | None = None) -> str:
     """Content hash of this package's `.py` files, the study-side analogue of
-    `evaluator_sha256` for the git-less server copy."""
+    `evaluator_sha256` for the git-less server copy.
+
+    `tests/` is skipped: it is gitignored, so hashing it would stamp a checkout without it
+    differently from one with it for the same tracked code."""
     root = _ROOT if root is None else Path(root)
     h = hashlib.sha256()
     for rel in SYNTHDICT_SOURCES:
         for p in sorted((root / rel).rglob("*.py")):
+            if p.relative_to(root / rel).parts[0] == "tests":
+                continue
             h.update(str(p.relative_to(root)).encode())
             h.update(p.read_bytes())
     return h.hexdigest()
@@ -125,7 +129,7 @@ def provenance_tuple(meta: dict) -> tuple:
 def build_run_config(read, toy: str, seed: int, dials, n_tokens: int,
                      census_seed: int | None) -> dict:
     """The full record of one dial point: world, dials, selections, encoder, readout,
-    constants and code identity."""
+    settings and code identity."""
     ex = read.extra
     L, F = int(ex["n_latents"]), int(read.F)
     ftl = ex["feature_to_latents"]
@@ -159,12 +163,14 @@ def build_run_config(read, toy: str, seed: int, dials, n_tokens: int,
         "realized_severity": [float(x) for x in ex["realized_severity"]],
         "L": L, "F": F, "L_over_F": L / F,
         "n_lost_features": int(ex["n_lost_features"]),
-        "detector_constants": dict(CONSTANTS),
-        "gates_location": "expressions.json -> __meta__.gate_constants (fixed; nothing fitted)",
+        # the scorer reads these defaults; nothing is fitted
+        "gate_constants": SYNTHETIC_TOYS.as_dict(),
+        "metric_settings": METRIC_SETTINGS.as_dict(),
+        "benchmark_settings": BENCHMARK.as_dict(),
         "code": {"evaluator_sha256": evaluator_sha256(),
                  "synthdict_sha256": synthdict_sha256(),
                  "toygen_commit": toygen_commit(),
-                 "absorption_classifier_sha256": absorption_classifier_sha256(),
+                 "pathology_classifier_sha256": pathology_classifier_sha256(),
                  **git_provenance(_ROOT)},
     }
 
@@ -234,9 +240,10 @@ def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: st
         "severity_kind": ex["severity_kind"],
         "corrupted_pair_rule": ex["corrupted_pair_rule"],
         # with nothing fitted, the gate constants alone decide a pass
-        "gates": list(GATES),
-        "gate_constants": {k: CONSTANTS[k] for k in GATE_CONSTANT_KEYS},
-        **ruleset_stamp(),
+        "gates": list(GATE_NAMES),
+        "gate_constants": SYNTHETIC_TOYS.as_dict(),
+        "ruleset_version": RULESET_VERSION,
+        "gate_constant_set": SYNTHETIC_TOYS.name,
         "support": report.get("support"),
         "readout": readout, "acts_model": ex["acts_model"],
         "planted_map_sha256": ex["planted_map_sha256"],
