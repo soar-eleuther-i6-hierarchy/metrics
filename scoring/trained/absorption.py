@@ -23,7 +23,6 @@ ABSORPTION_CONSTANTS: dict[str, float] = {
     "conj_min": 0.10,        # min conjunction cos K above baseline to count as composition
     "null_target_exceedances": 0.01,  # Bonferroni target on expected chance latents dictionary-wide
     "n_null_perm": 1000,     # random in-span directions for a stable tail quantile
-    "multiplicity_excess_min": 1.5,   # flag threshold for parent_multiplicity_excess; nothing here reads it
     # --- firing multiplicity (split vs duplicate on exclusive support) ---
     "mult_prec_min": 0.5,    # candidate latent needs P(feature | latent) >= this
     "mult_recall_min": 0.25, # a shard recalls at least this much of the exclusive support
