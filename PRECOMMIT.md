@@ -370,26 +370,11 @@ What was deleted, and what carries its work:
 - G is dropped from every RULE at the team's decision, and is DELIBERATELY NOT REINSTATED (decided 2026-09-19), so the benchmark's rule set matches the set the team is using. All four geometry rules therefore rest on `gate_sres_rank`, Tree SAE's top-k rank rule, which carries no numeric threshold.
   G is still COMPUTED and reported as a diagnostic column in every artifact (`reads.py` writes it from the decoder cosine). That is what makes the Section 3 contrast measurable: the rules cannot separate is_a from firing_only, and the column shows a measurement that can. Keeping the column costs one cosine per pair and removes nothing from the team's set.
   The consequence is registered rather than hidden: `rule_firing_only` and `rule_firing_only_no_recon` are expected to read 0 recall on every read, and `rule_is_a` is expected to leak onto firing_only. A proposal to add the cosine back as a fixed-cut gate is future work, outside this freeze.
-- Names carry no version since 2026-09-23. A change to any rule, gate or constant bumps `metrics.rules.RULESET_VERSION` (now 1), which every artifact records beside `gate_constant_set`.
+- Names carry no version since 2026-09-23. A change to any rule, gate or constant bumps `metrics.rules.RULESET_VERSION` (now 1), which every artifact written since then records beside `gate_constant_set`.
 
-Name map, 2026-09-23.
-Artifacts, CSVs and figures written before this date use the old names; the rules and gates are unchanged under the map (checked by `tests_local/test_rules.py` against the pre-move sources).
-Every section of this document uses the new names.
-
-| Old name | New name |
-| --- | --- |
-| `overlap_v6` | `rule_is_a` |
-| `orthogonal_v6` | `rule_firing_only` |
-| `superparent_v5` | `rule_superparent` |
-| `frequency_v6` | `rule_frequency` |
-| `topical_v6` | `rule_topical` |
-| `containment_baseline` | `rule_containment` |
-| `probe_overlap_v3` | `rule_is_a_no_recon` |
-| `probe_orthogonal_v3` | `rule_firing_only_no_recon` |
-| `gate_parent_of` | `gate_strictly_contains` |
-| `gate_duplicate` | `gate_mutually_contains` |
-| `gate_superparent` | `gate_high_outdegree` |
-| (new) | `gate_contains`, one-way containment, the Gemma pipeline's cross-block edge; no rule reads it yet |
+Rules and gates were renamed on 2026-09-23 without changing any decision, and the stored gate-era results (`MATRIX`, `MATRIX-P3`) were renamed with them; the old names are in git history and in `outputs_archive/gate_era_original_names.tar` on soar-gpu.
+Schema-2 results predate the gate rules and keep their own names.
+`gate_contains`, one-way containment and the Gemma pipeline's cross-block edge, was added at the same time; no rule reads it yet.
 
 ### Changes applied 2026-09-19, with the measurement behind each
 
@@ -624,7 +609,7 @@ It is bumped whenever a key's arithmetic changes under an unchanged name, or a r
 1. The pilot contract. `recall_given_recovery` was N_pass / N_scorable, with one `fpr` key on the null rows.
 2. `recall_given_recovery` moved to N_pass / N_recovered, with the scorable rate split out as `pass_rate_given_scorable`; `fpr` split into `fpr_given_scorable` and `fpr_over_half`; `leakage` read the scorable rate, with `leakage_over_recovered` beside it; the support floor extended to the null and confound rows; `verdict` decides established failures before unmeasurable evidence.
 3. The fixed-gate contract. Rules decide on gates against fixed constants, so the null is no longer halved and `fpr_given_scorable` is measured over the whole null; `fpr_over_half` is gone.
-4. The shared-rules contract. Every rule and three gates were renamed (Section 4 name map); the arithmetic is unchanged.
+4. The shared-rules contract. Every rule and three gates were renamed (Section 4); the arithmetic is unchanged.
 
 ### Rate denominators are deliberately asymmetric
 
