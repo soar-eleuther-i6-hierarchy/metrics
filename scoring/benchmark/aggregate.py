@@ -21,10 +21,6 @@ MUST_MATCH: tuple[str, ...] = ("seed", "read", "freeze_tag", "settings_sha256")
 
 VERDICT_SCOPE = "benchmark-wide"
 
-# The only confound class the toys generate in more than one world, so the only row where
-# pooled and worst-world leakage can differ.
-MULTI_WORLD_CONFOUNDS: tuple[str, ...] = ("reversed",)
-
 
 def _blocks(worlds: list[dict], name: str) -> list[tuple[str, dict]]:
     out = []
@@ -131,9 +127,9 @@ def combine(worlds: list[dict], name: str, expected_toys: tuple[str, ...] = TOYS
     if missing:
         # No verdict from a partial rollup, but the row keeps what was measured.
         v = "UNTESTABLE"
-        reason = (f"the rollup is missing {', '.join(missing)}; a benchmark-wide verdict over "
-                  f"fewer than all {len(expected_toys)} worlds would be the 'declared success "
-                  f"from its positive worlds alone' failure PRECOMMIT s3 forbids")
+        reason = (f"the rollup is missing {', '.join(missing)}; a benchmark-wide verdict needs "
+                  f"all {len(expected_toys)} worlds, because a rule's confounds live in the worlds "
+                  f"its target does not (PRECOMMIT s3)")
     else:
         reason = ""
         under = tuple(c for c, a in agg.items() if 0 < a["sc"] < MIN_SCORABLE_SUPPORT)
@@ -192,15 +188,11 @@ def format_cross_world_md(rows: dict, seed: int, read: str) -> str:
          "- **leakage: POOLED by counts**, because the confound bar has no per-world wording. "
          "The worst world is reported beside it.", ""]
 
-    # A property of the toy set, so it is stated whether or not this rollup shows it.
-    named = "`" + "`, `".join(MULTI_WORLD_CONFOUNDS) + "`"
     seen_multi = sorted({c for r in rows.values() for c in r.get("multi_world_confounds", [])})
-    L += [f"{named} is the only confound class the five toys generate in more than one world "
-          f"(112 pairs in `only_isa`, 120 in `only_firing`), so it is the only row where pooled "
-          f"and worst-world leakage can differ at all. Every other confound lives in exactly one "
-          f"world, where the two coincide.",
+    L += ["Pooled and worst-world leakage can differ only for a confound class present in more "
+          "than one world.",
           "",
-          (f"In this rollup the multi-world class(es) actually present: "
+          (f"In this rollup the classes present in more than one world: "
            f"`{'`, `'.join(seen_multi)}`." if seen_multi else
            "In this rollup no confound class appears in more than one world, so the two leakage "
            "columns coincide everywhere below."),
