@@ -219,7 +219,7 @@ Feature indices are **global** (0–32767). `config.block_of()` and `sae_utils.b
 to and from block-local indices, and `analyse_pair` mixes both — watch which space a variable is in
 (`parent_local` vs `parent_global`).
 
-## `rules/` — shared gates, rules and constant sets
+## `rules/` - shared gates, rules, grading and constant sets
 
 The metrics above compute statistics. [`rules/`](rules/) decides on them, once, for every pipeline:
 
@@ -227,6 +227,9 @@ The metrics above compute statistics. [`rules/`](rules/) decides on them, once, 
 | ---- | ----- |
 | [`rules/gates.py`](rules/gates.py) | eight fixed-threshold gates on a `[P, C]` candidate frame, each `1.0` / `0.0` / `NaN` (not measurable) |
 | [`rules/rules.py`](rules/rules.py) | the named rules (conjunctions of gates), the `PASSES` / `FAILS` evaluator, and `RULESET_VERSION` |
+| [`rules/pairs.py`](rules/pairs.py) | `PairStats` and `score_pairs`: every gate and rule decision for one frame, in one call |
+| [`rules/grading.py`](rules/grading.py) | `grade_rules`: counts, rates and verdicts against labelled pairs, with the bars and the support floor |
+| [`rules/classes.py`](rules/classes.py) | the nine pair classes a rule can target, in their stored index order |
 | [`rules/constants.py`](rules/constants.py) | named constant sets: `GEMMA_MATRYOSHKA` (read by `config.py`) and `SYNTHETIC_TOYS` (read by `scoring/`) |
 
 The gates take plain tensors, so a block pair, a within-block frame or a square toy frame all work.
@@ -242,3 +245,23 @@ Rules are named after the pair class they target (`rule_is_a`, `rule_firing_only
 `rule_frequency`, `rule_topical`, ...), never after a toy. Names carry no version: change a rule, a gate
 or a constant and bump `RULESET_VERSION`, and stamp it with the constant set's `name` on every result.
 The rules are not in `metrics.__all__`, which lists the metric functions the Tier-1 calibration must call.
+
+Scoring one block pair, with the statistics the pipeline already computes:
+
+```python
+from metrics.rules import GEMMA_MATRYOSHKA as C, PairStats, high_outdegree, score_pairs
+
+out = score_pairs(PairStats(
+    cofire=cofire, fire_p=fire_p, fire_c=fire_c, R=R, R_rev=F,
+    parent_gain=parent_gain, child_gain=child_gain, survival=survival, survival_scale="raw",
+    high_outdeg_p=high_outdegree(edges, fire_p, n_children, C.superparent_outdeg_frac, C.min_fire_count),
+    high_outdeg_c=high_outdeg_of_children,       # from the next block pair down
+    probe_corr=corr, parent_ids=parent_ids, child_ids=child_ids, probe_available=trained,
+), C)
+out["gates"]["gate_contains"]     # [P, C] tristate
+out["rules"]["rule_is_a"]         # (pass mask, scorable mask)
+```
+
+Grading needs a pair label for every scored pair, as an index into `LABELS`:
+`grade_rules(gates, y, n_total, null_idx)` takes the gates flattened to one vector per gate, the labels `y`,
+the generated pair count per class, and the indices of the null pairs.

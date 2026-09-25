@@ -343,7 +343,7 @@ Leakage under damage is NOT measured: the damaged cells report target pass rates
 
 Every rule decides on GATES, never on a metric.
 A gate is a fixed-threshold decision, tristate over pass / fail / not measurable, defined in `metrics/rules/gates.py` and listed in Section 5.
-The rules are defined once, in `metrics/rules/rules.py`, and shared with the Gemma pipeline; `scoring/` imports them.
+The rules are defined once, in `metrics/rules/rules.py`, and graded by `metrics/rules/grading.py`; both are shared with the Gemma pipeline, and `scoring/` imports them.
 This replaced the null-quantile predicates, which could not travel to a real SAE: a q99 cut accepts 1% of whatever population it is pointed at, and the false-positive bar it produced could not fail.
 
 Recommended freeze set: five designated expressions, the containment baseline, and two historical probe comparators.
@@ -591,6 +591,8 @@ Verification status at this revision:
 
 ## 8. Settings to approve and freeze
 
+The bars, the support floor, the designated rules and the grading arithmetic live in `metrics/rules/grading.py`, shared with the Gemma pipeline.
+
 Complete this manifest before any fresh-seed result is inspected:
 
 | Setting | Current proposal / action needed |
@@ -607,12 +609,22 @@ Complete this manifest before any fresh-seed result is inspected:
 | Cross-world FPR combination | WORST world, not pooled. The pooled rate is reported beside it as a labelled diagnostic |
 | Cross-world leakage combination | POOLED by counts, with the worst world reported beside it |
 | Probe fitting draw | Fitted on `seed + 20000`, distinct from the matching draw (`seed`) and the scoring draw (`seed + 10000`) |
-| Reporting contract version | `REPORT_SCHEMA = 3`. Stamped into every artifact and required by the manifest check and the cross-world rollup |
+| Reporting contract version | `REPORT_SCHEMA = 4` (history below). Stamped into every artifact and required by the manifest check and the cross-world rollup |
 | Recovery/end-to-end criterion | Report both; specify an additional bar only if making an operational-recovery success claim |
 | Seeds and draws | Record exact three unused world/training seed IDs, fitting/scoring/split seed derivations, and sample sizes |
 | SAE setup | Pin per-toy variant, sparsity, dictionary/prefix sizes, training configuration, and checkpoint provenance |
 | Baselines | Fix endpoint firing-count comparators and their calibration; do not compare their AUROC directly with expression recall |
 | Uncertainty | Report each seed separately and between-seed variation; approve any confidence-bound decision method before using it |
+
+### Report schema versions
+
+`REPORT_SCHEMA` versions the keys `grade_rules` writes and the arithmetic under them.
+It is bumped whenever a key's arithmetic changes under an unchanged name, or a rate key is added, renamed or removed.
+
+1. The pilot contract. `recall_given_recovery` was N_pass / N_scorable, with one `fpr` key on the null rows.
+2. `recall_given_recovery` moved to N_pass / N_recovered, with the scorable rate split out as `pass_rate_given_scorable`; `fpr` split into `fpr_given_scorable` and `fpr_over_half`; `leakage` read the scorable rate, with `leakage_over_recovered` beside it; the support floor extended to the null and confound rows; `verdict` decides established failures before unmeasurable evidence.
+3. The fixed-gate contract. Rules decide on gates against fixed constants, so the null is no longer halved and `fpr_given_scorable` is measured over the whole null; `fpr_over_half` is gone.
+4. The shared-rules contract. Every rule and three gates were renamed (Section 4 name map); the arithmetic is unchanged.
 
 ### Rate denominators are deliberately asymmetric
 
