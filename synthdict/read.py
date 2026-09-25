@@ -100,7 +100,7 @@ def corrupted_pair_mask(corruption: Corruption | None, feats: list[int],
     candidate_parent_feature  the candidate parent, the pair's FIRST feature, is damaged
 
     The rule travels with the corruption: the edge rule on a feature damage would return an
-    all-False mask and make `intact` the whole target class in `report.py`.
+    all-False mask and make `intact` the whole target class in `export.py`.
     """
     if corruption is None:
         return torch.zeros(len(pairs), dtype=torch.bool)
