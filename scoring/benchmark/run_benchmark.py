@@ -243,8 +243,8 @@ def run_read(read: RD.Read) -> tuple[dict, dict]:
 
     # The gates are what the clauses read; the metrics ride along for the diagnostics. They are
     # merged only here, at the call, so `Read` keeps them in separate fields.
-    exprs = E.evaluate_read(vals | gate_vals, read.y, n_total, eval_null_idx,
-                            EXPRESSIONS, probe_available=(read.s_res_mode == "probe"))
+    exprs = E.grade_rules(vals | gate_vals, read.y, n_total, eval_null_idx,
+                          EXPRESSIONS, probe_available=(read.s_res_mode == "probe"))
     # `class_counts` counts recovered pairs from the SCORED frame; cross-check it against the
     # answer key so a pair-frame bug cannot agree with itself.
     for name, c in next(iter(exprs.values()))["counts"].items():

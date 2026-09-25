@@ -27,9 +27,10 @@ from dataclasses import dataclass
 
 import torch
 
+from metrics.rules import nan_self_pairs as _nan_diag
+from metrics.rules import score_pairs
 from scoring.core import gates
-from scoring.core.gates import nan_diag as _nan_diag
-from scoring.core.registry import DETECTOR_SIGN, DETECTORS
+from scoring.core.registry import DETECTOR_SIGN, DETECTORS, gate_constants
 
 DT = torch.float64
 _NAN = float("nan")
@@ -653,44 +654,21 @@ def compute_all(inputs: DetectorInputs, constants: dict,
 def compute_bundle(inputs: DetectorInputs, constants: dict, s_res_mode: str = "cosine",
                    probe_directions: torch.Tensor | None = None,
                    probe_available: torch.Tensor | None = None) -> dict:
-    """`{"detectors", "gates", "support"}` — the detectors plus the fixed-threshold rules.
+    """`{"detectors", "gates", "support"}`, the gates built from the same firing counts, edge
+    set and gains as the detectors. `support` holds the support-mask counts.
 
-    The gates are built from the SAME firing counts, edge set and reconstruction gains as the
-    detectors, which is the point of computing them together: `gate_strictly_contains` and
-    `coverage_R` must be two readings of one matrix, not two matrices that agree by habit.
-
-    `support` carries `gates.support_mask`'s counts. The excluded fraction is a first-class
-    number -- it is what separates "the rules rejected these pairs" from "the rules could not
-    see them" -- so it is returned rather than logged.
-
-    `probe_directions` / `probe_available` come from `fit_probe_directions`, fitted on the
-    SEPARATE fitting draw by the caller. Without them `gate_sres_rank` is all-NaN, which marks
-    the rules that read it INVALID MEASUREMENT rather than letting an untrained probe read as
-    a rejection.
+    `probe_directions`/`probe_available` come from `fit_probe_directions` on the separate fitting
+    draw; without them `gate_sres_rank` is all NaN and the rules reading it are unscorable.
     """
     raw, ctx = _compute_raw(inputs, constants, s_res_mode)
-    # The SAME mask the detectors were masked with, not a second call. Two calls agreeing is a
-    # habit; one object is a guarantee.
-    support, counts = ctx["support"], ctx["support_counts"]
-    R = ctx["R"]
-    gate_vals: dict[str, torch.Tensor] = {"gate_support": gates.support_gate(support)}
-    gate_vals |= gates.directed_coverage_gates(ctx["R_mat"], support, constants["edge_tau"])
-    # RAW, not oriented: `rel_gain_min` is stated on the gain itself, and a sign flip would
-    # invert the comparison silently. Both detectors carry sign +1 today, which is exactly why
-    # this has to be written down rather than relied on.
-    gate_vals["gate_recon"] = gates.recon_contributes(
-        raw["recon_2a"], ctx["child_gain"], constants["recon_rel_gain_min"])
-    gate_vals["gate_high_outdegree"] = gates.high_outdegree_flag(
-        ctx["em"], ctx["fire"], constants["superparent_outdeg_frac"],
-        constants["min_fire_count"])
-    gate_vals["gate_freq_survives"] = gates.freq_survives_gate(
-        raw["token_freq_survival"], constants["freq_survival_min_raw"])
-    if probe_directions is None or probe_available is None:
-        gate_vals["gate_sres_rank"] = torch.full((R, R), _NAN, dtype=DT,
-                                                 device=inputs.W_unit.device)
-    else:
-        gate_vals["gate_sres_rank"] = gates.sres_rank_gate(
-            probe_directions, probe_available, inputs.W_unit, constants["sres_rank_top_k"])
+    gc = gate_constants(constants)
+    # raw gains, not oriented: `recon_rel_gain_min` is stated on the gain itself
+    stats = gates.square_pair_stats(
+        ctx["cofire"], ctx["fire"], ctx["R_mat"], ctx["em"], raw["recon_2a"], ctx["child_gain"],
+        raw["token_freq_survival"], gc, probe_directions=probe_directions,
+        probe_available=probe_available, W_unit=inputs.W_unit)
+    gate_vals = score_pairs(stats, gc)["gates"]
+    counts = ctx["support_counts"]
 
     missing = [g for g in gates.GATE_NAMES if g not in gate_vals]
     if missing:

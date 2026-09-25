@@ -53,7 +53,7 @@ PREDICATES: dict[str, dict] = {
 
 
 def evaluate(clauses, vals: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, dict]:
-    """Evaluate a conjunction of `(PREDICATE, gate)` clauses over per-pair gate vectors.
+    """Evaluate a conjunction of `(PREDICATE, gate)` clauses over gate tensors of any shape.
 
     Returns `(mask, scorable, per_clause)`. `scorable` is the INTERSECTION of the clauses'
     scorable masks: a pair with no probe is not scorable for a rule that reads
@@ -64,9 +64,9 @@ def evaluate(clauses, vals: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torc
     """
     if not clauses:
         raise ValueError("an expression needs at least one clause")
-    n = len(next(iter(vals.values())))
-    mask = torch.ones(n, dtype=torch.bool)
-    scorable = torch.ones(n, dtype=torch.bool)
+    shape = next(iter(vals.values())).shape
+    mask = torch.ones(shape, dtype=torch.bool)
+    scorable = torch.ones(shape, dtype=torch.bool)
     per: dict[str, dict] = {}
     for pred_name, gate in clauses:
         if pred_name not in PREDICATES:

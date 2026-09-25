@@ -1,14 +1,16 @@
 """
-The shared decision layer: gates, rules and constant sets.
+The shared decision layer: gates, rules, grading and constant sets.
 
-`metrics/` computes statistics; this package decides on them. Both pipelines import it, so a
-rule means the same thing everywhere; each pipeline picks a named constant set and stamps it,
-with `RULESET_VERSION`, on every result.
+`metrics/` computes statistics; this package decides on them. `score_pairs` turns one frame's
+statistics into gates and rule decisions; `grade_rules` grades those decisions against labelled
+pairs. Each pipeline picks a named constant set and stamps it, with `RULESET_VERSION`, on every
+result.
 
 Not listed in `metrics.__all__`, which is the set of metric functions the Tier-1 calibration
 must exercise.
 """
 
+from .classes import LABELS, NULL_CLASS
 from .constants import CONSTANT_SETS, GEMMA_MATRYOSHKA, SYNTHETIC_TOYS, GateConstants
 from .gates import (
     GATE_NAMES,
@@ -24,6 +26,18 @@ from .gates import (
     supported,
     tristate,
 )
+from .grading import (
+    BAR_CONFOUND_LEAK,
+    BAR_EVAL_NULL_FPR,
+    BAR_RECALL,
+    DESIGNATED,
+    MIN_SCORABLE_SUPPORT,
+    PROBE_RULES,
+    REPORT_SCHEMA,
+    VERDICTS,
+    grade_rules,
+)
+from .pairs import PairStats, score_pairs
 from .rules import (
     GATE_TRUE,
     PREDICATES,
@@ -35,24 +49,37 @@ from .rules import (
 )
 
 __all__ = [
+    "BAR_CONFOUND_LEAK",
+    "BAR_EVAL_NULL_FPR",
+    "BAR_RECALL",
     "CONSTANT_SETS",
+    "DESIGNATED",
     "GATE_NAMES",
     "GATE_TRUE",
     "GEMMA_MATRYOSHKA",
+    "LABELS",
+    "MIN_SCORABLE_SUPPORT",
+    "NULL_CLASS",
     "PREDICATES",
+    "PROBE_RULES",
+    "REPORT_SCHEMA",
     "RULES",
     "RULESET_VERSION",
     "SYNTHETIC_TOYS",
+    "VERDICTS",
     "GateConstants",
+    "PairStats",
     "coverage_gates",
     "either_endpoint",
     "evaluate",
     "fails",
     "freq_survives_gate",
+    "grade_rules",
     "high_outdegree",
     "nan_self_pairs",
     "passes",
     "recon_gate",
+    "score_pairs",
     "squash",
     "sres_rank_gate",
     "support_gate",

@@ -16,19 +16,9 @@ from __future__ import annotations
 
 import torch
 
-from .tree import Tree
+from metrics.rules.classes import LABELS
 
-LABELS: tuple[str, ...] = (
-    "is_a",         # (a, b) is a direct containment edge with parent->child overlap alpha > 0
-    "firing_only",  # a direct containment edge with alpha == 0: nested firing, orthogonal direction
-    "transitive",   # b is a strict descendant of a but not its direct child
-    "sibling",      # a and b share a direct parent
-    "superparent",  # a or b is a superparent, or a dense parent paired with a non-relative (base-rate coverage)
-    "frequency",    # a and b are both token-bound and their token id sets intersect
-    "topical",      # a and b are both topical features on the same topic
-    "unrelated",    # the null: no declared property holds
-    "reversed",     # the flip of a directed ancestry pair — b is related to a, wrong way round
-)
+from .tree import Tree
 
 
 def label_name(i: int) -> str:

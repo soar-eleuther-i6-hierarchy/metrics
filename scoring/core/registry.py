@@ -7,7 +7,9 @@ against is-a, and the numeric constants the detectors look up by name.
 
 from __future__ import annotations
 
-from metrics.rules import RULESET_VERSION, SYNTHETIC_TOYS
+from dataclasses import replace
+
+from metrics.rules import RULESET_VERSION, SYNTHETIC_TOYS, GateConstants
 
 # The per-ordered-pair detector scalars, in a fixed order. The last three were added when the
 # package adopted `metrics/`'s definitions: each is a quantity `metrics/` computes and the
@@ -57,6 +59,18 @@ def ruleset_stamp() -> dict:
     """Which rules and which constant set decided a result. Written beside every artifact."""
     return {"ruleset_version": RULESET_VERSION, "gate_constant_set": GATE_CONSTANT_SET.name}
 
+
+def gate_constants(constants: dict) -> GateConstants:
+    """The gate constants of a CONSTANTS-shaped dict, so an override reaches `score_pairs`."""
+    return replace(GATE_CONSTANT_SET, edge_tau=constants["edge_tau"],
+                   min_fire_count=constants["min_fire_count"],
+                   min_joint=constants["support_min_joint"],
+                   recon_rel_gain_min=constants["recon_rel_gain_min"],
+                   sres_rank_top_k=constants["sres_rank_top_k"],
+                   superparent_outdeg_frac=constants["superparent_outdeg_frac"],
+                   freq_survival_min=constants["freq_survival_min_raw"])
+
+
 # Numeric knobs the detectors and scorer read by name.
 CONSTANTS: dict[str, float] = {
     "fire_thresh": _SET.fire_threshold,   # firing := activation > 0 (BatchTopK nonzero == top-k)
@@ -71,7 +85,7 @@ CONSTANTS: dict[str, float] = {
     "recon_rel_gain_min": _SET.recon_rel_gain_min,   # >=1% relative error increase
     "superparent_outdeg_frac": _SET.superparent_outdeg_frac,   # the flag is out-degree alone
     # Stated on the RAW ratio. `token_freq_survival` reports the squashed ratio x/(1+x), so
-    # `gates.freq_survives_gate` compares with `scale="squashed"`.
+    # `gates.square_pair_stats` marks it `survival_scale="squashed"`.
     "freq_survival_min_raw": _SET.freq_survival_min,
     "pmi_laplace": 1.0,        # +1 smoothing in the PMI ratio
     "coverage_eps": 1e-6,      # coverage denominator floor
