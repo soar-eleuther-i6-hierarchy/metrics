@@ -55,6 +55,17 @@ Metrics 2–7 grade those edges. A "real" edge has to survive all of them.
 All thresholds live in [`config.py`](../config.py). A feature "fires" on a token when its activation
 exceeds `FIRE_THRESHOLD = 1e-3` (post-JumpReLU); every matrix below is built on that.
 
+**Undefined cells.**
+With default arguments an empty denominator (a feature that never fires, a zero energy or error sum) is clamped, and `parent_conditioned_redundancy` returns 0 for fewer than two children.
+The keyword-only `undefined=` returns that value in those cells instead.
+On the ratios (`coverage_legs`, `r_supp`, `r_mass`, `edge_reconstruction_condition`) it also drops the clamp elsewhere, so a tiny denominator keeps its true ratio; on `parent_conditioned_redundancy` it changes only the no-children and dead-parent returns, and on `kept_outdegree` only a parent that never fires.
+
+**The synthetic benchmark calls these same functions.**
+`scoring/core/detectors.py` passes `undefined=NaN`, so an unmeasurable cell is never read as a zero.
+It also calls `coverage_asymmetry`, `kept_outdegree`, and `frequency_controlled_coverage` with `clamp_max=None, floor="total"`; `scoring/benchmark/reads.py` calls `either_endpoint_outdegree`.
+No default changed.
+The new functions stay out of `metrics.__all__`, which lists only what the Tier-1 calibration covers.
+
 ---
 
 ## 1. Coverage — defines the candidate edge set
@@ -122,6 +133,8 @@ parent decoder must point toward the child concept (refinement); the child decod
 Scored by Tree SAE's operational **rank rule** — both decoders in the top `SRES_RANK_TOP_K = 5` probe
 correlations over all 32768 features — never a threshold. Healthy pairs have `d_p ⟂ d_c`, which caps
 `min(·,·)` at `1/√2 ≈ 0.707`, so any τ above that rejects every healthy pair by construction.
+`sres_rank_check` scores one pair; `sres_scores` returns the value for every pair at once, and is
+what `scoring/` reports as its `S_res` column.
 
 **Circularity caveat.** The probe target `1[f_c > 0]` is a **self-label**: a corrupted (absorbed or
 split) latent yields a corrupted probe that then validates the corruption. Report these as

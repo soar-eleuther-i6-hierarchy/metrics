@@ -36,11 +36,21 @@ def share_energy(energy_cofire: torch.Tensor, energy_total: torch.Tensor) -> tor
     return energy_cofire.double() / energy_total.double().clamp(min=_EPS).unsqueeze(1)
 
 
-def r_supp(union_count: torch.Tensor, fire_p: torch.Tensor) -> torch.Tensor:
-    """[P] exact support joint-child coverage."""
+def r_supp(union_count: torch.Tensor, fire_p: torch.Tensor, *,
+           undefined: float | None = None) -> torch.Tensor:
+    """[P] exact support joint-child coverage. A parent that never fires gets 0, or
+    `undefined` when given."""
+    if undefined is not None:
+        fp = fire_p.double()
+        return torch.where(fp > 0, union_count.double() / fp, undefined)
     return union_count.double() / fire_p.double().clamp(min=1.0)
 
 
-def r_mass(union_energy: torch.Tensor, energy_total: torch.Tensor) -> torch.Tensor:
-    """[P] energy-weighted joint-child coverage."""
+def r_mass(union_energy: torch.Tensor, energy_total: torch.Tensor, *,
+           undefined: float | None = None) -> torch.Tensor:
+    """[P] energy-weighted joint-child coverage. A zero-energy parent gets 0, or `undefined`
+    when given; the division is then unclamped, so a tiny energy keeps its true ratio."""
+    if undefined is not None:
+        et = energy_total.double()
+        return torch.where(et > 0, union_energy.double() / et, undefined)
     return union_energy.double() / energy_total.double().clamp(min=_EPS)

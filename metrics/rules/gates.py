@@ -47,8 +47,11 @@ def nan_self_pairs(m: torch.Tensor) -> torch.Tensor:
     return m
 
 
-def squash(ratio: float) -> float:
-    """`x / (1 + x)`, the transform some pipelines report the survival ratio under."""
+def squash(ratio: float | torch.Tensor) -> float | torch.Tensor:
+    """`x / (1 + x)`, the transform some pipelines report the survival ratio under; per cell on
+    a tensor."""
+    if isinstance(ratio, torch.Tensor):
+        return ratio / (1.0 + ratio)
     x = float(ratio)
     return x / (1.0 + x)
 

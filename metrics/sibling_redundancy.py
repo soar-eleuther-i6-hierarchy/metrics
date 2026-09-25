@@ -33,11 +33,18 @@ import torch
 def parent_conditioned_redundancy(
     fires_p: torch.Tensor,     # [n] bool: tokens where THIS parent fires
     kids: torch.Tensor,        # [n, k] bool: firing masks of its kept children
+    *,
+    undefined: float | None = None,
 ) -> float:
     """Mean pairwise sibling Jaccard restricted to the parent's firing tokens
-    (same convention as the global form: high = redundant/splitting)."""
+    (same convention as the global form: high = redundant/splitting).
+
+    Fewer than two children gives 0, and so does a parent that never fires; `undefined`, when
+    given, is returned for both instead."""
     sub = kids[fires_p].double()                        # [m, k]
     k = sub.shape[1]
+    if undefined is not None and (k < 2 or not bool(fires_p.any())):
+        return undefined
     if k < 2:
         return 0.0
     cf = sub.T @ sub                                    # [k, k] co-fire within support
