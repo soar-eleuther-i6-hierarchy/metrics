@@ -7,7 +7,14 @@ metric functions the Tier-1 calibration must exercise.
 """
 
 from .classes import LABELS, NULL_CLASS
-from .constants import CONSTANT_SETS, GEMMA_MATRYOSHKA, SYNTHETIC_TOYS, GateConstants
+from .constants import (
+    CONSTANT_SETS,
+    GEMMA_MATRYOSHKA,
+    METRIC_SETTINGS,
+    SYNTHETIC_TOYS,
+    GateConstants,
+    MetricSettings,
+)
 from .gates import (
     GATE_NAMES,
     coverage_gates,
@@ -54,6 +61,7 @@ __all__ = [
     "GATE_TRUE",
     "GEMMA_MATRYOSHKA",
     "LABELS",
+    "METRIC_SETTINGS",
     "MIN_SCORABLE_SUPPORT",
     "NULL_CLASS",
     "PREDICATES",
@@ -64,6 +72,7 @@ __all__ = [
     "SYNTHETIC_TOYS",
     "VERDICTS",
     "GateConstants",
+    "MetricSettings",
     "PairStats",
     "coverage_gates",
     "either_endpoint",

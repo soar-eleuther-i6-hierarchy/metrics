@@ -118,6 +118,7 @@ BATCH_DOCS = 8
 # The gate thresholds come from the named set `metrics.rules.GEMMA_MATRYOSHKA`, shared with
 # the scoring pipeline. The names below are unchanged. Any changes should be made there, not here, and bump `metrics.rules.RULESET_VERSION` with it.
 from metrics.rules.constants import GEMMA_MATRYOSHKA as _GATES  # noqa: E402
+from metrics.rules.constants import METRIC_SETTINGS as _METRIC  # noqa: E402
 
 FIRE_THRESHOLD = _GATES.fire_threshold   # feature "fires" above this (post-JumpReLU)
 EDGE_TAU = _GATES.edge_tau               # reverse-coverage edge criterion
@@ -162,13 +163,14 @@ RECON_REL_GAIN_MIN = _GATES.recon_rel_gain_min   # >=1% relative error increase 
 # d_p ⟂ d_c which caps the min at 1/√2, so thresholds above that reject
 # everything. Probes need enough positives to train on.
 SRES_RANK_TOP_K = _GATES.sres_rank_top_k        # Tree SAE's operational rule: both in top-5
-MIN_PROBE_POS = 50            # min child-firing tokens to train a probe
+# The probe settings come from `metrics.rules.METRIC_SETTINGS`, shared with scoring/.
+MIN_PROBE_POS = _METRIC.probe_min_pos          # min child-firing tokens to train a probe
 SRES_MAX_CHILDREN_PER_PAIR = 4000   # cost guard; log when hit
-SRES_NEG_RATIO = 4            # negatives sampled per positive
-SRES_MAX_PROBE_TOKENS = 20000 # cap on (pos + neg) tokens per probe
-SRES_MIN_NEG = 10             # fewer negatives than this -> child untestable (no probe)
-SRES_STEPS = 300              # probe Adam steps (train_probe default; here for scoring<->gemma symmetry)
-SRES_LR = 0.05                # probe Adam lr (train_probe default)
+SRES_NEG_RATIO = _METRIC.probe_neg_ratio       # negatives sampled per positive
+SRES_MAX_PROBE_TOKENS = _METRIC.probe_max_tokens   # cap on (pos + neg) tokens per probe
+SRES_MIN_NEG = _METRIC.probe_min_neg           # fewer negatives than this -> child untestable
+SRES_STEPS = _METRIC.probe_steps               # probe Adam steps
+SRES_LR = _METRIC.probe_lr                     # probe Adam lr
 
 # --- Joint-child: share-energy split flag -----------------------------------
 # One child holding at least this share of its parent's activation energy is a
@@ -204,9 +206,9 @@ SUPERPARENT_FIRE_FRAC = 0.10
 #   bucket 0 (high) = most frequent ids covering the top HIGH_MASS of tokens
 #   bucket 1 (mid)  = next ids up to HIGH_MASS + MID_MASS
 #   bucket 2 (low)  = the rest
-FREQ_HIGH_MASS = 0.50
-FREQ_MID_MASS = 0.40
-N_FREQ_BUCKETS = 3
+FREQ_HIGH_MASS = _METRIC.freq_high_mass
+FREQ_MID_MASS = _METRIC.freq_mid_mass
+N_FREQ_BUCKETS = _METRIC.n_freq_buckets
 # An edge is "frequency-driven" when its reverse coverage on low+mid tokens
 # drops below this fraction of its all-token reverse coverage.
 FREQ_SURVIVAL_MIN = _GATES.freq_survival_min
