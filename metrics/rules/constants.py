@@ -2,7 +2,7 @@
 Named gate constant sets, one per pipeline, since some values do not transfer across dictionary
 sizes. Stamp `name` and `rules.RULESET_VERSION` beside any reported number.
 
-`config.py` reads `GEMMA_MATRYOSHKA` and `scoring/core/registry.py` reads `SYNTHETIC_TOYS`.
+`config.py` reads `GEMMA_MATRYOSHKA` and `scoring/` reads `SYNTHETIC_TOYS`.
 Changing a value changes that pipeline's verdicts, so bump `rules.RULESET_VERSION` with it.
 
 `METRIC_SETTINGS` holds the settings that define a metric rather than a decision on it. There is
@@ -76,6 +76,7 @@ class MetricSettings:
     freq_high_mass: float         # token bucket 0: the most frequent ids, up to this share of tokens
     freq_mid_mass: float          # bucket 1: the next ids, up to high + mid; bucket 2 is the rest
     n_freq_buckets: int
+    freq_min_fire_low: int        # a child firing less than this is untestable for survival
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -91,6 +92,7 @@ METRIC_SETTINGS = MetricSettings(
     freq_high_mass=0.50,
     freq_mid_mass=0.40,
     n_freq_buckets=3,
+    freq_min_fire_low=5,
 )
 
 CONSTANT_SETS: dict[str, GateConstants] = {s.name: s for s in (GEMMA_MATRYOSHKA, SYNTHETIC_TOYS)}

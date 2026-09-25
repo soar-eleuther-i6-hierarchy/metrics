@@ -209,6 +209,7 @@ SUPERPARENT_FIRE_FRAC = 0.10
 FREQ_HIGH_MASS = _METRIC.freq_high_mass
 FREQ_MID_MASS = _METRIC.freq_mid_mass
 N_FREQ_BUCKETS = _METRIC.n_freq_buckets
+FREQ_MIN_FIRE_LOW = _METRIC.freq_min_fire_low   # survival floor on the child's firing
 # An edge is "frequency-driven" when its reverse coverage on low+mid tokens
 # drops below this fraction of its all-token reverse coverage.
 FREQ_SURVIVAL_MIN = _GATES.freq_survival_min
