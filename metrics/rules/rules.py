@@ -51,9 +51,9 @@ def evaluate(clauses, vals: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torc
     """
     if not clauses:
         raise ValueError("an expression needs at least one clause")
-    shape = next(iter(vals.values())).shape
-    mask = torch.ones(shape, dtype=torch.bool)
-    scorable = torch.ones(shape, dtype=torch.bool)
+    first = next(iter(vals.values()))
+    mask = torch.ones(first.shape, dtype=torch.bool, device=first.device)
+    scorable = torch.ones(first.shape, dtype=torch.bool, device=first.device)
     per: dict[str, dict] = {}
     for pred_name, gate in clauses:
         if pred_name not in PREDICATES:
