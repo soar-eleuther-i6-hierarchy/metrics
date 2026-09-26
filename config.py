@@ -115,9 +115,14 @@ BATCH_DOCS = 8
 # ---------------------------------------------------------------------------
 # Thresholds
 # ---------------------------------------------------------------------------
-FIRE_THRESHOLD = 1e-3     # feature "fires" above this (post-JumpReLU)
-EDGE_TAU = 0.5            # reverse-coverage edge criterion
-MIN_FIRE_COUNT = 20       # rare-feature guard
+# The gate thresholds come from the named set `metrics.rules.GEMMA_MATRYOSHKA`, shared with
+# the scoring pipeline. The names below are unchanged. Any changes should be made there, not here, and bump `metrics.rules.RULESET_VERSION` with it.
+from metrics.rules.constants import GEMMA_MATRYOSHKA as _GATES  # noqa: E402
+from metrics.rules.constants import METRIC_SETTINGS as _METRIC  # noqa: E402
+
+FIRE_THRESHOLD = _GATES.fire_threshold   # feature "fires" above this (post-JumpReLU)
+EDGE_TAU = _GATES.edge_tau               # reverse-coverage edge criterion
+MIN_FIRE_COUNT = _GATES.min_fire_count   # rare-feature guard
 # Joint-support guard: a child firing MIN_FIRE_COUNT times
 # inside a near-always-on parent hits R = 1.0 by chance; requiring a minimum
 # co-fire count kills those. Excluded edges are REPORTED, not silently dropped.
@@ -130,7 +135,7 @@ MIN_FIRE_COUNT = 20       # rare-feature guard
 # and the legacy_guards path), and as the per-feature testability filter — it is
 # a feature-level guard, MIN_JOINT an edge-level one. State the pair gate as two
 # effective conditions: R >= EDGE_TAU and co-fire >= MIN_JOINT.
-MIN_JOINT = 30
+MIN_JOINT = _GATES.min_joint
 
 # Which adjacent block pairs to compute. B3->B4 is the 6144 x 24576 monster;
 # it does not fit on a 4 GB GPU. On the A40 it fits: enable with EXP0_B3B4=1.
@@ -149,7 +154,7 @@ INCLUDE_B3_B4 = os.environ.get("EXP0_B3B4", "0") == "1"
 # (Tree-SAE-INSPIRED baseline, not the paper's S_res — see metrics/reconstruction.py.)
 # An edge passes when ablating the parent hurts reconstruction on the child's
 # firing tokens by at least this relative amount (and same for the child).
-RECON_REL_GAIN_MIN = 0.01     # >=1% relative error increase = "contributes"
+RECON_REL_GAIN_MIN = _GATES.recon_rel_gain_min   # >=1% relative error increase = "contributes"
 
 # --- Metric 2b: probe-based S_res (Tree SAE Eq. 5, rank-scored) --------------
 # S_res(p,c) = min((d_c*)ᵀ d_c, (d_c*)ᵀ d_p) with d_c* a linear-probe direction
@@ -157,14 +162,15 @@ RECON_REL_GAIN_MIN = 0.01     # >=1% relative error increase = "contributes"
 # probe correlations over all features), not a threshold: healthy pairs have
 # d_p ⟂ d_c which caps the min at 1/√2, so thresholds above that reject
 # everything. Probes need enough positives to train on.
-SRES_RANK_TOP_K = 5           # Tree SAE's operational rule: both in top-5
-MIN_PROBE_POS = 50            # min child-firing tokens to train a probe
+SRES_RANK_TOP_K = _GATES.sres_rank_top_k        # Tree SAE's operational rule: both in top-5
+# The probe settings come from `metrics.rules.METRIC_SETTINGS`, shared with scoring/.
+MIN_PROBE_POS = _METRIC.probe_min_pos          # min child-firing tokens to train a probe
 SRES_MAX_CHILDREN_PER_PAIR = 4000   # cost guard; log when hit
-SRES_NEG_RATIO = 4            # negatives sampled per positive
-SRES_MAX_PROBE_TOKENS = 20000 # cap on (pos + neg) tokens per probe
-SRES_MIN_NEG = 10             # fewer negatives than this -> child untestable (no probe)
-SRES_STEPS = 300              # probe Adam steps (train_probe default; here for scoring<->gemma symmetry)
-SRES_LR = 0.05                # probe Adam lr (train_probe default)
+SRES_NEG_RATIO = _METRIC.probe_neg_ratio       # negatives sampled per positive
+SRES_MAX_PROBE_TOKENS = _METRIC.probe_max_tokens   # cap on (pos + neg) tokens per probe
+SRES_MIN_NEG = _METRIC.probe_min_neg           # fewer negatives than this -> child untestable
+SRES_STEPS = _METRIC.probe_steps               # probe Adam steps
+SRES_LR = _METRIC.probe_lr                     # probe Adam lr
 
 # --- Joint-child: share-energy split flag -----------------------------------
 # One child holding at least this share of its parent's activation energy is a
@@ -192,7 +198,7 @@ SIBLING_BLOCKS = [1, 2, 3]
 IN_BLOCK_BLOCKS = [0, 1, 2]
 
 # --- Metric 4: out-degree / superparents ------------------------------------
-SUPERPARENT_OUTDEG_FRAC = 0.30
+SUPERPARENT_OUTDEG_FRAC = _GATES.superparent_outdeg_frac
 SUPERPARENT_FIRE_FRAC = 0.10
 
 # --- Metric 5: token-frequency control --------------------------------------
@@ -200,12 +206,13 @@ SUPERPARENT_FIRE_FRAC = 0.10
 #   bucket 0 (high) = most frequent ids covering the top HIGH_MASS of tokens
 #   bucket 1 (mid)  = next ids up to HIGH_MASS + MID_MASS
 #   bucket 2 (low)  = the rest
-FREQ_HIGH_MASS = 0.50
-FREQ_MID_MASS = 0.40
-N_FREQ_BUCKETS = 3
+FREQ_HIGH_MASS = _METRIC.freq_high_mass
+FREQ_MID_MASS = _METRIC.freq_mid_mass
+N_FREQ_BUCKETS = _METRIC.n_freq_buckets
+FREQ_MIN_FIRE_LOW = _METRIC.freq_min_fire_low   # survival floor on the child's firing
 # An edge is "frequency-driven" when its reverse coverage on low+mid tokens
 # drops below this fraction of its all-token reverse coverage.
-FREQ_SURVIVAL_MIN = 0.5
+FREQ_SURVIVAL_MIN = _GATES.freq_survival_min
 
 # ---------------------------------------------------------------------------
 # Paths + device

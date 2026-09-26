@@ -108,6 +108,23 @@ def sres_rank_check(
     return (r_p < top_k) and (r_c < top_k), detail
 
 
+def sres_scores(
+    probe_corr: torch.Tensor,   # [C, pool] each child's probe . every pool decoder
+    parent_ids: torch.Tensor,   # [P] pool index of each parent
+    child_ids: torch.Tensor,    # [C] pool index of each child
+    probe_available: torch.Tensor | None = None,   # [C] bool; False means no probe
+) -> torch.Tensor:
+    """[P, C] S_res values, min(probe . parent decoder, probe . child decoder), with the child's
+    probe: the all-pairs form of `sres_rank_check`'s `s_res`. A child without a probe is NaN."""
+    parent_corr = probe_corr[:, parent_ids]                         # [C, P]
+    child_corr = probe_corr.gather(1, child_ids.reshape(-1, 1))     # [C, 1]
+    out = torch.minimum(parent_corr, child_corr).transpose(0, 1)    # [P, C]
+    if probe_available is not None:
+        keep = probe_available.to(out.device).reshape(1, -1)
+        out = torch.where(keep, out, torch.full_like(out, float("nan")))
+    return out
+
+
 def negative_parent_composition(
     neg_mask: torch.Tensor,     # [n] bool: tokens used as probe negatives
     fires_p: torch.Tensor,      # [n] bool: parent-firing tokens

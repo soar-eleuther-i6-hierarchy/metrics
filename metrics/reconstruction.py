@@ -41,6 +41,8 @@ def edge_reconstruction_condition(
     g_parent_sum: torch.Tensor,  # [P, C] sum over c's firing tokens of g_p
     g_child_sum: torch.Tensor,   # [C]    sum over c's firing tokens of g_c
     rel_gain_min: float = 0.01,
+    *,
+    undefined: float | None = None,
 ) -> dict[str, torch.Tensor]:
     """Relative reconstruction gains and the pass mask, all [P, C] (or [C]).
 
@@ -50,10 +52,18 @@ def edge_reconstruction_condition(
     child_gain[c]     = same for ablating the child itself.
 
     An edge passes when BOTH gains >= rel_gain_min.
+    With `undefined` given, a child with zero error sum gets that value instead of a clamped
+    denominator, and a tiny error sum keeps its true ratio.
     """
     denom = err_sum_c.double().clamp(min=1e-12)          # [C]
+    if undefined is not None:
+        denom = err_sum_c.double()
     parent_gain = g_parent_sum.double() / denom.unsqueeze(0)   # [P, C]
     child_gain = g_child_sum.double() / denom                  # [C]
+    if undefined is not None:
+        defined = denom > 0
+        parent_gain = torch.where(defined.unsqueeze(0), parent_gain, undefined)
+        child_gain = torch.where(defined, child_gain, undefined)
 
     passes = (parent_gain >= rel_gain_min) & (child_gain >= rel_gain_min).unsqueeze(0)
     return {

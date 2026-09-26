@@ -55,6 +55,17 @@ Metrics 2–7 grade those edges. A "real" edge has to survive all of them.
 All thresholds live in [`config.py`](../config.py). A feature "fires" on a token when its activation
 exceeds `FIRE_THRESHOLD = 1e-3` (post-JumpReLU); every matrix below is built on that.
 
+**Undefined cells.**
+With default arguments an empty denominator (a feature that never fires, a zero energy or error sum) is clamped, and `parent_conditioned_redundancy` returns 0 for fewer than two children.
+The keyword-only `undefined=` returns that value in those cells instead.
+On the ratios (`coverage_legs`, `r_supp`, `r_mass`, `edge_reconstruction_condition`) it also drops the clamp elsewhere, so a tiny denominator keeps its true ratio; on `parent_conditioned_redundancy` it changes only the no-children and dead-parent returns, and on `kept_outdegree` only a parent that never fires.
+
+**The synthetic benchmark calls these same functions.**
+`scoring/core/detectors.py` passes `undefined=NaN`, so an unmeasurable cell is never read as a zero.
+It also calls `coverage_asymmetry`, `kept_outdegree`, and `frequency_controlled_coverage` with `clamp_max=None, floor="total"`; `scoring/benchmark/reads.py` calls `either_endpoint_outdegree`.
+No default changed.
+The new functions stay out of `metrics.__all__`, which lists only what the Tier-1 calibration covers.
+
 ---
 
 ## 1. Coverage — defines the candidate edge set
@@ -122,6 +133,8 @@ parent decoder must point toward the child concept (refinement); the child decod
 Scored by Tree SAE's operational **rank rule** — both decoders in the top `SRES_RANK_TOP_K = 5` probe
 correlations over all 32768 features — never a threshold. Healthy pairs have `d_p ⟂ d_c`, which caps
 `min(·,·)` at `1/√2 ≈ 0.707`, so any τ above that rejects every healthy pair by construction.
+`sres_rank_check` scores one pair; `sres_scores` returns the value for every pair at once, and is
+what `scoring/` reports as its `S_res` column.
 
 **Circularity caveat.** The probe target `1[f_c > 0]` is a **self-label**: a corrupted (absorbed or
 split) latent yields a corrupted probe that then validates the corruption. Report these as
@@ -218,3 +231,50 @@ rank verdict on the surviving shortlist.
 Feature indices are **global** (0–32767). `config.block_of()` and `sae_utils.block_slice()` convert
 to and from block-local indices, and `analyse_pair` mixes both — watch which space a variable is in
 (`parent_local` vs `parent_global`).
+
+## `rules/` - shared gates, rules, grading and constant sets
+
+The metrics above compute statistics. [`rules/`](rules/) decides on them, once, for every pipeline:
+
+| File | Holds |
+| ---- | ----- |
+| [`rules/gates.py`](rules/gates.py) | eight fixed-threshold gates on a `[P, C]` candidate frame, each `1.0` / `0.0` / `NaN` (not measurable) |
+| [`rules/rules.py`](rules/rules.py) | the named rules (conjunctions of gates), the `PASSES` / `FAILS` evaluator, and `RULESET_VERSION` |
+| [`rules/pairs.py`](rules/pairs.py) | `PairStats` and `score_pairs`: every gate and rule decision for one frame, in one call |
+| [`rules/grading.py`](rules/grading.py) | `grade_rules`: counts, rates and verdicts against labelled pairs, with the bars and the support floor |
+| [`rules/classes.py`](rules/classes.py) | the nine pair classes a rule can target, in their stored index order |
+| [`rules/constants.py`](rules/constants.py) | named constant sets: `GEMMA_MATRYOSHKA` (read by `config.py`) and `SYNTHETIC_TOYS` (read by `scoring/`) |
+
+The gates take plain tensors, so a block pair, a within-block frame or a square toy frame all work.
+The edge gates, in terms of reverse coverage `R(p,c) = P(p fires | c fires)`:
+
+| Gate | Test | Same as |
+| ---- | ---- | ------- |
+| `gate_contains` | `R(p,c) >= tau` | the cross-block edge, `keep_edges` |
+| `gate_strictly_contains` | `R(p,c) >= tau` and `R(c,p) < tau` | in-block `parent_of` |
+| `gate_mutually_contains` | both directions `>= tau` | in-block `duplicate` |
+
+Rules are named after the pair class they target (`rule_is_a`, `rule_firing_only`, `rule_superparent`,
+`rule_frequency`, `rule_topical`, ...), never after a toy. Names carry no version: change a rule, a gate
+or a constant and bump `RULESET_VERSION`, and stamp it with the constant set's `name` on every result.
+The rules are not in `metrics.__all__`, which lists the metric functions the Tier-1 calibration must call.
+
+Scoring one block pair, with the statistics the pipeline already computes:
+
+```python
+from metrics.rules import GEMMA_MATRYOSHKA as C, PairStats, high_outdegree, score_pairs
+
+out = score_pairs(PairStats(
+    cofire=cofire, fire_p=fire_p, fire_c=fire_c, R=R, R_rev=F,
+    parent_gain=parent_gain, child_gain=child_gain, survival=survival, survival_scale="raw",
+    high_outdeg_p=high_outdegree(edges, fire_p, n_children, C.superparent_outdeg_frac, C.min_fire_count),
+    high_outdeg_c=high_outdeg_of_children,       # from the next block pair down
+    probe_corr=corr, parent_ids=parent_ids, child_ids=child_ids, probe_available=trained,
+), C)
+out["gates"]["gate_contains"]     # [P, C] tristate
+out["rules"]["rule_is_a"]         # (pass mask, scorable mask)
+```
+
+Grading needs a pair label for every scored pair, as an index into `LABELS`:
+`grade_rules(gates, y, n_total, null_idx)` takes the gates flattened to one vector per gate, the labels `y`,
+the generated pair count per class, and the indices of the null pairs.

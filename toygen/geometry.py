@@ -1,12 +1,6 @@
-"""
-Feature directions, built in a fixed constructive order.
+"""Feature directions: residual directions `u`, concept directions `g`, and the change of basis `Lam`.
 
-`u` (residual directions) is drawn first; `g` (concept directions) is built from it -- the
-order can't reverse since orthogonalising `u_k` against its ancestor span needs `g` for
-every ancestor already built.
-
-`Lam` is read off this construction, not computed as `U^T G` -- the two differ once siblings
-are involved.
+`Lam` is read off the construction, not computed as `U^T G`; the two differ once siblings are involved.
 """
 
 from __future__ import annotations
@@ -28,17 +22,15 @@ class Geometry:
     g: torch.Tensor            # [F, D] concept directions
     Lam: torch.Tensor          # [F, F] constructive change of basis
     coherence: float           # realised max |cos(u_a, u_b)| after orthogonalisation
-    # build_directions is best-effort: returns the lowest of 8 draws rather than raising.
-    # coherence_ok = (coherence <= max_unrelated_cos): a SOFT flag, not a health check --
-    # expected False when F >> D, since a lower cap actually yields cleaner directions.
+    # coherence <= max_unrelated_cos; a soft flag, expected False when F >> D
     coherence_ok: bool
 
 
 def _repel(x: torch.Tensor, max_unrelated_cos: float, steps: int = 60) -> torch.Tensor:
-    """Push unit vectors apart until pairwise coherence approaches `max_unrelated_cos`.
+    """Push unit vectors apart until pairwise |cos| approaches `max_unrelated_cos`.
 
-    Plain rejection sampling fails when F >> D (random unit vectors already exceed a tight
-    cap); a few repulsion steps get much closer, and the realised value is reported, not asserted.
+    Rejection sampling fails when F >> D, so this repels instead; the realised value is reported,
+    not asserted.
     """
     x = x / x.norm(dim=1, keepdim=True)
     for _ in range(steps):
@@ -54,13 +46,13 @@ def _repel(x: torch.Tensor, max_unrelated_cos: float, steps: int = 60) -> torch.
 
 
 def build_directions(cfg: ToyConfig, tree: Tree, seed: int | None = None) -> Geometry:
+    """Build `u`, `g` and `Lam`: the first of 8 draws under `max_unrelated_cos`, else the least coherent."""
     gen = torch.Generator().manual_seed(cfg.seed if seed is None else seed)
     F, D = tree.F, cfg.D
 
-    # `max_unrelated_cos` is a target, not a hard limit -- orthogonalising nudges the vectors, so we try 8 draws and keep the lowest-coherence one.
     best: Geometry | None = None
     for _ in range(8):
-        # --- step 1: draw low-coherence seed directions -----------------------
+        # step 1: low-coherence seed directions
         ut = torch.randn(F, D, generator=gen, dtype=DT)
         ut = _repel(ut, cfg.max_unrelated_cos)
 
@@ -68,8 +60,7 @@ def build_directions(cfg: ToyConfig, tree: Tree, seed: int | None = None) -> Geo
         g = torch.zeros(F, D, dtype=DT)
         Lam = torch.zeros(F, F, dtype=DT)
 
-        # --- step 2: build u and g together, in topological order -------------
-        # For each feature (parents before children): orthogonalise against ancestors' concept directions to get u_k, then form g_k from u_k plus the parent's direction.
+        # step 2, parents first: u_k is ut_k orthogonalised against the ancestors' g
         for k in tree.topology_ordering:
             anc = sorted(tree.ancestors[k])
             if anc:

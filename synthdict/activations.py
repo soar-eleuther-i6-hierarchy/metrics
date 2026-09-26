@@ -1,19 +1,7 @@
-"""Activations for an arbitrary synthetic dictionary: per-token NNLS on a PLANTED support.
+"""Activations for a synthetic dictionary: per-token NNLS on a planted support.
 
-The support is planted (true `A > 0` plus the damage's own firing transform), so which
-latents fire is a dial, not an emergent property. For each token the strengths of the firing
-latents are the best non-negative fit of that token's activation vector from their decoder
-rows:
-
-  acts[t, S] = argmin_{a >= 0} ||h_t - a . W_S||^2 + lam ||a||^2,   zero off the support
-
-Least squares on a known support is sparse coding's oracle estimator (Candes & Tao), and SAE
-codes are non-negative, so this is an ideal encoder for the dictionary it is given. The
-regularizer is the same lam = 1e-4 as `oracle_encode` (RIDGE_LAMBDA), solved as the
-augmented system [W_S^T; sqrt(lam) I] a = [h_t; 0].
-
-A planted latent the fit sets to 0 is off for every `> 0`-thresholded detector; that rate is
-measured (`zeroed_rate`) and stamped into every artifact.
+acts[t, S] = argmin over a >= 0 of ||h_t - a . W_S||^2 + lam ||a||^2, zero off the support S.
+A planted latent the fit sets to 0 is off for every `> 0` detector; `zeroed_rate` measures that.
 """
 
 from __future__ import annotations
@@ -31,13 +19,12 @@ def nnls_acts(h: torch.Tensor, W_raw: torch.Tensor, support: torch.Tensor,
               lam: float = RIDGE_LAMBDA) -> torch.Tensor:
     """[n, L] float64 non-negative strengths on the support, zero elsewhere.
 
-    `support` is LATENT-space: one column per decoder row.
+    `support` is latent-space: one column per decoder row.
     """
     Wd = W_raw.double().cpu().numpy()
     hd = h.double().cpu().numpy()
     n, S = support.shape
-    # The output width comes from the SUPPORT, so a feature-space support against an [L, D]
-    # dictionary would return a plausible array built from the wrong rows.
+    # a feature-space support would return a plausible array built from the wrong rows
     if int(Wd.shape[0]) != S:
         raise ValueError(
             f"dictionary width {int(Wd.shape[0])} != support width {S}; the support must be "
@@ -61,9 +48,8 @@ def nnls_acts(h: torch.Tensor, W_raw: torch.Tensor, support: torch.Tensor,
 
 
 def zeroed_rate(acts: torch.Tensor, support: torch.Tensor) -> float:
-    """Fraction of planted-support entries whose strength is <= 0 (fire_thresh = 0.0, the
-    detectors' firing convention): planted firing the fit turned off. Latent-space, so a
-    split feature contributes one entry per shard."""
+    """Share of planted-support entries the fit set to <= 0. Latent-space, so a split feature
+    counts once per shard."""
     on = support.sum()
     if int(on) == 0:
         return 0.0

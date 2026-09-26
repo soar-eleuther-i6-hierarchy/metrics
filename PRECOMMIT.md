@@ -13,7 +13,7 @@ The 2026-09-19 revision updated the document only; the 2026-09-20 one reports 33
 
 Work in this order:
 
-1. DONE 2026-09-19: `sres_rank_top_k` is 2 and `topical_v6` reads `PASSES(parent_of) AND PASSES(freq_survives)`, both measured at the ceiling before and after (Section 3).
+1. DONE 2026-09-19: `sres_rank_top_k` is 2 and `rule_topical` reads `PASSES(strictly_contains) AND PASSES(freq_survives)`, both measured at the ceiling before and after (Section 3).
 2. DONE 2026-09-19: the 0.25 and 0.33 caps are accepted, the target populations stay symmetric, and `BAR_RECALL` does not apply to those two rows (Sections 4 and 8).
 3. DONE 2026-09-19: G stays out of every rule and remains a reported diagnostic, so the geometry failure is a registered negative result rather than an open search (Sections 3 and 4).
 4. DONE 2026-09-20: gate mutation anchors filled and killed, and the oracle ceiling re-run on all five toys, reproducing the Section 3 table exactly.
@@ -154,30 +154,30 @@ This is the ceiling case, so a rule that does not fire here cannot fire anywhere
 
 | Toy | Rule | Recall at the ceiling | Cause |
 | --- | --- | --- | --- |
-| only_isa | overlap_v6 | 1.00 | all three clauses pass |
-| only_firing | orthogonal_v6 | 0.00 | `gate_sres_rank` passes 100% of firing_only pairs, so `FAILS` never holds |
-| only_superparent | superparent_v5 | 1.00 | null rate 0.00 |
-| only_frequency | frequency_v6 | 0.25 | `gate_parent_of` is directional; the class is labelled both ways |
-| only_topical | topical_v6 | 0.00 | `gate_duplicate` passes 0% of topical pairs |
+| only_isa | rule_is_a | 1.00 | all three clauses pass |
+| only_firing | rule_firing_only | 0.00 | `gate_sres_rank` passes 100% of firing_only pairs, so `FAILS` never holds |
+| only_superparent | rule_superparent | 1.00 | null rate 0.00 |
+| only_frequency | rule_frequency | 0.25 | `gate_strictly_contains` is directional; the class is labelled both ways |
+| only_topical | rule_topical | 0.00 | `gate_mutually_contains` passes 0% of topical pairs |
 
 Per-gate pass rates behind those numbers, target class against the unrelated null:
 
 | Gate | is_a | firing_only | superparent | frequency | topical | null |
 | --- | --- | --- | --- | --- | --- | --- |
-| gate_parent_of | 1.00 | 1.00 | 0.47 | 0.25 | 0.33 | 0.00 |
-| gate_duplicate | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| gate_strictly_contains | 1.00 | 1.00 | 0.47 | 0.25 | 0.33 | 0.00 |
+| gate_mutually_contains | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
 | gate_recon | 1.00 | 1.00 | - | 1.00 | 1.00 | 0.98 to 1.00 |
 | gate_sres_rank | 1.00 | 1.00 in only_firing, 0.58 on only_superparent's dense edges | 0.017 | 0.62 | 0.69 | 0.013 to 0.03 |
-| gate_superparent | 0.00 | 0.00 in only_firing, 1.00 on only_superparent's dense edges | 1.00 | 0.00 | 0.00 | 0.00 |
+| gate_high_outdegree | 0.00 | 0.00 in only_firing, 1.00 on only_superparent's dense edges | 1.00 | 0.00 | 0.00 | 0.00 |
 | gate_freq_survives | 1.00 | 1.00 | - | 0.00 | 1.00 | 0.75 to 1.00 |
 
 Three findings carry into the proposals in Section 4:
 
 1. The geometry channel does not separate the two primary classes.
-`gate_sres_rank` passes on 100% of is_a AND 100% of firing_only pairs at F = 240, so `orthogonal_v6` reads 0 and `overlap_v6` fires on every firing_only pair in only_firing, a 100% cross-toy leak.
+`gate_sres_rank` passes on 100% of is_a AND 100% of firing_only pairs at F = 240, so `rule_firing_only` reads 0 and `rule_is_a` fires on every firing_only pair in only_firing, a 100% cross-toy leak.
 The cause is the mechanism Section 5 names: the child's probe is fitted on the child's own firing and the parent co-fires on every one of those tokens.
 2. Dropping the PMI clause costs specificity against dense features, not against independent ones.
-`gate_parent_of` passes 0% of unrelated pairs everywhere, but 47% of superparent pairs, so the containment baseline reads base-rate coverage as containment.
+`gate_strictly_contains` passes 0% of unrelated pairs everywhere, but 47% of superparent pairs, so the containment baseline reads base-rate coverage as containment.
 `gate_sres_rank` absorbs it here (1.7% on those pairs), which means the dense-feature defence now rests on the probe rather than on an association test.
 3. `gate_recon` is inert at the ceiling, passing targets and nulls alike.
 4. The same gate reads differently in different worlds: `gate_sres_rank` passes 100% of firing_only edges in only_firing but 58% of them in only_superparent, where the parent is dense.
@@ -185,17 +185,17 @@ Those are the same class with the same geometry, so the gate is responding to de
 
 ### The same ceiling after the two changes, measured 2026-09-19
 
-`sres_rank_top_k` is now 2 and `topical_v6` reads `PASSES(parent_of) AND PASSES(freq_survives)`.
+`sres_rank_top_k` is now 2 and `rule_topical` reads `PASSES(strictly_contains) AND PASSES(freq_survives)`.
 Same protocol: oracle read, true activations, no damage, full-size toys, 50k tokens, seed 0.
 
 | Rule | Before | After | Reading |
 | --- | --- | --- | --- |
-| overlap_v6 | 1.00 | 1.00 | unchanged |
-| orthogonal_v6 | 0.00 | 0.00 | NOT fixed; see below |
-| superparent_v5 | 1.00 | 1.00 | unchanged |
-| frequency_v6 | 0.25 | 0.25 | its ceiling on the symmetric class; 100% of the ordered container-to-member pairs |
-| topical_v6 | 0.00 | 0.33 | fixed; 100% of the ordered register-to-member pairs |
-| containment_baseline | 1.00 | 1.00 | unchanged |
+| rule_is_a | 1.00 | 1.00 | unchanged |
+| rule_firing_only | 0.00 | 0.00 | NOT fixed; see below |
+| rule_superparent | 1.00 | 1.00 | unchanged |
+| rule_frequency | 0.25 | 0.25 | its ceiling on the symmetric class; 100% of the ordered container-to-member pairs |
+| rule_topical | 0.00 | 0.33 | fixed; 100% of the ordered register-to-member pairs |
+| rule_containment | 1.00 | 1.00 | unchanged |
 
 `gate_sres_rank` at k = 2, measured per class:
 
@@ -207,7 +207,7 @@ Same protocol: oracle read, true activations, no damage, full-size toys, 50k tok
 So k = 2 tightened the null from 1.3% to at most 0.1% and left both target rates at 100%.
 The parent's decoder is the child probe's rank-2 correlate whether or not the two directions are orthogonal, because the probe is fitted on the child's firing and the parent co-fires on all of it.
 The geometry channel therefore does not separate is_a from firing_only at ANY k, and no constant inside this rule will change that.
-This is a registered negative result, not an invitation to search for a separator: `orthogonal_v6` and `probe_orthogonal_v3` are expected to read 0 recall, and `overlap_v6` is expected to leak onto firing_only, on every read.
+This is a registered negative result, not an invitation to search for a separator: `rule_firing_only` and `rule_firing_only_no_recon` are expected to read 0 recall, and `rule_is_a` is expected to leak onto firing_only, on every read.
 Anyone wanting that separation back needs a geometry measurement the benchmark does not currently have.
 
 ### Is it a threshold issue? No, measured both ways 2026-09-19
@@ -232,11 +232,11 @@ It is a reported diagnostic here and is read by no rule, which is a deliberate d
 ### The damage matrix, three seeds, measured 2026-09-20
 
 333 runs: 111 dial points on each of seeds 1, 2 and 3, at 50k tokens, written under the criteria declared in Section 9 before any of these numbers existed.
-Seed 0 was run separately as a regression check against the ceiling recorded above and is not quoted as evidence, because it selected `sres_rank_top_k` and the `topical_v6` clauses.
+Seed 0 was run separately as a regression check against the ceiling recorded above and is not quoted as evidence, because it selected `sres_rank_top_k` and the `rule_topical` clauses.
 All three seeds met every declared criterion, 15 of 15 each.
 
 Replication is near-exact.
-Every rule reproduces to three decimals on all three seeds, with one exception: `orthogonal_v6` on `only_superparent` reads 0.833, 0.917 and 0.750, which is 10, 11 and 9 of 12 pairs.
+Every rule reproduces to three decimals on all three seeds, with one exception: `rule_firing_only` on `only_superparent` reads 0.833, 0.917 and 0.750, which is 10, 11 and 9 of 12 pairs.
 Every null false-positive rate is 0.0000, on every rule, in every toy, on every seed.
 
 ### Recall was the wrong instrument: the set does not discriminate
@@ -249,23 +249,23 @@ Pass rate on each rule's own target, beside its worst pass rate on a class it do
 
 | Rule | On target | Worst off-target | On which class |
 | --- | --- | --- | --- |
-| `frequency_v6` | 0.250 | **0.000** | nothing; clean |
-| `orthogonal_v6` | 0.833 | 0.468 | `superparent` |
-| `overlap_v6` | 1.000 | **1.000** | `firing_only` |
-| `superparent_v5` | 1.000 | **1.000** | `firing_only` and `reversed` |
-| `topical_v6` | 0.333 | **1.000** | `is_a` and `firing_only` |
+| `rule_frequency` | 0.250 | **0.000** | nothing; clean |
+| `rule_firing_only` | 0.833 | 0.468 | `superparent` |
+| `rule_is_a` | 1.000 | **1.000** | `firing_only` |
+| `rule_superparent` | 1.000 | **1.000** | `firing_only` and `reversed` |
+| `rule_topical` | 0.333 | **1.000** | `is_a` and `firing_only` |
 
 Three specific readings.
 
-`topical_v6` fires more often on classes that are not topical than on the class that is.
-It reads `PASSES(parent_of) AND PASSES(freq_survives)`, which contains nothing topic-specific, so every true containment edge passes it.
+`rule_topical` fires more often on classes that are not topical than on the class that is.
+It reads `PASSES(strictly_contains) AND PASSES(freq_survives)`, which contains nothing topic-specific, so every true containment edge passes it.
 The change recorded above took it from a structural zero to a structural false positive, and the cross-class table is what should have been run at the time.
 
-`superparent_v5` passes `reversed` at 1.000.
+`rule_superparent` passes `reversed` at 1.000.
 A rule that accepts the flipped ordering of a pair is not testing a directional relation.
 Its single gate reads an ENDPOINT's out-degree, which is symmetric in the pair by construction.
 
-`frequency_v6` is the only rule in the set with clean specificity: 0.000 on every non-target class in every toy.
+`rule_frequency` is the only rule in the set with clean specificity: 0.000 on every non-target class in every toy.
 Its 0.250 is the directional ceiling, not a failure.
 
 Two structural notes.
@@ -291,10 +291,10 @@ Reconstruction quality is therefore not evidence of correct recovery.
 
 ### One clause carries every damage result
 
-On `only_isa` under absorption, at all twelve dial points, `PASSES(parent_of)` alone, `parent_of AND sres_rank`, and `parent_of AND recon AND sres_rank` return the SAME number.
+On `only_isa` under absorption, at all twelve dial points, `PASSES(strictly_contains)` alone, `strictly_contains AND sres_rank`, and `strictly_contains AND recon AND sres_rank` return the SAME number.
 `gate_recon` and `gate_sres_rank` never change a verdict.
 `gate_recon` changes an answer in 25 of about 950 comparisons across the whole matrix, all of them in one cell (`only_superparent`, composition, `union` readout), where its own question is ill-posed because the readout has deliberately merged two features into a shared latent.
-`gate_duplicate` is read by no rule at all.
+`gate_mutually_contains` is read by no rule at all.
 
 Absorption acts only through coverage.
 `eta` removes the parent on a share of co-firing tokens, so coverage falls to about 1 minus eta and crosses the cut between eta 0.3 and 0.6; `beta` removes no firing but rewrites the child's row, so the solver attributes parent mass to the child and suppresses the parent's own coefficient, which surfaces as a firing effect only at beta 0.75.
@@ -328,12 +328,12 @@ No rule change is made here, per Section 9.
 
 ### Caveats on the above
 
-`only_frequency` and `only_topical` reach only 24 pooled corrupted pairs, and their non-trivial cells are the least stable: `frequency_v6` at beta 0.75, eta 0 reads 0.12, 0.38 and 0.75 across the three seeds.
+`only_frequency` and `only_topical` reach only 24 pooled corrupted pairs, and their non-trivial cells are the least stable: `rule_frequency` at beta 0.75, eta 0 reads 0.12, 0.38 and 0.75 across the three seeds.
 The cells reading exactly 0.00 or 1.00 are unanimous across seeds; the transition cells, which are the interesting ones, are the ones measured worst.
 
 `transitive` and `sibling` are not planted in any pure toy, so no rule is exercised against them here.
 
-`topical_v6` recall is reported above for completeness but should not be read as a measurement of topical detection, since the rule has no topic-specific clause.
+`rule_topical` recall is reported above for completeness but should not be read as a measurement of topical detection, since the rule has no topic-specific clause.
 
 The matrix is indexed by (toy, CLASS), not by toy: `only_superparent` carries two planted classes, and absorption damages only its `firing_only` edges while splitting as configured damages only its `superparent` pairs.
 
@@ -342,21 +342,22 @@ Leakage under damage is NOT measured: the damaged cells report target pass rates
 ## 4. Registry: the committed expressions
 
 Every rule decides on GATES, never on a metric.
-A gate is a fixed-threshold decision, tristate over pass / fail / not measurable, defined in `scoring/core/gates.py` and listed in Section 5.
+A gate is a fixed-threshold decision, tristate over pass / fail / not measurable, defined in `metrics/rules/gates.py` and listed in Section 5.
+The rules are defined once, in `metrics/rules/rules.py`, and graded by `metrics/rules/grading.py`; both are shared with the Gemma pipeline, and `scoring/` imports them.
 This replaced the null-quantile predicates, which could not travel to a real SAE: a q99 cut accepts 1% of whatever population it is pointed at, and the false-positive bar it produced could not fail.
 
 Recommended freeze set: five designated expressions, the containment baseline, and two historical probe comparators.
 
 | ID | Target | Exact expression |
 | --- | --- | --- |
-| overlap_v6 | is_a | `PASSES(parent_of) AND PASSES(recon) AND PASSES(sres_rank)` |
-| orthogonal_v6 | firing_only | `PASSES(parent_of) AND PASSES(recon) AND FAILS(sres_rank)` |
-| superparent_v5 | superparent | `PASSES(superparent)` |
-| frequency_v6 | frequency | `PASSES(parent_of) AND FAILS(freq_survives)` |
-| topical_v6 | topical | `PASSES(duplicate) AND PASSES(freq_survives)` |
-| containment_baseline | Generated direct containment: is_a union firing_only | `PASSES(parent_of)` |
-| probe_overlap_v3 | is_a | `PASSES(parent_of) AND PASSES(sres_rank)` |
-| probe_orthogonal_v3 | firing_only | `PASSES(parent_of) AND FAILS(sres_rank)` |
+| rule_is_a | is_a | `PASSES(strictly_contains) AND PASSES(recon) AND PASSES(sres_rank)` |
+| rule_firing_only | firing_only | `PASSES(strictly_contains) AND PASSES(recon) AND FAILS(sres_rank)` |
+| rule_superparent | superparent | `PASSES(high_outdegree)` |
+| rule_frequency | frequency | `PASSES(strictly_contains) AND FAILS(freq_survives)` |
+| rule_topical | topical | `PASSES(strictly_contains) AND PASSES(freq_survives)` |
+| rule_containment | Generated direct containment: is_a union firing_only | `PASSES(strictly_contains)` |
+| rule_is_a_no_recon | is_a | `PASSES(strictly_contains) AND PASSES(sres_rank)` |
+| rule_firing_only_no_recon | firing_only | `PASSES(strictly_contains) AND FAILS(sres_rank)` |
 
 `FAILS` is written literally, never as `NOT PASSES`: a gate that was never measurable must satisfy neither predicate.
 Keep primary code labels separate when reporting the baseline's combined target.
@@ -364,12 +365,16 @@ Four of the eight rules read the probe (`gate_sres_rank`), so a no-probe run mar
 
 What was deleted, and what carries its work:
 
-- `C` was `HIGH(coverage_R) AND HIGH(asymmetry_R) AND HIGH(pmi)`. Its first two clauses are `gate_parent_of`: containment one way and not the other, at a fixed tau, on a supported pair.
+- `C` was `HIGH(coverage_R) AND HIGH(asymmetry_R) AND HIGH(pmi)`. Its first two clauses are `gate_strictly_contains`: containment one way and not the other, at a fixed tau, on a supported pair.
 - The PMI clause has no successor. PMI is computed and reported; no fixed constant for it exists in `config.py` or `metrics/`, so it decides nothing. The support guard plus the fixed tau do less of its work, and the leak rates say how much less.
 - G is dropped from every RULE at the team's decision, and is DELIBERATELY NOT REINSTATED (decided 2026-09-19), so the benchmark's rule set matches the set the team is using. All four geometry rules therefore rest on `gate_sres_rank`, Tree SAE's top-k rank rule, which carries no numeric threshold.
   G is still COMPUTED and reported as a diagnostic column in every artifact (`reads.py` writes it from the decoder cosine). That is what makes the Section 3 contrast measurable: the rules cannot separate is_a from firing_only, and the column shows a measurement that can. Keeping the column costs one cosine per pair and removes nothing from the team's set.
-  The consequence is registered rather than hidden: `orthogonal_v6` and `probe_orthogonal_v3` are expected to read 0 recall on every read, and `overlap_v6` is expected to leak onto firing_only. A proposal to add the cosine back as a fixed-cut gate is future work, outside this freeze.
-- The `v6` / `v5` / `v3` suffixes are kept so artifacts stay comparable by name across the schema bump. The rules are not the same rules.
+  The consequence is registered rather than hidden: `rule_firing_only` and `rule_firing_only_no_recon` are expected to read 0 recall on every read, and `rule_is_a` is expected to leak onto firing_only. A proposal to add the cosine back as a fixed-cut gate is future work, outside this freeze.
+- Names carry no version since 2026-09-23. A change to any rule, gate or constant bumps `metrics.rules.RULESET_VERSION` (now 1), which every artifact written since then records beside `gate_constant_set`.
+
+Rules and gates were renamed on 2026-09-23 without changing any decision, and the stored gate-era results (`MATRIX`, `MATRIX-P3`) were renamed with them; the old names are in git history and in `outputs_archive/gate_era_original_names.tar` on soar-gpu.
+Schema-2 results predate the gate rules and keep their own names.
+`gate_contains`, one-way containment and the Gemma pipeline's cross-block edge, was added at the same time; no rule reads it yet.
 
 ### Changes applied 2026-09-19, with the measurement behind each
 
@@ -386,12 +391,12 @@ Measured after the change: both classes still pass 100%, and the null fell from 
 The constant is kept at 2 because it is strictly tighter on the null at identical recall, and `config.SRES_RANK_TOP_K` stays 5, so the departure is recorded here and in `scoring/core/registry.py`.
 The separation failure is now a registered negative result (Section 3), not an open tuning question.
 
-2. **`topical_v6` is now `PASSES(parent_of) AND PASSES(freq_survives)`. APPLIED; recall went 0.00 to 0.33.**
-`gate_duplicate` requires coverage at or above tau in both directions; the toy plants a register at 0.9 and members at 0.32, so no topical pair is ever a duplicate and the rule reads 0 by construction.
+2. **`rule_topical` is now `PASSES(strictly_contains) AND PASSES(freq_survives)`. APPLIED; recall went 0.00 to 0.33.**
+`gate_mutually_contains` requires coverage at or above tau in both directions; the toy plants a register at 0.9 and members at 0.32, so no topical pair is ever a duplicate and the rule reads 0 by construction.
 No tau fixes this: any cut below 0.32 also makes every is_a pair a duplicate.
-Measured at the ceiling, the ordered register-to-member pairs are exactly the 33% of the topical class that passes `parent_of`, they pass `freq_survives` 100%, and the frequency class fails it 100%.
+Measured at the ceiling, the ordered register-to-member pairs are exactly the 33% of the topical class that passes `strictly_contains`, they pass `freq_survives` 100%, and the frequency class fails it 100%.
 So the two confounds separate cleanly on the survival gate alone, and each reaches its ceiling on the direction the toy actually plants.
-`gate_duplicate` is now read by no rule; it stays registered and reported.
+`gate_mutually_contains` is now read by no rule; it stays registered and reported.
 
 DECIDED 2026-09-19: the 0.25 and 0.33 caps are ACCEPTED and the target populations stay symmetric.
 A directional rule on a symmetrically labelled class cannot exceed those numbers, and the alternative costs either directional labels in `toygen/labels.py`, which moves the answer key and `evaluator_sha256`, or a reporting-layer population built from the tree.
@@ -427,13 +432,13 @@ Do not mix similarly named implementations from `metrics/` with these scores.
 
 | Metric | Definition | Read by |
 | --- | --- | --- |
-| `coverage_R` | R(p,c) = P(parent fires given child fires) | gate_parent_of, gate_duplicate |
-| `asymmetry_R` | R(p,c) - R(c,p) | gate_parent_of, gate_duplicate |
+| `coverage_R` | R(p,c) = P(parent fires given child fires) | gate_strictly_contains, gate_mutually_contains |
+| `asymmetry_R` | R(p,c) - R(c,p) | gate_strictly_contains, gate_mutually_contains |
 | `recon_2a` | relative reconstruction gain from the parent on the child's tokens | gate_recon |
 | `recon_child_gain` | the same quantity for the child on its own tokens | gate_recon |
 | `S_res` | Tree SAE probe score, min over endpoints of decoder-probe alignment | gate_sres_rank |
-| `outdegree` | kept-children count per parent, sign-flipped | gate_superparent |
-| `wide` | min of the two orientations of outdegree, the either-endpoint form | gate_superparent |
+| `outdegree` | kept-children count per parent, sign-flipped | gate_high_outdegree |
+| `wide` | min of the two orientations of outdegree, the either-endpoint form | gate_high_outdegree |
 | `token_freq_survival` | r/(1+r) with r the restricted-corpus coverage ratio | gate_freq_survives |
 | `pmi`, `joint_child_J`, `joint_child_supp`, `joint_child_mass`, `sibling_redundancy`, `sibling_redundancy_pc`, `G`, `abs_asymmetry_R` | as defined in the registry | NO GATE: reported as diagnostics only |
 
@@ -442,19 +447,21 @@ They are persisted at full precision and reported in `metric_diagnostics`, and a
 
 ### Gates
 
-Seven fixed-threshold decisions, each a transcription of a rule that already exists in `metrics/` or `config.py`.
+Eight fixed-threshold decisions, defined once in `metrics/rules/gates.py` and checked against the functions in `metrics/` they share a rule with.
 Each is tristate: 1.0 the rule holds, 0.0 it does not, NaN it was never measurable.
 The constants are eyeballed values, not derived ones, exactly as Chanin's absorption paper sets its cutoffs and says so.
+They are the named set `SYNTHETIC_TOYS` in `metrics/rules/constants.py`; the Gemma pipeline uses `GEMMA_MATRYOSHKA` from the same file, which differs in `fire_threshold` (1e-3) and `sres_rank_top_k` (5).
 Relocating the arbitrariness somewhere visible does not remove it; the defence is that one fixed rule applies identically to every arm of a comparison.
 
 | Gate | Rule | Constants | Defined where |
 | --- | --- | --- | --- |
 | `gate_support` | both endpoints fire at least `min_fire_count` times and they co-fire at least `support_min_joint` times | 20, 30 | every pair |
-| `gate_parent_of` | `R(p,c) >= edge_tau` AND `R(c,p) < edge_tau`, on a supported pair | 0.5 | supported pairs |
-| `gate_duplicate` | `R(p,c) >= edge_tau` AND `R(c,p) >= edge_tau`, on a supported pair | 0.5 | supported pairs |
+| `gate_contains` | `R(p,c) >= edge_tau`, on a supported pair | 0.5 | supported pairs |
+| `gate_strictly_contains` | `R(p,c) >= edge_tau` AND `R(c,p) < edge_tau`, on a supported pair | 0.5 | supported pairs |
+| `gate_mutually_contains` | `R(p,c) >= edge_tau` AND `R(c,p) >= edge_tau`, on a supported pair | 0.5 | supported pairs |
 | `gate_recon` | `recon_2a >= recon_rel_gain_min` AND `recon_child_gain >= recon_rel_gain_min` | 0.01 | both gains finite |
 | `gate_sres_rank` | the parent's decoder AND the child's own rank inside the child probe's top k correlations | `sres_rank_top_k` | children whose probe trained |
-| `gate_superparent` | either endpoint has out-degree at least `superparent_outdeg_frac * (R - 1)` | 0.30 | endpoints firing at least `min_fire_count` times |
+| `gate_high_outdegree` | either endpoint has out-degree at least `superparent_outdeg_frac * (R - 1)` | 0.30 | endpoints firing at least `min_fire_count` times |
 | `gate_freq_survives` | `token_freq_survival >= squash(freq_survival_min_raw)`, equality surviving | 0.5 raw, 0.333 squashed | pairs with a defined survival ratio |
 
 `squash(x) = x / (1 + x)` converts a threshold stated on the raw ratio to the scale the detector reports.
@@ -498,7 +505,7 @@ This exposes both candidate-selection recall loss and leakage into competing pro
 Keep any paper-style shortlist evaluation separate, with its selection recall and conditional acceptance reported.
 
 For `frequency` and `topical`, state which population the recall is over.
-The class label is assigned to both orderings of a pair, while `gate_parent_of` is directional, so a directional rule on the symmetric population is capped at 25% and 33% by construction.
+The class label is assigned to both orderings of a pair, while `gate_strictly_contains` is directional, so a directional rule on the symmetric population is capped at 25% and 33% by construction.
 Section 4 proposal 2 scores those two targets on their ordered subset and reports the symmetric count beside it.
 
 For each target, read and seed, report:
@@ -523,7 +530,7 @@ Zero restricted child support with adequate total support maps to zero by conven
 The boundary is `squash(0.5) = 0.333`, with equality assigned to surviving, the same side the deleted `SURVIVES` predicate used.
 
 `wide(p,c) = min(outdegree[p,c], outdegree[c,p])` on the sign-flipped scores, requiring both values finite.
-`wide` and `gate_superparent` are endpoint-broadcast quantities: they are functions of the two endpoints, not of the pair, so they have no pair-level holdout and a per-pair scorability mask must never be applied to them.
+`wide` and `gate_high_outdegree` are endpoint-broadcast quantities: they are functions of the two endpoints, not of the pair, so they have no pair-level holdout and a per-pair scorability mask must never be applied to them.
 Save pair IDs and recovered-feature mappings; do not reconstruct trained reverse-pair identity from unannotated class arrays.
 
 Alongside per-metric distributions, record `constant_null`, `constant_target` and `constant_overall`, with the numerical tolerance and finite counts used.
@@ -569,6 +576,8 @@ Verification status at this revision:
 
 ## 8. Settings to approve and freeze
 
+The bars, the support floor, the designated rules and the grading arithmetic live in `metrics/rules/grading.py`, shared with the Gemma pipeline.
+
 Complete this manifest before any fresh-seed result is inspected:
 
 | Setting | Current proposal / action needed |
@@ -577,7 +586,7 @@ Complete this manifest before any fresh-seed result is inspected:
 | Metric definitions | Pin canonical implementation revision, score modes, signs, normalization, smoothing, and support gates |
 | Gate constants | `edge_tau` 0.5, `min_fire_count` 20, `support_min_joint` 30, `recon_rel_gain_min` 0.01, `superparent_outdeg_frac` 0.30, `freq_survival_min_raw` 0.5 (squashed 0.333), `sres_rank_top_k` 2, applied 2026-09-19 (config.py keeps 5; Section 4). Stamped in every artifact's `gate_constants` |
 | Nothing fitted | No quantiles, no calibration half, no per-read threshold block. The null FPR is measured over the whole unrelated class |
-| Operational recall bar | Recall-given-recovery >=0.8, EXCEPT `frequency_v6` and `topical_v6`, whose symmetric class labels cap them at 0.25 and 0.33 (Section 4). Those two rows report the curve and the cap; the bar does not apply and no MET or DID NOT MEET verdict on recall is read from them. The verdict function still prints one, because the bar lives in code; the table must carry this note beside it |
+| Operational recall bar | Recall-given-recovery >=0.8, EXCEPT `rule_frequency` and `rule_topical`, whose symmetric class labels cap them at 0.25 and 0.33 (Section 4). Those two rows report the curve and the cap; the bar does not apply and no MET or DID NOT MEET verdict on recall is read from them. The verdict function still prints one, because the bar lives in code; the table must carry this note beside it |
 | Null-FPR bar | Null FPR <=0.01 in each tested world, measured over the whole unrelated class |
 | Confound-leakage bar | Each named complete-expression confound rate <=0.05 |
 | Support requirements | `MIN_SCORABLE_SUPPORT = 10`, applying to the TARGET row, the null row, and EVERY confound row. The calibration-support floor is gone with the calibration half |
@@ -585,12 +594,22 @@ Complete this manifest before any fresh-seed result is inspected:
 | Cross-world FPR combination | WORST world, not pooled. The pooled rate is reported beside it as a labelled diagnostic |
 | Cross-world leakage combination | POOLED by counts, with the worst world reported beside it |
 | Probe fitting draw | Fitted on `seed + 20000`, distinct from the matching draw (`seed`) and the scoring draw (`seed + 10000`) |
-| Reporting contract version | `REPORT_SCHEMA = 3`. Stamped into every artifact and required by the manifest check and the cross-world rollup |
+| Reporting contract version | `REPORT_SCHEMA = 4` (history below). Stamped into every artifact and required by the manifest check and the cross-world rollup |
 | Recovery/end-to-end criterion | Report both; specify an additional bar only if making an operational-recovery success claim |
 | Seeds and draws | Record exact three unused world/training seed IDs, fitting/scoring/split seed derivations, and sample sizes |
 | SAE setup | Pin per-toy variant, sparsity, dictionary/prefix sizes, training configuration, and checkpoint provenance |
 | Baselines | Fix endpoint firing-count comparators and their calibration; do not compare their AUROC directly with expression recall |
 | Uncertainty | Report each seed separately and between-seed variation; approve any confidence-bound decision method before using it |
+
+### Report schema versions
+
+`REPORT_SCHEMA` versions the keys `grade_rules` writes and the arithmetic under them.
+It is bumped whenever a key's arithmetic changes under an unchanged name, or a rate key is added, renamed or removed.
+
+1. The pilot contract. `recall_given_recovery` was N_pass / N_scorable, with one `fpr` key on the null rows.
+2. `recall_given_recovery` moved to N_pass / N_recovered, with the scorable rate split out as `pass_rate_given_scorable`; `fpr` split into `fpr_given_scorable` and `fpr_over_half`; `leakage` read the scorable rate, with `leakage_over_recovered` beside it; the support floor extended to the null and confound rows; `verdict` decides established failures before unmeasurable evidence.
+3. The fixed-gate contract. Rules decide on gates against fixed constants, so the null is no longer halved and `fpr_given_scorable` is measured over the whole null; `fpr_over_half` is gone.
+4. The shared-rules contract. Every rule and three gates were renamed (Section 4); the arithmetic is unchanged.
 
 ### Rate denominators are deliberately asymmetric
 
@@ -612,7 +631,7 @@ Measured across all 80 read-expression-class rows on seed 0, zero rows have `0 <
 
 Section 8 words the null-FPR bar as holding "in each tested world", so the quantity that faces it is the worst one.
 A pooled rate lets four quiet worlds absorb one loud one.
-This is not hypothetical: measured on the saved seed-0 arrays, `topical_v6` flips at the 0.01 bar on BOTH reads depending on which rule is used.
+This is not hypothetical: measured on the saved seed-0 arrays, `rule_topical` flips at the 0.01 bar on BOTH reads depending on which rule is used.
 Leakage is pooled by counts instead, because the confound bar has no per-world wording.
 The anti-pooling argument applies to leakage in exactly one place: `reversed` is the only class the five toys generate in more than one world, so it is the only row where pooled and worst-world can differ at all.
 Both are reported either way.
@@ -656,8 +675,8 @@ Instrument checks, which must all hold or the read is not trustworthy:
 
 Registered expectations, declared so that confirming them is not mistaken for discovery and contradicting them is not quietly absorbed:
 
-- `orthogonal_v6` reads 0 recall and `overlap_v6` leaks fully onto `firing_only`, on every toy and every read. The geometry channel does not separate the two classes at any `k`; this is settled and is not reopened by this run.
-- `frequency_v6` and `topical_v6` cap at 0.25 and 0.33 because their classes are labelled on both orderings while the rules are directional. Those are ceilings, not failures, and the 0.80 bar does not apply to those rows.
+- `rule_firing_only` reads 0 recall and `rule_is_a` leaks fully onto `firing_only`, on every toy and every read. The geometry channel does not separate the two classes at any `k`; this is settled and is not reopened by this run.
+- `rule_frequency` and `rule_topical` cap at 0.25 and 0.33 because their classes are labelled on both orderings while the rules are directional. Those are ceilings, not failures, and the 0.80 bar does not apply to those rows.
 - Under absorption on `only_superparent` the `superparent` class has no corrupted pairs by construction, because absorbed edges are `firing_only`. Its signal is in the touched arm.
 - Hedging is not run on `only_isa`. Every parent there has exactly one child, so hedging deletes the parent's only `is_a` pair and `gamma_rel` cannot move recall by any amount. Measured seed 0: corrupted and touched arms are 0 at every coverage. The column runs on `only_superparent` instead, where the same coverage gives 1686 corrupted and 3144 intact pairs.
 
@@ -665,7 +684,7 @@ Reporting discipline:
 
 - Counts are printed beside every rate. `only_frequency` and `only_topical` reach only about 8 corrupted pairs, so their rates carry wide intervals.
 - No difference is called real unless its interval excludes the comparison. A gap inside the interval is reported as within noise, in those words.
-- Seed 0 is a regression check against the recorded ceiling and is never quoted as evidence for a constant, because it selected `sres_rank_top_k = 2` and the `topical_v6` clauses.
+- Seed 0 is a regression check against the recorded ceiling and is never quoted as evidence for a constant, because it selected `sres_rank_top_k = 2` and the `rule_topical` clauses.
 
 Expected findings are hypotheses, not requirements imposed on the outputs.
 If a previously failing rule succeeds, report that result with the same checks; do not engineer either success or failure.
