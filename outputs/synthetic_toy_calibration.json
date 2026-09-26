@@ -1,7 +1,7 @@
 [
   {
     "metric": "1. coverage (edge set)",
-    "job": "recover genuine tree edges",
+    "job": "recover the true tree edges",
     "pass": true,
     "detail": "21/21 genuine edges kept; edge set also holds 42 non-genuine (that is what metrics 2-5 must prune)",
     "margin": 1.0,
@@ -9,7 +9,7 @@
   },
   {
     "metric": "2. reconstruction",
-    "job": "reject superparent edges, keep genuine",
+    "job": "reject superparent edges, keep the true ones",
     "pass": true,
     "detail": "33/33 superparent edges rejected, 21/21 genuine kept (parent-gain: genuine>=3.26, superparent<=0.0033, thr=0.01)",
     "margin": 987.6641582464001
@@ -23,21 +23,21 @@
   },
   {
     "metric": "4. out-degree / superparent",
-    "job": "identify superparent, spare genuine parents",
+    "job": "identify superparent, spare the true parents",
     "pass": true,
     "detail": "detected superparents [7] (truth [7]); removing the superparent collapses Gini 0.620->0.409 and top-1 share 52%->13% (covers degree_stats, gini)",
     "margin": 1.5165631469979295
   },
   {
     "metric": "5. frequency control",
-    "job": "reject frequency-coincidence edge, keep genuine",
+    "job": "reject frequency-coincidence edge, keep the true one",
     "pass": true,
     "detail": "1/1 freq edges rejected (survival=[0.0]); 21/21 genuine survive (min genuine survival=1.00, thr=0.5)",
     "margin": 999999999.9999999
   },
   {
     "metric": "6. independence null (PMI)",
-    "job": "rank genuine edges above base-rate/superparent co-firing",
+    "job": "rank true edges above base-rate and superparent co-firing",
     "pass": true,
     "detail": "min genuine PMI=2.80 > max superparent PMI=0.07; base-rate confound only - topical co-occurrence is not in this toy (needs a model-based null)",
     "margin": 39.6809333771742,
@@ -104,14 +104,14 @@
   },
   {
     "metric": "7. joint-child coverage (support)",
-    "job": "children cover a genuine parent's firing, not a superparent's",
+    "job": "children cover a true parent's firing, not a superparent's",
     "pass": true,
     "detail": "genuine R_supp>=0.67 vs superparent=0.46; r_supp and joint_child_coverage_exact agree (True) - a same-formula drift guard, not independent grading; upper>=exact for all parents: True (covers r_supp, joint_child_coverage_upper; joint_child_coverage_exact is proved numerically in tests/test_metric_math.py)",
     "margin": 1.4339622641509433
   },
   {
     "metric": "8. joint-child coverage (energy)",
-    "job": "energy-weighted child coverage separates genuine from superparent",
+    "job": "energy-weighted child coverage separates true from superparent",
     "pass": true,
     "detail": "genuine R_mass>=0.66 vs superparent=0.46",
     "margin": 1.4274598824941143
@@ -183,7 +183,7 @@
   },
   {
     "metric": "3'. parent-conditioned redundancy",
-    "job": "flag the split parent inside its own firing set, spare a genuine one",
+    "job": "flag the split parent inside its own firing set, spare a true one",
     "pass": true,
     "detail": "split parent=1.00, genuine parent=0.00 (thr=0.5); the conditioned form the global Jaccard defers to (covers parent_conditioned_redundancy)",
     "margin": 999999999.9999999,

@@ -142,3 +142,61 @@ def emit(out_dir: Path, filename: str, gen: str, parts) -> Path:
     dest = out_dir / filename
     dest.write_text("\n".join(L) + "\n")
     return dest
+
+
+# --------------------------------------------------------------------------- figure style
+# Ink and muted match make_report_figures, so a reader moving between the two
+# papers sees one system rather than two.
+INK, MUTED = "#2B2B33", "#5A6B7B"
+
+
+def text_on(bg: str) -> str:
+    """Ink or white on `bg`, whichever the eye can actually read (WCAG luminance)."""
+    from matplotlib import colors as mcolors
+
+    def lum(c):
+        lin = [v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+               for v in mcolors.to_rgb(c)]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+    L = lum(bg)
+    return "white" if 1.05 / (L + 0.05) > (L + 0.05) / (lum(INK) + 0.05) else INK
+
+
+def tree_rates() -> dict:
+    """Firing rate and count per role, read from the two tree configs.
+
+    Read rather than transcribed: the decorrelated tree exists only to flip these
+    two numbers, so a figure that hard-codes them cannot disagree with the world it
+    is drawing. Returns {} if the sae-training checkout is not beside this one.
+    """
+    root = HERE.parent.parent / "sae-training" / "configs"
+    out = {}
+    for key, name in (("original", "tree.json"),
+                      ("decorrelated", "tree_decorrelated.json")):
+        f = root / name
+        if not f.is_file():
+            continue
+        leaves = []
+
+        def walk(n, depth=0):
+            if n.get("is_read_out"):
+                leaves.append((depth, n["active_prob"]))
+            for c in n.get("children", []):
+                walk(c, depth + 1)
+
+        walk(json.loads(f.read_text()))
+        # Depth 1 splits into parents and distractors by whether the node has
+        # read-out children; the two share a depth and differ only in firing rate,
+        # so they separate on rate: parents are the rarer group in exactly one of
+        # the two trees, which is the whole point of having two.
+        d1 = sorted({p for d, p in leaves if d == 1})
+        par = min(d1, key=lambda p: sum(1 for d, q in leaves if d == 1 and q == p))
+        out[key] = {
+            "parent": (sum(1 for d, p in leaves if d == 1 and p == par), par),
+            "distractor": (sum(1 for d, p in leaves if d == 1 and p != par),
+                           next(p for p in d1 if p != par)),
+            "child": (sum(1 for d, _ in leaves if d == 2),
+                      next(p for d, p in leaves if d == 2)),
+        }
+    return out

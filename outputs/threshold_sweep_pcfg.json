@@ -1,4 +1,126 @@
 {
+  "provenance": [
+    {
+      "run": "3915659d6f6c",
+      "stats_path": "data/fmt/3915659d6f6c/exp0_stats.pt",
+      "total_tokens": 598000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_1667_s0",
+      "report_coverage": 91
+    },
+    {
+      "run": "3915659d6f6c-s1",
+      "stats_path": "data/fmt/3915659d6f6c-s1/exp0_stats.pt",
+      "total_tokens": 598000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_1667_s1",
+      "report_coverage": 38
+    },
+    {
+      "run": "3915659d6f6c-s2",
+      "stats_path": "data/fmt/3915659d6f6c-s2/exp0_stats.pt",
+      "total_tokens": 598000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_1667_s2",
+      "report_coverage": 149
+    },
+    {
+      "run": "c325cc965ffa",
+      "stats_path": "data/fmt/c325cc965ffa/exp0_stats.pt",
+      "total_tokens": 1022000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_0000_s0",
+      "report_coverage": 30
+    },
+    {
+      "run": "c325cc965ffa-s1",
+      "stats_path": "data/fmt/c325cc965ffa-s1/exp0_stats.pt",
+      "total_tokens": 1022000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_0000_s1",
+      "report_coverage": 75
+    },
+    {
+      "run": "c325cc965ffa-s2",
+      "stats_path": "data/fmt/c325cc965ffa-s2/exp0_stats.pt",
+      "total_tokens": 1022000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_0000_s2",
+      "report_coverage": 184
+    },
+    {
+      "run": "f6edabf8ccde",
+      "stats_path": "data/fmt/f6edabf8ccde/exp0_stats.pt",
+      "total_tokens": 656000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_2400_s0",
+      "report_coverage": 496
+    },
+    {
+      "run": "f6edabf8ccde-s1",
+      "stats_path": "data/fmt/f6edabf8ccde-s1/exp0_stats.pt",
+      "total_tokens": 656000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_2400_s1",
+      "report_coverage": 74
+    },
+    {
+      "run": "f6edabf8ccde-s2",
+      "stats_path": "data/fmt/f6edabf8ccde-s2/exp0_stats.pt",
+      "total_tokens": 656000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_2400_s2",
+      "report_coverage": 647
+    },
+    {
+      "run": "f98ccd6c7355",
+      "stats_path": "data/fmt/f98ccd6c7355/exp0_stats.pt",
+      "total_tokens": 646000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_2308_s0",
+      "report_coverage": 58
+    },
+    {
+      "run": "f98ccd6c7355-s1",
+      "stats_path": "data/fmt/f98ccd6c7355-s1/exp0_stats.pt",
+      "total_tokens": 646000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_2308_s1",
+      "report_coverage": 27
+    },
+    {
+      "run": "f98ccd6c7355-s2",
+      "stats_path": "data/fmt/f98ccd6c7355-s2/exp0_stats.pt",
+      "total_tokens": 646000,
+      "bos_excluded": true,
+      "min_joint": 30,
+      "coverage_matches_report": true,
+      "report_dir": "fmt_2308_s2",
+      "report_coverage": 64
+    }
+  ],
   "rows": [
     {
       "pair": "0->1",

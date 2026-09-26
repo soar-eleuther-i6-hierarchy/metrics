@@ -188,6 +188,43 @@ def check_second_pass():
     return flags, checked
 
 
+def check_sweeps():
+    """A threshold sweep must say which cache it ran on, and it must agree with its neighbour.
+
+    The gemma layer-12 sweep was first run on a pre-BOS cache. Its file held only rows, so
+    nothing recorded the token count, and this audit could not see that the sweep and the
+    report beside it came from different corpora. Sweep files now carry a `provenance` block;
+    a file without one is flagged, and one whose token count differs from the neighbouring
+    `metrics_report.json` is flagged.
+    """
+    flags, checked = [], 0
+    for sw in sorted(OUT.rglob("threshold_sweep*.json")):
+        if "withdrawn" in sw.parts:
+            continue
+        d = load(sw)
+        rel = str(sw.relative_to(METRICS))
+        if isinstance(d, dict) and "rows" not in d:
+            # The trained-toy sweep scores against ground truth and reads no cache. It has
+            # `default_point` and `true_edges` rather than `rows`, and nothing to be
+            # provenance-checked against.
+            continue
+        prov = d.get("provenance") if isinstance(d, dict) else None
+        if not prov:
+            flags.append((rel, "no provenance block: the cache it ran on is unknown"))
+            continue
+        checked += 1
+        rep = sw.parent / "metrics_report.json"
+        if rep.is_file():
+            r = load(rep)
+            for pr in prov:
+                if pr.get("total_tokens") != r.get("total_tokens"):
+                    flags.append((rel, f"sweep ran on {pr.get('total_tokens')} tokens, the report beside it "
+                                       f"has {r.get('total_tokens')}: different caches"))
+                if pr.get("bos_excluded") is not True:
+                    flags.append((rel, f"bos_excluded={pr.get('bos_excluded')!r} in the sweep's cache"))
+    return flags, checked
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -234,6 +271,7 @@ def main() -> int:
     else:
         print("  none: every group agrees on its token count")
 
+    sw_flags, sw_checked = check_sweeps()
     sp_flags, sp_checked = check_second_pass()
     print("\n" + "=" * 78)
     print("3. Probe results against the report beside them")
@@ -244,6 +282,15 @@ def main() -> int:
             print(f"        {why}")
     else:
         print(f"  none: {sp_checked} probe results are consistent with their reports")
+
+    print("\n" + "=" * 78)
+    print("3b. Threshold sweeps: which cache, and does it match the report beside it")
+    print("=" * 78)
+    if sw_flags:
+        for path, why in sw_flags:
+            print(f"  FLAG  {path}\n        {why}")
+    else:
+        print(f"  none: {sw_checked} sweep file(s) carry provenance that matches their report")
 
     print("\n" + "=" * 78)
     print("4. Result files named by each finding")
@@ -274,7 +321,7 @@ def main() -> int:
                 print(f"      {named}  -> {h}  [{verdict}]")
 
     print("\n" + "=" * 78)
-    total = len(bad) + len(split) + len(sp_flags) + finding_flags
+    total = len(bad) + len(split) + len(sp_flags) + len(sw_flags) + finding_flags
     print(f"VERDICT: {total} flag(s)" if total else "VERDICT: nothing flagged")
     print("=" * 78)
 

@@ -24,6 +24,61 @@
 
 
 % -------------------------------------------------------------------------
+% Internal (withdrawn from the paper)
+% -------------------------------------------------------------------------
+
+% [INT 1]
+\begin{table}[tbp]
+  \centering
+  \small
+  \caption{\textbf{Setup.} Every threshold is global and identical for every SAE source: holding them fixed is what makes a cross-source comparison mean anything, and no threshold is tuned per source. The block structure is read from the cached statistics of the run being graded, not from this table, so a dictionary of a different shape is sliced correctly. Token counts exclude the beginning-of-sequence position (Table~\ref{tab:bos}).}
+  \label{tab:setup}
+  \begin{tabular}{ll}
+    \toprule
+     &  \\
+    \midrule
+    Base model & \texttt{google/gemma-2-2b}, residual stream \\
+    Layers graded & 1, 3, 6, 12, 18, 24 \\
+    SAE & \texttt{gemma-2-2b-res-matryoshka-dc}, Matryoshka, $D = 32,768$ \\
+    Nested blocks & B0 $[0,128)$, B1 $[128,512)$, B2 $[512,2048)$, B3 $[2048,8192)$, B4 $[8192,32768)$ \\
+    Corpus & \texttt{NeelNanda/pile-10k}, 400 docs, context 128 \\
+    Tokens per layer & 48,571 (BOS excluded) \\
+    Firing threshold & $a_f > 0.001$ post-JumpReLU \\
+    Edge criterion & $R \geq 0.5$, fire $\geq 20$, co-fire $\geq 30$ \\
+    Reconstruction gate & both relative gains $\geq 0.01$ \\
+    $S_\mathrm{res}$ rule & both decoders in the top $k = 5$ \\
+    Sibling flag & mean pairwise Jaccard $\geq 0.5$ \\
+    Frequency control & survival $\geq 0.5$; buckets split at 0.5/0.4 cumulative token mass \\
+    Superparent gate & fan-out $\geq 30\%$ of the child block \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% [INT 2]
+\begin{table}[tbp]
+  \centering
+  \small
+  \caption{\textbf{The metric set.} Eight questions about the same edge, plus an unnumbered in-block measurement that grades same-level pairs rather than candidate edges. Metric~1 defines the candidate set and 2--8 grade it: 2--5 weigh a single edge with increasingly demanding evidence, from chance to frequency to reconstruction to meaning, and 6--8 widen the view from one edge to the parent's whole neighbourhood. Metric~4 is named honestly as a \emph{contribution filter} rather than as Tree SAE's $S_\mathrm{res}$: two strong but unrelated co-firing features pass both of its legs, and its pass rate scales with block energy. The probe-based $S_\mathrm{res}$ is metric~5, and its target is the self-label $\mathbf{1}[f_c > 0]$, so a corrupted latent yields a probe that validates its own corruption; we report it as self-labeled and as a self-consistency check, not as ground truth.}
+  \label{tab:battery}
+  \begin{tabular}{llllr}
+    \toprule
+     & Metric & What it asks & Threshold & Module \\
+    \midrule
+    1a & Reverse coverage $R$ & $P(\text{parent} \mid \text{child})$ & $\geq 0.5$ & \texttt{coverage} \\
+    1b & Forward coverage $F$ & $P(\text{child} \mid \text{parent})$ & reported & \texttt{coverage} \\
+    2 & Independence null & PMI against independent firing & $> 0$ & \texttt{independence\_null} \\
+    3 & Token-frequency control & does the edge survive on rare tokens & $\geq 0.5$ & \texttt{token\_control} \\
+    4 & Reconstruction ablation & both features carry mass on the child's tokens & $\geq 0.01$ & \texttt{reconstruction} \\
+    5 & Probe $S_\mathrm{res}$ & both decoders near the child-concept probe & top-5 rank & \texttt{sres} \\
+    6 & Out-degree & one parent covering most of the next block & $\geq 30\%$ & \texttt{outdegree} \\
+    7 & Sibling redundancy & co-activation among one parent's children & $\geq 0.5$ & \texttt{sibling\_redundancy} \\
+    8 & Joint-child coverage & $R_\mathrm{supp}$, $R_\mathrm{mass}$, energy share & reported & \texttt{joint\_child} \\
+    --- & In-block directed coverage & containment within one block, and duplicates & asymmetry & \texttt{in\_block\_edges} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% -------------------------------------------------------------------------
 % The instrument
 % -------------------------------------------------------------------------
 
@@ -53,6 +108,55 @@
     9 In-block coverage & $\bullet$ & $\bullet$ & -- & -- & -- & -- & $\bullet$ & -- & -- \\
     \bottomrule
   \end{tabular}}
+\end{table}
+
+% [INT 3]
+\begin{table}[tbp]
+  \centering
+  \small
+  \caption{\textbf{Three tiers, trading ground truth against realism.} Each rung licenses the one above it: Tier~1 proves the arithmetic and nothing about whether an SAE would learn such a structure. Tier~2 attacks that gap, but on a clean 20-feature tree with 9 edges and no injected pathologies rather than on the pathology-injected world Tier~1 grades, so it changes the world as well as the statistics and does not isolate training as the single moving part either. What it does isolate cleanly is blame: only what the SAE actually learned reaches the metrics, so a missed edge counts against a metric only if the SAE learned both endpoints. Tier~3 is named \emph{released} rather than \emph{real}: the rungs below are real SAEs too, really trained, and what sets this one apart is that it is a published checkpoint we did not train. That is a constraint and not only a label --- we do not control its dictionary, which is why the $S_\mathrm{res}$ column of Table~\ref{tab:gemma} exists for one layer only. It has no known answer at all. A fourth source, a Matryoshka SAE over a transformer trained on a PCFG corpus, runs through the same metrics but is not a rung: its grammar is known and nothing yet maps a latent to a grammar symbol, so it has no recovery score to license anything. It is reported beside gemma in Table~\ref{tab:sources} and Table~\ref{tab:layers}.}
+  \label{tab:tiers}
+  \begin{tabular}{llll}
+    \toprule
+    Tier & Runs on & Ground truth & Result \\
+    \midrule
+    1 Synthetic toy & \parbox[t]{0.22\linewidth}{\raggedright hand-built statistics\strut} & \parbox[t]{0.18\linewidth}{\raggedright by construction\strut} & \parbox[t]{0.25\linewidth}{\raggedright 17/17 rows, 21/21 functions\strut} \\
+    2 Trained toy & \parbox[t]{0.22\linewidth}{\raggedright an SAE trained on a known tree\strut} & \parbox[t]{0.18\linewidth}{\raggedright the tree is known\strut} & \parbox[t]{0.25\linewidth}{\raggedright precision 1.00, recall 1.00\strut} \\
+    3 Released SAE & \parbox[t]{0.22\linewidth}{\raggedright \texttt{google/gemma-2-2b}\strut} & \parbox[t]{0.18\linewidth}{\raggedright none --- human reading\strut} & \parbox[t]{0.25\linewidth}{\raggedright 48 survivors read against autointerp labels\strut} \\
+    \bottomrule
+  \end{tabular}
+  \\[2pt] \footnotesize Tier~3's dictionary is the released \texttt{gemma-2-2b-res-matryoshka-dc}. Lateral control (not a tier): 6/6 testable true edges run early block $\rightarrow$ late on the trained toy.
+\end{table}
+
+% [INT 4]
+\begin{table}[tbp]
+  \centering
+  \small
+  \caption{\textbf{Tier 1: every metric against a known tree.} 17 of 17 rows pass. Margin is how decisively the metric separated the class it must keep from the class it must reject; rows scored categorically have no margin, because their answer is right or it is not and a value of $1.0$ on a ratio scale would read as no separation. The last two rows are negative controls that pass when the metrics do \emph{not} act.}
+  \label{tab:tier1}
+  \begin{tabular}{llcr}
+    \toprule
+    Row & The job it claims &  & Margin \\
+    \midrule
+    5. frequency control & reject frequency-coincidence edge, keep the true one & \checkmark & $>1000\times$ \\
+    3'. parent-conditioned redundancy & flag the split parent inside its own firing set, spare a true one & \checkmark & $>1000\times$ \\
+    — absorption (negative control) & confirm coverage cannot propose an absorbed edge at all & \checkmark & $>1000\times$ \\
+    2. reconstruction & reject superparent edges, keep the true ones & \checkmark & 987.7$\times$ \\
+    3. sibling redundancy & flag feature-split parent, spare healthy & \checkmark & 119.0$\times$ \\
+    6. independence null (PMI) & rank true edges above base-rate and superparent co-firing & \checkmark & 39.7$\times$ \\
+    4. out-degree / superparent & identify superparent, spare the true parents & \checkmark & 1.5$\times$ \\
+    9. energy concentration (share\_energy) & flag feature-split parent (a child holds >=90\% of its energy) & \checkmark & 1.5$\times$ \\
+    — multi-parenting (flag) & intruding parent passes every gate; the child's in-degree reports it & \checkmark & 1.5$\times$ \\
+    7. joint-child coverage (support) & children cover a true parent's firing, not a superparent's & \checkmark & 1.4$\times$ \\
+    8. joint-child coverage (energy) & energy-weighted child coverage separates true from superparent & \checkmark & 1.4$\times$ \\
+    — cross-block siblings (flag) & co-extensive pair proposed as an edge; energy share \textasciitilde{} 1 flags the rename & \checkmark & 1.1$\times$ \\
+    2b. probe S\_res (rank rule) & accept every true parent; carry no signal against an unrelated one & \checkmark & 1.0$\times$ \\
+    1. coverage (edge set) & recover the true tree edges & \checkmark & --- \\
+    7. in-block directed edges & direct the containment pair, call the co-extensive pair a duplicate & \checkmark & --- \\
+    — topical co-occurrence (negative control) & confirm no metric here rejects a shared-topic pair & \checkmark & --- \\
+    — composition (negative control) & confirm no metric rejects a component -> composed-child edge & \checkmark & --- \\
+    \bottomrule
+  \end{tabular}
 \end{table}
 
 % -------------------------------------------------------------------------

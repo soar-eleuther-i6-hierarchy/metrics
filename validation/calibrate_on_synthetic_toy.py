@@ -131,7 +131,7 @@ def _score(stats, labels, m) -> list[dict]:
     recovered = genuine & kept
     rows.append({
         "metric": "1. coverage (edge set)",
-        "job": "recover genuine tree edges",
+        "job": "recover the true tree edges",
         "pass": recovered == genuine,
         "detail": f"{len(recovered)}/{len(genuine)} genuine edges kept; "
                   f"edge set also holds {len(kept) - len(recovered)} non-genuine "
@@ -150,7 +150,7 @@ def _score(stats, labels, m) -> list[dict]:
     gen_min_gain = min((float(pgain[p, c]) for p, c in (genuine & kept)), default=0.0)
     rows.append({
         "metric": "2. reconstruction",
-        "job": "reject superparent edges, keep genuine",
+        "job": "reject superparent edges, keep the true ones",
         "pass": sp_rejected == len(sp_edges) and gen_kept == len(genuine & kept),
         "detail": f"{sp_rejected}/{len(sp_edges)} superparent edges rejected, "
                   f"{gen_kept}/{len(genuine & kept)} genuine kept "
@@ -192,7 +192,7 @@ def _score(stats, labels, m) -> list[dict]:
     top1_collapses = deg_all["top1_edge_share"] > deg_no_sp["top1_edge_share"] + DEGREE_COLLAPSE_MARGIN
     rows.append({
         "metric": "4. out-degree / superparent",
-        "job": "identify superparent, spare genuine parents",
+        "job": "identify superparent, spare the true parents",
         "pass": (found == labels.superparent_parents
                  and gini_collapses and top1_collapses),
         "detail": f"detected superparents {sorted(found)} "
@@ -214,7 +214,7 @@ def _score(stats, labels, m) -> list[dict]:
     gen_kept_freq = sum(s >= C.FREQ_SURVIVAL_MIN for s in gen_surv)
     rows.append({
         "metric": "5. frequency control",
-        "job": "reject frequency-coincidence edge, keep genuine",
+        "job": "reject frequency-coincidence edge, keep the true one",
         "pass": freq_rejected == len(freq_surv) and gen_kept_freq == len(gen_surv),
         "detail": f"{freq_rejected}/{len(freq_surv)} freq edges rejected "
                   f"(survival={[round(s, 2) for s in freq_surv]}); "
@@ -236,7 +236,7 @@ def _score(stats, labels, m) -> list[dict]:
     sp_max_pmi = max(sp_pmi, default=0.0)
     rows.append({
         "metric": "6. independence null (PMI)",
-        "job": "rank genuine edges above base-rate/superparent co-firing",
+        "job": "rank true edges above base-rate and superparent co-firing",
         "pass": bool(gen_pmi) and bool(sp_pmi) and gen_min_pmi > sp_max_pmi,
         "detail": f"min genuine PMI={gen_min_pmi:.2f} > max superparent PMI={sp_max_pmi:.2f}; "
                   f"base-rate confound only - topical co-occurrence is not in this toy "
@@ -254,7 +254,7 @@ def _score(stats, labels, m) -> list[dict]:
     upper_ok = bool((ju >= jce - 1e-9).all())
     rows.append({
         "metric": "7. joint-child coverage (support)",
-        "job": "children cover a genuine parent's firing, not a superparent's",
+        "job": "children cover a true parent's firing, not a superparent's",
         "pass": bool(gen_rs) and min(gen_rs) > sp_rs and exact_eq and upper_ok,
         "detail": f"genuine R_supp>={min(gen_rs, default=float('nan')):.2f} vs "
                   f"superparent={sp_rs:.2f}; r_supp and joint_child_coverage_exact "
@@ -272,7 +272,7 @@ def _score(stats, labels, m) -> list[dict]:
     sp_rm = float(rm[sp_parent])
     rows.append({
         "metric": "8. joint-child coverage (energy)",
-        "job": "energy-weighted child coverage separates genuine from superparent",
+        "job": "energy-weighted child coverage separates true from superparent",
         "pass": bool(gen_rm) and min(gen_rm) > sp_rm,
         "detail": f"genuine R_mass>={min(gen_rm, default=float('nan')):.2f} vs "
                   f"superparent={sp_rm:.2f}",
@@ -390,7 +390,7 @@ def _score_per_token(stats, labels, m, kept) -> list[dict]:
         fired[:, gen_parent], fired[:, [P_ + c for c in GENUINE_TREE[gen_parent]]])
     rows.append({
         "metric": "3'. parent-conditioned redundancy",
-        "job": "flag the split parent inside its own firing set, spare a genuine one",
+        "job": "flag the split parent inside its own firing set, spare a true one",
         "pass": red_split >= C.SIBLING_REDUNDANCY_FLAG and red_gen < C.SIBLING_REDUNDANCY_FLAG,
         "detail": f"split parent={red_split:.2f}, genuine parent={red_gen:.2f} "
                   f"(thr={C.SIBLING_REDUNDANCY_FLAG}); the conditioned form the global "

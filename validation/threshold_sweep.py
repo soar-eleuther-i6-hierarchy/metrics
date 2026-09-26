@@ -267,7 +267,19 @@ def main() -> None:
                 print()
         print("'chance' = share of accepted edges with PMI < 0.5, i.e. co-firing at about the")
         print("rate their base rates alone predict. Before and after the sigma gate.")
-        Path(args.out).write_text(json.dumps(_json_safe({"rows": all_rows}), indent=2, allow_nan=False))
+        # Provenance travels with the numbers. A sweep file that says only "rows" cannot be
+        # told apart from one run on a different cache, and one was: the gemma layer-12 sweep
+        # was first run on a pre-BOS cache and nobody could see that from the file. Recording
+        # the token count and the guards lets the comparability audit check it.
+        prov = []
+        for sp in paths:
+            st = torch.load(sp, map_location="cpu", weights_only=False)
+            cfg = st.get("config", {}) or {}
+            prov.append({"stats_path": str(sp), "total_tokens": int(st.get("total_tokens", 0)),
+                         "bos_excluded": cfg.get("bos_excluded"), "min_joint": cfg.get("min_joint"),
+                         "sweep_defaults": DEFAULTS})
+        Path(args.out).write_text(json.dumps(_json_safe({"provenance": prov, "rows": all_rows}),
+                                             indent=2, allow_nan=False))
         print(f"\nwrote {args.out}")
         return
 
