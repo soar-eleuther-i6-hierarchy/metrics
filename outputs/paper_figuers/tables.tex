@@ -365,7 +365,7 @@
 \begin{table}[tbp]
   \centering
   \small
-  \caption{Endpoint activation magnitudes on kept edges, per layer and block pair. Child/parent is the median ratio of the two endpoints' mean activations on the tokens they share; parent shared/all is the median of the parent's mean activation there relative to its mean over all of its own firings; halved counts parents at or below $0.5$ of it.}
+  \caption{Activation strength at the two ends of each edge the metrics kept, by layer and block pair. Shared tokens are the positions where both features fire. Child/parent is the median over edges of the child's mean activation on shared tokens divided by the parent's. A value below $1$ means the child is the weaker of the two. Child stronger is the share of edges where this ratio is above $1$. Parent shared/all is the median over edges of the parent's mean activation on shared tokens divided by its mean over all positions where it fires. A value below $1$ means the parent is weaker on its child's tokens than it is in general. Parents halved is the share of edges where this second ratio falls below $0.5$.}
   \label{tab:magnitudes}
   \begin{tabular}{llrrrrr}
     \toprule

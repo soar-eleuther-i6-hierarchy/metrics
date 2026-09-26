@@ -22,7 +22,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from reporting.temporal_common import (DEFAULT_OUT, PIT, TOY, emit, figure, ms, read, table, toy_pit)
+from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
+
+from reporting.temporal_common import (DEFAULT_OUT, INK, MUTED, PIT, TOY, emit, figure,
+                                       ms, read, table, toy_pit)
 
 GEN = "make_priors_report"
 TODO = "TODO(caption, human-written). {}"
@@ -182,19 +186,26 @@ def f_boundary(out_dir: Path):
     m = lambda k, f: st.mean(g[f] for g in d["cells"][k])
     nov = [(m(k, "novel_mag_at"), m(k, "novel_mag_within")) for k, _ in keys]
     prd = [(m(k, "pred_cos_at"), m(k, "pred_cos_within")) for k, _ in keys]
-    fig, axes = plt.subplots(1, 2, figsize=(7.4, 3.0))
+    fig, axes = plt.subplots(1, 2, figsize=(7.4, 3.2))
     for ax, data, ylab, ylim in ((axes[0], nov, "novel-code magnitude", None),
-                                 (axes[1], prd, "predictive-code cosine", (0, 1.05))):
+                                 (axes[1], prd, "predictive-code cosine", (0, 1.12))):
         x = range(len(cells)); w = 0.36
-        ax.bar([i - w/2 for i in x], [d[0] for d in data], w, label="at a change")
-        ax.bar([i + w/2 for i in x], [d[1] for d in data], w, label="between changes")
+        # Same two hues as the before/after figure next to it, so one reader's
+        # "at a change" is the same colour on both.
+        ax.bar([i - w/2 for i in x], [d[0] for d in data], w, color=TEMPORAL,
+               label="at a change")
+        ax.bar([i + w/2 for i in x], [d[1] for d in data], w, color=CONTROL,
+               label="between changes")
         ax.set_xticks(list(x)); ax.set_xticklabels(cells, fontsize=8)
-        ax.set_ylabel(ylab)
-        if ylim:
-            ax.set_ylim(*ylim)
+        ax.set_ylabel(ylab, fontsize=9)
+        ax.set_ylim(*(ylim or (0, max(max(d) for d in data) * 1.18)))
         ax.grid(alpha=.25, lw=.5, axis="y")
-    axes[0].legend(frameon=False, fontsize=8)
-    fig.tight_layout()
+        ax.spines[["top", "right"]].set_visible(False)
+    # Below both panels rather than inside one: in the axes it covered the third
+    # pair of bars, and the left panel has no free corner at any y-limit.
+    fig.legend(handles=axes[0].containers, loc="lower center", ncol=2,
+               bbox_to_anchor=(0.5, 0.0), frameon=False, fontsize=8.5)
+    fig.tight_layout(rect=(0, 0.085, 1, 1))
     p = out_dir / "pit_boundary.png"
     fig.savefig(p, dpi=300); plt.close(fig)
     return figure("pit-boundary",
@@ -202,6 +213,142 @@ def f_boundary(out_dir: Path):
                               "planted changes in it at all, so it shows what these "
                               "measures do when there is nothing to find."),
                   "figuers/pit_boundary")
+
+
+# --------------------------------------------------------------------------- before/after
+# Two hues, not three: the axis is cells, but the distinction that matters is
+# "data with planted events" against "the control that has none". Okabe-Ito,
+# checked with the palette validator rather than by eye -- both clear 3:1 on white
+# and the pair clears CVD dE 8, and the control is named in text as well.
+TEMPORAL, CONTROL = "#0072B2", "#D55E00"
+
+# The two predictions, as written into the test script before any number was read.
+# Read from the frozen file rather than retyped, so the panel cannot drift from
+# what was actually claimed.
+CELLS = [("pit_temporal", "temporal\noriginal tree", False),
+         ("pit_decorr", "temporal\ndecorrelated tree", False),
+         ("pit_null", "i.i.d. control\n(no events)", True)]
+
+
+def f_before_after(out_dir: Path):
+    """What was predicted about the novel code, and what the novel code did.
+
+    The before/after pair the calibration world gets, rotated onto this
+    architecture. Priors in Time has no nested blocks and no parent-child edges, so
+    there is no graph and no block occupancy to draw twice. Its claim is about one
+    number at one kind of position: novel-code magnitude at a change in parent
+    state, over its magnitude between changes. So that number is the geometry, and
+    it is drawn twice on one axis -- predicted above, measured below.
+    """
+    d = _boundary()
+    if not d:
+        return None
+    cells = [(k, lab, ctl) for k, lab, ctl in CELLS if d["cells"].get(k)]
+    if not cells:
+        return None
+    preds = d.get("predictions_stated_before_the_run", [])
+    n_seeds = max(len(d["cells"][k]) for k, _, _ in cells)
+
+    def ratios(k):
+        return [g["novel_mag_at"] / g["novel_mag_within"] for g in d["cells"][k]]
+
+    def share(k):
+        g = d["cells"][k]
+        return st.mean(x["n_boundary"] / (x["n_boundary"] + x["n_within"]) for x in g)
+
+    TOP = max(max(ratios(k)) for k, _, _ in cells) + 0.35
+    fig, (before, after) = plt.subplots(
+        2, 1, figsize=(7.8, 6.0), sharex=True,
+        gridspec_kw={"height_ratios": [1.0, 1.6], "hspace": 0.17})
+
+    # ---- before: the prediction, drawn as an open band so it cannot be read as a
+    # measurement. "Higher" names a region, not a value, and a region is what is drawn.
+    for i, (k, _, ctl) in enumerate(cells):
+        col = CONTROL if ctl else TEMPORAL
+        if ctl:
+            before.plot([i - 0.30, i + 0.30], [1.0, 1.0], lw=3.5, color=col,
+                        solid_capstyle="butt", zorder=4)
+            before.text(i, 1.0 + 0.14, "no difference", ha="center", va="bottom",
+                        fontsize=8.5, color=col)
+        else:
+            before.add_patch(Rectangle((i - 0.30, 1.0), 0.60, TOP - 1.0,
+                                       facecolor=col, alpha=0.13, lw=0, zorder=2))
+            before.plot([i - 0.30, i + 0.30], [1.0, 1.0], lw=1.4, color=col,
+                        ls=(0, (3, 2)), zorder=4)
+            before.annotate("", xy=(i, TOP - 0.04), xytext=(i, 1.30),
+                            arrowprops=dict(arrowstyle="-|>", color=col, lw=1.5))
+            before.text(i, 1.16, "higher", ha="center", va="bottom",
+                        fontsize=8.5, color=col, zorder=5)
+
+    # ---- after: every seed, the spread, and the mean
+    for i, (k, _, ctl) in enumerate(cells):
+        col = CONTROL if ctl else TEMPORAL
+        v = ratios(k)
+        after.plot([i, i], [min(v), max(v)], lw=1.4, color=col, alpha=0.45, zorder=2)
+        after.scatter([i + (j - (len(v) - 1) / 2) * 0.045 for j in range(len(v))], v,
+                      s=26, facecolor="white", edgecolor=col, linewidths=1.2, zorder=3)
+        after.plot([i - 0.26, i + 0.26], [st.mean(v)] * 2, lw=3.0, color=col,
+                   solid_capstyle="butt", zorder=4)
+        after.text(i + 0.32, st.mean(v), f"{st.mean(v):.2f}", ha="left", va="center",
+                   fontsize=8.5, fontweight="bold", color=INK)
+        after.text(i + 0.32, st.mean(v) - 0.13, f"spread {st.pstdev(v):.2f}",
+                   ha="left", va="center", fontsize=7, color=MUTED)
+
+    for ax, ttl in ((before, "before"), (after, "after")):
+        ax.axhline(1.0, color=MUTED, lw=1.0, ls=(0, (4, 3)), zorder=1)
+        ax.set_ylim(0.88, TOP + 0.10)
+        ax.set_xlim(-0.62, len(cells) - 0.38 + 0.58)
+        ax.grid(alpha=.22, lw=.5, axis="y")
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.text(0.0, 1.015, ttl, transform=ax.transAxes, ha="left", va="bottom",
+                fontsize=9.5, fontweight="bold", color=INK)
+    # One axis label for both panels: the scale is shared, and repeating it twice
+    # was two-thirds of the left margin.
+    fig.supylabel("novel-code magnitude at a change $\\div$ between changes",
+                  fontsize=9, color=INK, x=0.022)
+
+    # The share of positions that count as a change. This is the thing the control
+    # was built to remove, so it belongs under the cells it explains.
+    after.set_xticks(range(len(cells)))
+    after.set_xticklabels(
+        [f"{lab}\na change at {share(k):.0%}\nof positions" for k, lab, _ in cells],
+        fontsize=8.5)
+    after.tick_params(axis="x", length=0, pad=6)
+
+    handles = [Line2D([], [], color=TEMPORAL, lw=3, label="data with planted events"),
+               Line2D([], [], color=CONTROL, lw=3, label="i.i.d. control, no events"),
+               Line2D([], [], color=MUTED, lw=1.0, ls=(0, (4, 3)),
+                      label="no difference (ratio 1)"),
+               Line2D([], [], ls="none", marker="o", markersize=6,
+                      markerfacecolor="white", markeredgecolor=INK, label="one seed")]
+    fig.legend(handles=handles, loc="lower center", ncol=4, bbox_to_anchor=(0.5, 0.0),
+               frameon=False, fontsize=8, handlelength=2.2, columnspacing=1.6)
+    fig.subplots_adjust(left=0.115, right=0.985, top=0.95, bottom=0.165)
+
+    fig.savefig(out_dir / "pit_before_after.png", dpi=300)
+    plt.close(fig)
+    # The predictions are quoted, not retyped, so the note cannot drift from the
+    # file. They contain a command-line flag, and LaTeX turns a bare `--` into an
+    # en-dash, so the flag is set in \texttt with the ligature broken.
+    def _tex(t):
+        return t.replace("--persistence 0", r"\texttt{-{}-persistence 0}")
+    note = None
+    if len(preds) == 2:
+        note = "Stated before the run: (1) {}; (2) {}.".format(*(_tex(x) for x in preds))
+    return figure("pit-before-after",
+                  TODO.format("What we predicted about the novel code, and what we "
+                              "measured. This method splits each token's activation "
+                              "into a predictive part and a novel part. It has no "
+                              "nested blocks and no parent-child edges, so there is no "
+                              "recovered graph to show. We test it on one number "
+                              "instead. That number is the novel code's magnitude at a "
+                              "planted change in parent state, divided by its magnitude "
+                              "between changes. The top panel shows the two predictions "
+                              "we wrote down before the run. The bottom panel shows all "
+                              f"{n_seeds} runs of each condition. The first prediction "
+                              "holds. The second does not. The control also sits above "
+                              "1, and its spread is the smallest of the three."),
+                  "figuers/pit_before_after", note=note)
 
 
 def main() -> int:
@@ -218,7 +365,8 @@ def main() -> int:
             ("gemma-quality", None, t_gemma_quality()),
             ("toy", "Toy model", t_toy_event()),
             ("toy-boundary", None, t_toy_boundary())]
-    figs = [("toy-boundary", "Toy model", f_boundary(figdir))]
+    figs = [("toy-before-after", "Toy model", f_before_after(figdir)),
+            ("toy-boundary", None, f_boundary(figdir))]
     tabs = [(s, sec, t) for s, sec, t in tabs if t]
     figs = [(s, sec, t) for s, sec, t in figs if t]
 

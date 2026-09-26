@@ -770,23 +770,19 @@ def calibration_synthetic_toy_scorecard(rows):
         return re.sub(r"^\s*\d+[a-z]?'?\.\s*", "", label)
 
     def row_label(r):
-        """Metric name over the job it is there to do.
+        """The metric's name, and nothing else.
 
-        The job is recorded per row in the calibration JSON and was not shown, so the
-        figure listed thirteen names with no statement of what any of them is for --
-        the first thing a reader asked for.
+        Each row used to carry the job it does on a second wrapped line, read out of
+        the calibration JSON. Thirteen rows of that, plus a description beside every
+        bar in the right panel, plus a three-line note under the key, left a figure
+        that was mostly prose. What each metric is for belongs in tab:matrix, which
+        states it row by row, and in the caption. The figure shows the scores.
         """
-        job = r.get("job", "")
-        if not job:
-            return plain(r["metric"])
-        # Wrapped, not widened: one 55-character line per row needs a gutter so deep
-        # that the bars lose the canvas. Two short lines fit the same words.
-        return plain(r["metric"]) + "\n" + textwrap.fill(job, 42)
+        return plain(r["metric"])
 
-    # Wide, and laid out by hand: each row now carries its job on a second line, and
-    # two columns of two-line labels do not fit inside a tight_layout that also has to
-    # find room for a two-line axis label and a two-entry key.
-    fig, axes = plt.subplots(1, 2, figsize=(15.5, 7.8),
+    # Laid out by hand rather than by tight_layout: the two label gutters and the key
+    # need space reserved, which tight_layout would reclaim for the bars.
+    fig, axes = plt.subplots(1, 2, figsize=(11.6, 5.2),
                              gridspec_kw={"width_ratios": [1.9, 1]})
     ax = axes[0]
     # Negative controls pass when the battery does NOT act, so they are a
@@ -805,25 +801,16 @@ def calibration_synthetic_toy_scorecard(rows):
     ax.set_xscale("log")
     ax.set_xlim(0.3, 1.2e5)
     ax.axvline(1.0, ls=(0, (2, 3)), lw=1, color=NEUTRAL)
-    ax.set_xlabel("separation: the metric's score on healthy structure divided by its "
-                  "score on the planted defect\n(log scale; 1× means it scores the two "
-                  "alike, and cannot tell them apart)")
+    # The definition compressed to the one line an axis label can hold; what 1x means
+    # is a reading of the axis, not part of it, and moves to the caption.
+    ax.set_xlabel("separation: healthy structure $\\div$ planted defect (log scale)",
+                  fontsize=9)
     ax.set_title("scored by separation", fontsize=9.5, loc="left")
-    # The planted defects, named: "injected structures" appeared with nothing saying
-    # what was injected. Figure-level, under the key, so both are read together.
-    fig.text(0.012, 0.055,
-             "Planted defects: a SUPERPARENT (fires on ~90% of tokens with a tiny "
-             "activation, so it co-fires with every child but adds almost nothing to\n"
-             "reconstruction), a FREQUENCY-COINCIDENCE edge (lives only on high-frequency "
-             "tokens),\nand a FEATURE-SPLIT parent (three near-duplicate children firing on "
-             "the same tokens with the same direction).",
-             fontsize=7.8, color=MUTED, va="bottom")
     fig.legend(handles=[
-        plt.Rectangle((0, 0), 1, 1, color=GOOD,
-                      label="passes: flags the planted defect and leaves healthy structure alone"),
+        plt.Rectangle((0, 0), 1, 1, color=GOOD, label="passes"),
         plt.Rectangle((0, 0), 1, 1, facecolor=GOOD, hatch="///", edgecolor="white",
-                      label="negative control: passes only if no metric rejects the pair"),
-    ], fontsize=8, frameon=False, loc="lower left", ncol=2, bbox_to_anchor=(0.008, 0.10))
+                      label="negative control: passes when no metric acts"),
+    ], fontsize=8, frameon=False, loc="lower left", ncol=2, bbox_to_anchor=(0.008, 0.005))
     ax.grid(True, axis="x", alpha=0.12)
     ax.set_axisbelow(True)
 
@@ -838,20 +825,17 @@ def calibration_synthetic_toy_scorecard(rows):
     ax.set_yticklabels([row_label(r) for r in cat_rows], fontsize=8)
     ax.set_xticks([])
     ax.set_xlim(0, 1)
-    ax.set_title("scored pass / fail\n(the recovered set matches ground truth, or does not)",
-                 fontsize=9.5, loc="left")
+    ax.set_title("scored pass / fail", fontsize=9.5, loc="left")
     ax.spines["bottom"].set_visible(False)
 
     _title(fig, f"Every metric scored against a known tree — {n_pass}/{len(rows)} rows pass",
            "the hatched rows are limitations demonstrated rather than caught: an absorbed edge "
            "coverage cannot propose, and shared-topic and composition pairs every filter accepts", width=112)
-    # Right-hand ticks on the right panel: with two-line labels, left-hand ticks put
-    # this panel's text into the left panel's plot area.
+    # Right-hand ticks on the right panel: left-hand ones would put this panel's
+    # text into the left panel's plot area.
     axes[1].yaxis.tick_right()
     axes[1].tick_params(axis="y", length=0)
-    # Hand-laid, not tight_layout: the label gutters, the key and the note below it all
-    # need reserved space that tight_layout would reclaim.
-    fig.subplots_adjust(left=0.215, right=0.845, top=0.94, bottom=0.26, wspace=0.05)
+    fig.subplots_adjust(left=0.20, right=0.76, top=0.93, bottom=0.155, wspace=0.05)
     return _finish(fig, axes, "calibration_synthetic_toy_scorecard", tight=False)
 
 
@@ -1110,7 +1094,7 @@ def calibration_toy_tree_recovered(tt):
 # (composition takes a purple outside Okabe-Ito: the palette's remaining
 # slots, black and yellow, read as text-ink and near-invisible on white).
 TOY_ROLE = {
-    "genuine":     ("#009E73", "genuine tree"),
+    "genuine":     ("#009E73", "true tree"),
     "superparent": ("#9AA3AD", "superparent (A)"),
     "freq":        ("#E69F00", "frequency coincidence (B)"),
     "split":       ("#CC79A7", "feature split (C)"),
@@ -1293,9 +1277,9 @@ def calibration_toy_world_before_after(w):
     dash_of = {"absorbed": (0, (4, 2)), "topic": (0, (1, 1.6)),
                "composition": (0, (5, 1.5, 1, 1.5))}
 
-    fig, axes = plt.subplots(2, 1, figsize=(12.6, 5.7),
-                             gridspec_kw={"height_ratios": [1.0, 1.3],
-                                          "hspace": 0.06})
+    fig, axes = plt.subplots(2, 1, figsize=(12.6, 5.0),
+                             gridspec_kw={"height_ratios": [1.0, 1.0],
+                                          "hspace": 0.10})
 
     for ax, is_truth in zip(axes, (True, False)):
         def link(p, c, role, lw=1.6, alive=True):
@@ -1351,25 +1335,17 @@ def calibration_toy_world_before_after(w):
                 ax.text(x, y, str(i), ha="center", va="center", fontsize=5.4,
                         zorder=4, color=_text_on(colour) if on else MUTED)
 
-        if not is_truth:            # which test each parent went through,
-            for p in range(P):      # staggered on two tiers as in the twin
-                ax.text(px[p], PY + (0.10 if p % 2 == 0 else 0.30),
-                        w["verdict"][p].replace(", ", "\n"), ha="center",
-                        va="bottom", fontsize=5.6,
-                        color=TOY_ROLE[w["roles_p"][p]][0], zorder=4,
-                        linespacing=1.25)
-
         for y, lab in ((PY, "parent block"), (CY, "child block")):
             ax.text(-0.7, y, lab, ha="right", va="center", fontsize=7.5,
                     color=MUTED)
         # Panel identity as a conventional subplot tag, not explanatory prose:
         # the caption says what "declared" and "verdicts" mean.
-        ax.text(-3.5, PY + (0.30 if is_truth else 0.58),
-                "before: as declared" if is_truth
-                else "after: what the metrics recovered",
-                ha="left", va="top", fontsize=8.5, fontweight="bold", color=INK)
+        ax.text(-3.5, PY + 0.30, "before" if is_truth else "after",
+                ha="left", va="top", fontsize=9.5, fontweight="bold", color=INK)
         ax.set_xlim(-3.6, Cn + 0.6)
-        ax.set_ylim(CY - 0.55, PY + (0.42 if is_truth else 0.75))
+        # Both panels now carry the same headroom: the taller ylim existed only to
+        # clear the two tiers of verdict text.
+        ax.set_ylim(CY - 0.55, PY + 0.42)
         ax.axis("off")
 
     # ONE legend, shared by both panels: colour = planted structure, circle
@@ -3108,24 +3084,16 @@ def a_slice_of_the_tangle(sp, where, labels=None, n_children=8):
             ax.text(px[p], 1.10 + 0.10 * (i % 2),
                     textwrap.shorten("“" + t + "”", 52, placeholder="…”"),
                     ha=ha, fontsize=7.5, color=MUTED)
-    ax.text(0.5, -0.52, "×N = how many parents claim that child   ·   a tree would put "
-                        "exactly one line into every child", ha="center", fontsize=9,
-            color=INK)
     ax.set_xlim(0, 1)
-    ax.set_ylim(-0.62, 1.24)
+    ax.set_ylim(-0.50, 1.24)
     ax.set_xticks([]); ax.set_yticks([0, 1])
     ax.set_yticklabels(["child block", "parent block"], fontsize=8.5)
     for s in ("left", "bottom", "top", "right"):
         ax.spines[s].set_visible(False)
-    ax.set_title(f"{where} — the {len(kids)} most-claimed children, and every parent "
-                 f"that claims them ({len(pars)} parents, "
-                 f"{sum(len(by_child[c]) for c in kids)} edges)\n"
-                 "orange = the featured child · dot area = how many of these children "
-                 "the parent claims · labels: Neuronpedia, shown as read",
-                 fontsize=9.5, loc="left")
+    ax.set_title(where, fontsize=9.5, loc="left")
     _title(fig, "A slice of the tangle: every child in it has many parents",
            "the tree violation drawn as a neighbourhood, not one bad apple", width=100)
-    fig.subplots_adjust(top=0.82, left=0.085, right=0.985, bottom=0.02)
+    fig.subplots_adjust(top=0.88, left=0.085, right=0.985, bottom=0.03)
     return _finish(fig, ax, "a_slice_of_the_tangle", tight=False)
 
 

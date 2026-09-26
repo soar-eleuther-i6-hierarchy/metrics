@@ -127,7 +127,11 @@ def figure(label, caption, path, width=r"\linewidth", note=None):
          rf"  \includegraphics[width={width}]{{{path}}}",
          rf"  \caption{{{caption}}}", rf"  \label{{fig:{label}}}"]
     if note:
-        L.append(rf"  \\[2pt] \footnotesize {note}")
+        # `\\[2pt]` is what `table` uses, and it works there because \end{tabular}
+        # leaves a line to end. After \label in a figure there is none, and LaTeX
+        # stops with "There's no line here to end". A vspace plus a group does the
+        # same job without needing a line.
+        L += [r"  \vspace{2pt}", rf"  {{\footnotesize {note}}}"]
     L.append(r"\end{figure}")
     return "\n".join(L)
 

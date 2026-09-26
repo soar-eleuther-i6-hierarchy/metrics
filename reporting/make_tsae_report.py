@@ -15,7 +15,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from reporting.temporal_common import (DEFAULT_OUT, MSAE, TSAE, emit, figure, ms, read, table, toy_tsae)
+from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
+
+from reporting.temporal_common import (DEFAULT_OUT, INK, MSAE, MUTED, TSAE, emit, figure,
+                                       ms, read, table, text_on, toy_tsae, tree_rates)
 
 GEN = "make_tsae_report"
 TODO = "TODO(caption, human-written). {}"
@@ -251,6 +255,172 @@ def f_threshold_reversal(out_dir: Path):
                   "figuers/tsae_threshold_reversal", width="0.62\\linewidth")
 
 
+# --------------------------------------------------------------------------- block figure
+# Fills for the block-occupancy figure. Okabe-Ito, the same hues the calibration
+# figures use, so the two papers read as one system. Checked with the palette
+# validator rather than by eye: every adjacent pair clears CVD dE 8 and every fill
+# clears 3:1 against white, so the letter inside each square is a second encoding
+# rather than the only relief.
+SLOT = {"parent":     ("#009E73", "parent", "P"),
+        "child":      ("#0072B2", "child", "C"),
+        "distractor": ("#D55E00", "distractor", "D"),
+        "other":      ("#9AA3AD", "other recovered feature", ""),
+        "empty":      ("#E4E7EA", "unused slot", "")}
+
+B0, B1 = 4, 20                       # latent_sizes [4, 20] -- the faithful 20/80 split
+N_PAR, N_CHI, N_DIS = 3, 9, 8        # the tree, by role
+
+
+def _row(ax, dx, y, b0_roles, b1_roles, h=0.52):
+    """One dictionary at column offset `dx`: four wide B0 slots, then twenty narrow B1 ones.
+
+    The two blocks are drawn at different widths on purpose. B0 is where the claim
+    lives and its four slots are read one at a time; B1 is context and is read as a
+    bar. Same geometry in both panels, so before and after line up by eye -- the
+    reason the calibration twin draws its world twice.
+    """
+    for i, r in enumerate(b0_roles):
+        col, _, letter = SLOT[r]
+        ax.add_patch(Rectangle((dx + i * 1.0, y), 0.88, h, facecolor=col,
+                               edgecolor="white", lw=0.9, zorder=2))
+        if letter:
+            ax.text(dx + i * 1.0 + 0.44, y + h / 2, letter, ha="center", va="center",
+                    fontsize=6.2, color=text_on(col), zorder=3)
+    for i, r in enumerate(b1_roles):
+        ax.add_patch(Rectangle((dx + 4.8 + i * 0.44, y), 0.38, h,
+                               facecolor=SLOT[r][0], edgecolor="white", lw=0.7,
+                               zorder=2))
+
+
+def _b0_after(run):
+    """B0 slot by slot, from the run's own counters. B0 is always full at 4."""
+    b0 = (["parent"] * run["parents_in_b0"]
+          + ["distractor"] * run["distractors_in_b0"])
+    # Whatever is left of the four is a child: the counters name parents and
+    # distractors, and the tree has no third kind of feature.
+    return b0 + ["child"] * (B0 - len(b0))
+
+
+def _b1_after(run):
+    """What B1 holds, from the run's own counters -- no role is invented.
+
+    Only B0's composition is recorded per role, so B1 names the one role it can:
+    every parent is learned in every seed (3.000 +- 0.000), so the parents missing
+    from B0 are in B1. The rest of what was recovered goes in as `other`, because
+    which of them are children and which distractors is not in the file.
+    """
+    par_out = N_PAR - run["parents_in_b0"]
+    rest = max(run["features_recovered"] - B0 - par_out, 0)
+    return (["parent"] * par_out + ["other"] * rest
+            + ["empty"] * (B1 - par_out - rest))
+
+
+def f_block_before_after(out_dir: Path):
+    """Where the nesting says the parents go, and where training put them.
+
+    The before/after pair the calibration world gets, rotated onto this
+    architecture: a Temporal SAE has no parent-child edges to recover, so there is
+    no graph to redraw. What it has is a nested dictionary with a four-slot coarse
+    block and a claim about what belongs there. So the thing drawn twice is the
+    dictionary, and the two tree columns carry the test: the declared destination is
+    identical in both, and only the firing rates differ.
+    """
+    cells = toy_tsae()
+    conds = [(k, n) for k, n in (("tsaeip_temporal", "inner product"),
+                                 ("tsae_temporal", "cosine"),
+                                 ("msae_temporal", "no term"))
+             if cells["original_tree"].get(k) and cells["decorrelated_tree"].get(k)]
+    if not conds:
+        return None
+    rates = tree_rates()
+    trees = [("original_tree", "original", "original tree"),
+             ("decorrelated_tree", "decorrelated", "decorrelated tree")]
+    WIDE = 4.8 + B1 * 0.44                  # one dictionary, end to end
+    COL = WIDE + 2.4                        # x offset between the two columns
+    LEFT = -4.8                             # room for the two text columns
+    n_seeds = max(len(cells[t][k]) for t, _, _ in trees for k, _ in conds)
+
+    fig, axes = plt.subplots(2, 1, figsize=(12.2, 6.0),
+                             gridspec_kw={"height_ratios": [1.0, 3.4], "hspace": 0.04})
+    before, after = axes
+
+    # ---- before: the same declared placement in both columns, only the rates differ
+    declared_b0 = ["parent"] * N_PAR + ["empty"] * (B0 - N_PAR)
+    declared_b1 = (["child"] * N_CHI + ["distractor"] * N_DIS
+                   + ["empty"] * (B1 - N_CHI - N_DIS))
+    for ti, (_, rkey, label) in enumerate(trees):
+        dx = ti * COL
+        _row(before, dx, 0.0, declared_b0, declared_b1)
+        for x, lab in ((0.0, rf"$B_0$ -- {B0} slots"), (4.8, rf"$B_1$ -- {B1} slots")):
+            before.text(dx + x, 0.60, lab, ha="left", va="bottom", fontsize=7.5,
+                        color=MUTED)
+        before.text(dx, 1.14, label, ha="left", va="bottom", fontsize=9.5,
+                    fontweight="bold", color=INK)
+        r = rates.get(rkey)
+        if r:
+            before.text(dx, 0.97,
+                        f"parents fire at {r['parent'][1]:g}, "
+                        f"distractors at {r['distractor'][1]:g}",
+                        ha="left", va="bottom", fontsize=7.5, color=MUTED)
+    before.text(LEFT, 1.14, "before", ha="left", va="bottom",
+                fontsize=9.5, fontweight="bold", color=INK)
+    before.set_ylim(-0.14, 1.46)
+
+    # ---- after: one row per seed, conditions grouped, both trees on the same rows
+    ys = {}
+    for ci, (key, name) in enumerate(conds):
+        for si in range(n_seeds):
+            ys[(ci, si)] = -(ci * (n_seeds * 0.62 + 0.40) + si * 0.62)
+        mid = (ys[(ci, 0)] + ys[(ci, n_seeds - 1)]) / 2 + 0.26
+        after.text(-1.8, mid, name, ha="right", va="center", fontsize=8.5, color=INK)
+    for ti, (tkey, _, label) in enumerate(trees):
+        dx = ti * COL
+        after.text(dx, 0.80, label, ha="left", va="bottom", fontsize=9.5,
+                   fontweight="bold", color=INK)
+        for ci, (key, _) in enumerate(conds):
+            for si, run in enumerate(sorted(cells[tkey][key], key=lambda r: r["seed"])):
+                _row(after, dx, ys[(ci, si)], _b0_after(run), _b1_after(run))
+                if ti == 0:              # seed labels once, the rows are shared
+                    after.text(-0.30, ys[(ci, si)] + 0.26, f"seed {run['seed']}",
+                               ha="right", va="center", fontsize=6.4, color=MUTED)
+    lo = min(ys.values())
+    for ti in range(len(trees)):         # B0 is the claim: box it in both columns
+        after.add_patch(Rectangle((ti * COL - 0.16, lo - 0.16), 4.20,
+                                  0.84 - lo, fill=False, edgecolor=MUTED,
+                                  lw=0.9, ls=(0, (3, 2)), zorder=4))
+    after.text(LEFT, 0.80, "after", ha="left", va="bottom",
+               fontsize=9.5, fontweight="bold", color=INK)
+    after.set_ylim(lo - 0.40, 1.30)
+
+    for ax in axes:
+        ax.set_xlim(LEFT, COL + WIDE + 0.4)
+        ax.axis("off")
+
+    handles = [Line2D([], [], ls="none", marker="s", markersize=8,
+                      markerfacecolor=SLOT[r][0], markeredgecolor="white",
+                      label=SLOT[r][1])
+               for r in ("parent", "child", "distractor", "other", "empty")]
+    leg = fig.legend(handles=handles, loc="lower center", ncol=5,
+                     bbox_to_anchor=(0.5, 0.0), frameon=False, fontsize=8,
+                     handlelength=1.4, columnspacing=1.9)
+    leg._legend_box.align = "left"
+    fig.subplots_adjust(left=0.012, right=0.994, top=0.975, bottom=0.085)
+
+    fig.savefig(out_dir / "tsae_block_before_after.png", dpi=300)
+    plt.close(fig)
+    return figure("tsae-block-before-after",
+                  TODO.format("Where the three parents should sit in the "
+                              "dictionary, and where training put them. The top row is "
+                              "the same in both columns. The first block has four "
+                              "slots, and the three parents are what should fill them. "
+                              "The two columns differ only in how often each feature "
+                              "fires. The bottom half shows every run on both trees. "
+                              "Only $B_0$ is recorded feature by feature. In $B_1$ we "
+                              "can name the parents, because all three are learned in "
+                              "every run. The rest of that block is shown as a count."),
+                  "figuers/tsae_block_before_after")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -268,7 +438,8 @@ def main() -> int:
             ("gemma", "gemma-2-2b layer 12", t_gemma_pipeline()),
             ("gemma-sres", None, t_gemma_sres()),
             ("thresholds", None, t_threshold_reversal())]
-    figs = [("toy-decorr", "Toy model", f_decorrelated(figdir)),
+    figs = [("toy-before-after", "Toy model", f_block_before_after(figdir)),
+            ("toy-decorr", None, f_decorrelated(figdir)),
             ("thresholds", "gemma-2-2b layer 12", f_threshold_reversal(figdir))]
 
     tabs = [(s, sec, t) for s, sec, t in tabs if t]

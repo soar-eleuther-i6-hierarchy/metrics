@@ -1063,14 +1063,21 @@ def magnitudes_table():
                          f"{s['parent_shared_over_all']['p50']:.2f}",
                          rf"{100 * s['frac_parent_halved_on_child']:.0f}\%"))
             first = False
-    # TODO(caption, by hand): placeholder caption — reword in your own words
-    # before submission (same rule as every caption in this file).
-    caption = (r"Endpoint activation magnitudes on kept edges, per layer and "
-               r"block pair. Child/parent is the median ratio of the two "
-               r"endpoints' mean activations on the tokens they share; parent "
-               r"shared/all is the median of the parent's mean activation "
-               r"there relative to its mean over all of its own firings; "
-               r"halved counts parents at or below $0.5$ of it.")
+    # TODO(caption, by hand): the definitions below are checked against
+    # validation/edge_activation_magnitudes.py and can stand. What a reader
+    # should take from the table is still yours to write and is not here.
+    caption = (r"Activation strength at the two ends of each edge the metrics "
+               r"kept, by layer and block pair. Shared tokens are the positions "
+               r"where both features fire. Child/parent is the median over "
+               r"edges of the child's mean activation on shared tokens divided "
+               r"by the parent's. A value below $1$ means the child is the "
+               r"weaker of the two. Child stronger is the share of edges where "
+               r"this ratio is above $1$. Parent shared/all is the median over "
+               r"edges of the parent's mean activation on shared tokens divided "
+               r"by its mean over all positions where it fires. A value below "
+               r"$1$ means the parent is weaker on its child's tokens than it "
+               r"is in general. Parents halved is the share of edges where this "
+               r"second ratio falls below $0.5$.")
     return table("magnitudes", caption,
                  ["Layer", "Pair", "Edges", "Child/parent", "Child stronger",
                   "Parent shared/all", "Parents halved"],

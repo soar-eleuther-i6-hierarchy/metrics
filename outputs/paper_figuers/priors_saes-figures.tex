@@ -11,6 +11,16 @@
 % Toy model
 % ------------------------------------------------------------------------
 
+% [toy-before-after]
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{figuers/pit_before_after}
+  \caption{TODO(caption, human-written). What we predicted about the novel code, and what we measured. This method splits each token's activation into a predictive part and a novel part. It has no nested blocks and no parent-child edges, so there is no recovered graph to show. We test it on one number instead. That number is the novel code's magnitude at a planted change in parent state, divided by its magnitude between changes. The top panel shows the two predictions we wrote down before the run. The bottom panel shows all 8 runs of each condition. The first prediction holds. The second does not. The control also sits above 1, and its spread is the smallest of the three.}
+  \label{fig:pit-before-after}
+  \vspace{2pt}
+  {\footnotesize Stated before the run: (1) novel-code activity is higher at parent-state changes than between them; (2) the difference is absent under \texttt{-{}-persistence 0}, where the data carries no events.}
+\end{figure}
+
 % [toy-boundary]
 \begin{figure}[tbp]
   \centering
