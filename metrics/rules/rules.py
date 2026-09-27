@@ -12,7 +12,7 @@ import torch
 
 from .gates import GATE_NAMES
 
-RULESET_VERSION = 1
+RULESET_VERSION = 2
 
 # --- predicates ---
 # Midway between 0.0 and 1.0, so `>` versus `>=` cannot matter.
@@ -77,57 +77,32 @@ def evaluate(clauses, vals: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torc
 
 # --- the rules ---
 RULES: dict[str, dict] = {
-    "rule_is_a": {
-        # containment, then reconstruction mass, then Tree SAE's refinement rank
-        "target": ("is_a",),
-        "clauses": (("PASSES", "gate_strictly_contains"), ("PASSES", "gate_recon"),
-                    ("PASSES", "gate_sres_rank")),
-        "text": "PASSES(strictly_contains) AND PASSES(recon) AND PASSES(sres_rank)",
+    "rule_hierarchy": {
+        # containment, co-firing above independence, coverage that holds without frequent
+        # tokens, then Tree SAE's refinement rank
+        "target": ("hierarchy_overlap", "hierarchy_orthogonal"),
+        "clauses": (("PASSES", "gate_strictly_contains"), ("PASSES", "gate_pmi_positive"),
+                    ("PASSES", "gate_freq_survives"), ("PASSES", "gate_sres_rank")),
+        "text": ("PASSES(strictly_contains) AND PASSES(pmi_positive) AND PASSES(freq_survives) "
+                 "AND PASSES(sres_rank)"),
     },
-    "rule_firing_only": {
-        # the same containment and reconstruction mass, but the parent decoder does not rank
-        # against the child's concept: co-firing without refinement
-        "target": ("firing_only",),
-        "clauses": (("PASSES", "gate_strictly_contains"), ("PASSES", "gate_recon"),
-                    ("FAILS", "gate_sres_rank")),
-        "text": "PASSES(strictly_contains) AND PASSES(recon) AND FAILS(sres_rank)",
-    },
-    "rule_superparent": {
+    "rule_dense_endpoint": {
         # out-degree alone, as `metrics.outdegree.find_superparents` flags it
-        "target": ("superparent",),
+        "target": ("dense_lookalike",),
         "clauses": (("PASSES", "gate_high_outdegree"),),
         "text": "PASSES(high_outdegree)",
     },
-    "rule_frequency": {
+    "rule_frequency_driven": {
         # containment that does not survive removing the frequent tokens
-        "target": ("frequency",),
+        "target": ("frequency_lookalike",),
         "clauses": (("PASSES", "gate_strictly_contains"), ("FAILS", "gate_freq_survives")),
         "text": "PASSES(strictly_contains) AND FAILS(freq_survives)",
     },
-    "rule_topical": {
-        # containment that survives removing the frequent tokens; no gate models topical
-        # co-occurrence directly, so this is the most the gates can say
-        "target": ("topical",),
-        "clauses": (("PASSES", "gate_strictly_contains"), ("PASSES", "gate_freq_survives")),
-        "text": "PASSES(strictly_contains) AND PASSES(freq_survives)",
-    },
     "rule_containment": {
-        # baseline: any direct containment, is_a and firing_only together
-        "target": ("is_a", "firing_only"),
+        # baseline: any direct containment
+        "target": ("hierarchy_overlap", "hierarchy_orthogonal"),
         "clauses": (("PASSES", "gate_strictly_contains"),),
         "text": "PASSES(strictly_contains)",
-    },
-    "rule_is_a_no_recon": {
-        # rule_is_a without the reconstruction clause
-        "target": ("is_a",),
-        "clauses": (("PASSES", "gate_strictly_contains"), ("PASSES", "gate_sres_rank")),
-        "text": "PASSES(strictly_contains) AND PASSES(sres_rank)",
-    },
-    "rule_firing_only_no_recon": {
-        # rule_firing_only without the reconstruction clause
-        "target": ("firing_only",),
-        "clauses": (("PASSES", "gate_strictly_contains"), ("FAILS", "gate_sres_rank")),
-        "text": "PASSES(strictly_contains) AND FAILS(sres_rank)",
     },
 }
 

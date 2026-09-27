@@ -13,6 +13,7 @@ from .gates import (
     either_endpoint,
     freq_survives_gate,
     nan_self_pairs,
+    pmi_positive_gate,
     recon_gate,
     sres_rank_gate,
     support_gate,
@@ -40,6 +41,7 @@ class PairStats:
     parent_ids: torch.Tensor | None = None       # [P] pool index of each parent
     child_ids: torch.Tensor | None = None        # [C] pool index of each child
     probe_available: torch.Tensor | None = None  # [C] whether child's probe trained
+    n_tokens: int | None = None   # tokens the counts are over; PMI is unmeasurable without it
     self_pairs: bool = False      # square frame of one set against itself: NaN the diagonal
 
 
@@ -59,6 +61,12 @@ def score_pairs(stats: PairStats, constants: GateConstants) -> dict:
     gates["gate_high_outdegree"] = either_endpoint(s.high_outdeg_p, s.high_outdeg_c)
     gates["gate_freq_survives"] = freq_survives_gate(s.survival, c.freq_survival_min,
                                                      s.survival_scale)
+    if s.n_tokens is None:
+        gates["gate_pmi_positive"] = torch.full(support.shape, float("nan"), dtype=DT,
+                                                device=support.device)
+    else:
+        gates["gate_pmi_positive"] = pmi_positive_gate(s.cofire, s.fire_p, s.fire_c,
+                                                       s.n_tokens, support)
     if s.probe_corr is None:
         gates["gate_sres_rank"] = torch.full(support.shape, float("nan"), dtype=DT,
                                              device=support.device)

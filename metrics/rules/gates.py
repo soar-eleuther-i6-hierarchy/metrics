@@ -22,6 +22,7 @@ GATE_NAMES: tuple[str, ...] = (
     "gate_sres_rank",          # both decoders in the child probe's top-k
     "gate_high_outdegree",     # either endpoint holds a large share of the candidate children
     "gate_freq_survives",      # coverage holds up once frequent tokens are removed
+    "gate_pmi_positive",       # the pair co-fires more than independent firing predicts
 )
 
 
@@ -86,6 +87,15 @@ def coverage_gates(R: torch.Tensor, R_rev: torch.Tensor, support: torch.Tensor,
         "gate_strictly_contains": tristate(ge & ~ge_rev, support),
         "gate_mutually_contains": tristate(ge & ge_rev, support),
     }
+
+
+# --- independence (metrics/independence_null.py) ---
+def pmi_positive_gate(cofire: torch.Tensor, fire_p: torch.Tensor, fire_c: torch.Tensor,
+                      n_tokens: int, support: torch.Tensor) -> torch.Tensor:
+    """`gate_pmi_positive`: PMI(p, c) = log(cofire * N / (fire_p * fire_c)) > 0, on supported
+    pairs. Compared without the log, so exact independence (PMI = 0) fails."""
+    expected = fire_p.double().reshape(-1, 1) * fire_c.double().reshape(1, -1) / float(n_tokens)
+    return tristate(cofire.double() > expected, support)
 
 
 # --- reconstruction (metrics/reconstruction.py) ---

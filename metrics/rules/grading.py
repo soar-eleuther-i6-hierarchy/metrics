@@ -15,17 +15,16 @@ from .classes import LABELS, NULL_CLASS
 from .rules import RULES, evaluate
 
 # Version of the keys and arithmetic `grade_rules` writes. PRECOMMIT.md s8.
-REPORT_SCHEMA = 4
+REPORT_SCHEMA = 5
 
 BAR_RECALL = 0.80            # recall given recovery, >=
 BAR_EVAL_NULL_FPR = 0.01     # null FPR in each world, <=
 BAR_CONFOUND_LEAK = 0.05     # each confound class's pass rate, <=
 MIN_SCORABLE_SUPPORT = 10    # fewer scorable pairs than this cannot carry a verdict
 
-# One rule per planted class. The baseline and the no-recon variants overlap these by
-# construction, so counting them in `rule_overlap` would manufacture ambiguity.
-DESIGNATED: tuple[str, ...] = ("rule_is_a", "rule_firing_only", "rule_superparent",
-                               "rule_frequency", "rule_topical")
+# One rule per target. The containment baseline overlaps rule_hierarchy by construction, so
+# counting it in `rule_overlap` would manufacture ambiguity.
+DESIGNATED: tuple[str, ...] = ("rule_hierarchy", "rule_dense_endpoint", "rule_frequency_driven")
 
 # Rules that read the probe: INVALID MEASUREMENT when no probe was fitted.
 PROBE_RULES: tuple[str, ...] = tuple(

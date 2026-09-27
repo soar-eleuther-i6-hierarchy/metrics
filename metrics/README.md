@@ -242,7 +242,7 @@ The metrics above compute statistics. [`rules/`](rules/) decides on them, once, 
 | [`rules/rules.py`](rules/rules.py) | the named rules (conjunctions of gates), the `PASSES` / `FAILS` evaluator, and `RULESET_VERSION` |
 | [`rules/pairs.py`](rules/pairs.py) | `PairStats` and `score_pairs`: every gate and rule decision for one frame, in one call |
 | [`rules/grading.py`](rules/grading.py) | `grade_rules`: counts, rates and verdicts against labelled pairs, with the bars and the support floor |
-| [`rules/classes.py`](rules/classes.py) | the nine pair classes a rule can target, in their stored index order |
+| [`rules/classes.py`](rules/classes.py) | the twelve pair classes a rule can target, in their stored index order |
 | [`rules/constants.py`](rules/constants.py) | named constant sets: `GEMMA_MATRYOSHKA` (read by `config.py`) and `SYNTHETIC_TOYS` (read by `scoring/`) |
 
 The gates take plain tensors, so a block pair, a within-block frame or a square toy frame all work.
@@ -253,10 +253,11 @@ The edge gates, in terms of reverse coverage `R(p,c) = P(p fires | c fires)`:
 | `gate_contains` | `R(p,c) >= tau` | the cross-block edge, `keep_edges` |
 | `gate_strictly_contains` | `R(p,c) >= tau` and `R(c,p) < tau` | in-block `parent_of` |
 | `gate_mutually_contains` | both directions `>= tau` | in-block `duplicate` |
+| `gate_pmi_positive` | `PMI(p,c) > 0` on a supported pair | the independence null, section 6 |
 
-Rules are named after the pair class they target (`rule_is_a`, `rule_firing_only`, `rule_superparent`,
-`rule_frequency`, `rule_topical`, ...), never after a toy. Names carry no version: change a rule, a gate
-or a constant and bump `RULESET_VERSION`, and stamp it with the constant set's `name` on every result.
+Rules are named after what they detect (`rule_hierarchy`, `rule_dense_endpoint`, `rule_frequency_driven`,
+`rule_containment`), never after a toy. Names carry no version: change a rule, a gate or a constant and
+bump `RULESET_VERSION`, and stamp it with the constant set's `name` on every result.
 The rules are not in `metrics.__all__`, which lists the metric functions the Tier-1 calibration must call.
 
 Scoring one block pair, with the statistics the pipeline already computes:
@@ -270,9 +271,10 @@ out = score_pairs(PairStats(
     high_outdeg_p=high_outdegree(edges, fire_p, n_children, C.superparent_outdeg_frac, C.min_fire_count),
     high_outdeg_c=high_outdeg_of_children,       # from the next block pair down
     probe_corr=corr, parent_ids=parent_ids, child_ids=child_ids, probe_available=trained,
+    n_tokens=n_tokens,                           # without it PMI, and so rule_hierarchy, is unmeasurable
 ), C)
 out["gates"]["gate_contains"]     # [P, C] tristate
-out["rules"]["rule_is_a"]         # (pass mask, scorable mask)
+out["rules"]["rule_hierarchy"]    # (pass mask, scorable mask)
 ```
 
 Grading needs a pair label for every scored pair, as an index into `LABELS`:
