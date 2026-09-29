@@ -63,34 +63,32 @@ Do not redesign S_res, change the generator, or search for a better classifier m
 
 ## 3. Measured constraints
 
-Unless stated otherwise these are at the oracle ceiling: a perfect dictionary, true activations, no damage, full-size toys, 50k tokens.
-A rule that does not fire there cannot fire anywhere.
+Measured on the second damage matrix, `MATRIX2`, seeds 1 to 3 pooled at 50k tokens, after the `dense`, `frequency` and `topical` toys were rebuilt.
+Ruleset 1's full record is in git history; the constraints it set that still hold are listed at the end of this section.
 
-Ruleset 1's results (the damage matrix `MATRIX`, seeds 1 to 3, and its seed-0 ceiling `MATRIX-P3`, report schema 4) are kept here only where they constrain ruleset 2; the full record is in git history.
-Ruleset 2's measurements are below; they come from the second damage matrix, `MATRIX2`.
+### With a perfect dictionary
 
-### What ruleset 2 measured
+- The oracle read and the undamaged encoder read make the same decision on every pair, rule, toy and seed.
+- `rule_hierarchy` finds every edge on both hierarchy toys and passes no unrelated pair on any toy; there containment alone already rejects every negative, and no check separates the two geometries.
+- On `dense` it finds about two thirds of the dense parents' edges; the rank check rejects the rest, because other dense features outrank the parent in the child's probe.
+- It passes under 1% of the dense look-alikes, where `rule_containment` passes all of them; PMI and the rank check do the rejecting.
+- The token-frequency check blocks every frequency look-alike; nothing blocks the topical look-alikes, which `rule_hierarchy` passes just as `rule_containment` does.
+- `rule_frequency_driven` passes every frequency look-alike and nothing else; `rule_dense_endpoint` passes every pair with a dense endpoint, the dense parents' edges included.
 
-Seeds 1 to 3 pooled, 50k tokens, counts in pairs.
-With a perfect dictionary:
+### Under damage
 
-- `rule_hierarchy` found all 360 edges on each hierarchy toy and passed no unrelated pair on any toy.
-- On `dense` it found 14 of the 36 dense-parent edges (5, 5 and 4 per seed), where `rule_containment` found all 36: the rank gate rejects them.
-- The rank gate and `PMI > 0` reject dense look-alikes: `rule_hierarchy` passed 47 of 7,092 (0.7%), where the rank gate alone passes 95 and `rule_containment` all of them.
-- The token-frequency check blocks all 45 frequency look-alikes; `rule_hierarchy` passed all 48 topical look-alikes, as `rule_containment` does, so no check stops shared topics.
-- `rule_frequency_driven` passed every frequency look-alike and nothing else; `rule_dense_endpoint` passed every pair with a dense endpoint, the 36 dense-parent edges included.
+On the damaged pairs; the undamaged pairs of the same runs stay at their no-damage rates, apart from rank reshuffles at the top-5 cut on `dense`.
 
-Under damage, on the damaged pairs; the undamaged pairs of the same runs stay at their no-damage rates:
-
-- Absorption removes detection through the parent going silent on the child's tokens, not through the child's decoder taking on the parent's direction.
-  With the parent silent on 60% of those tokens `rule_hierarchy` found none of the absorbed edges at any mixing; with no silencing it found all of them at every mixing.
-  The two geometries differ only at mixing 0.75 with 30% silencing: 62% of edges found with overlapping directions, 76% with orthogonal ones.
-- Splitting a parent and reading only its strongest piece drops `rule_hierarchy` to 52% at k = 2 and to 0% at k = 3 or more, in both geometries; recombining the pieces keeps it at 100%.
-- Dense features that are split, or composed with a share of 0.5 or more, hide every dense look-alike from `rule_dense_endpoint` when each piece is read alone; recombining restores it.
-- Composition does not change `rule_hierarchy` on the hierarchy toys.
-- Hedging leaves `rule_dense_endpoint` at 100%, and its effect on `rule_hierarchy`'s dense look-alikes (0.5% to 0.1%) is within noise.
-- The dense-parent edges under damage are too few (9 to 18 pairs) for any change to exceed noise.
-- On seeds 2 and 3 the frequency toy's 12 absorption runs keep no undamaged container-to-member pair, so they have no within-run comparison (Section 9); `rule_frequency_driven`'s dose trend there still runs from 100% at zero dose to 0%.
+- Absorption works through the encoder: it hands the parent's activation to the child's row and zeroes the parent on a growing share of the child's tokens, so an absorbed edge is lost once P(parent | child) falls below a check's bar.
+  On the hierarchy toys only containment ever rejects (bar 0.5): with no silencing every absorbed edge survives up to a parent weight of 0.75, and none survives silencing of 0.6 or more; the two geometries differ only within noise.
+  On `dense`, PMI rejects first, because its bar is the parent's own firing rate (85%), so `rule_hierarchy` loses absorbed edges well before containment does.
+  Full silencing leaves an absorbed pair unmeasurable, and it is counted as a miss, as Chanin et al. count full absorption.
+- Absorption on `dense` damages true edges only, since look-alikes are not declared pairs, so precision there falls only through lost edges.
+- Splitting a hierarchy parent and reading only its strongest piece loses about half the edges at k = 2 and all of them at k = 3 or more, in both geometries; reading the pieces together restores every edge.
+- Splitting a dense feature hides its look-alikes from every rule, `rule_dense_endpoint` included, and makes each unsplit dense feature look like the piece's parent, which `rule_containment` accepts and `rule_hierarchy` almost never does; reading the pieces together restores all of it.
+- Composition on `dense` leaves PMI unchanged, so only containment removes composed edges, from a share of 0.75; from a share of 0.5 the partners stop looking dense and gain one-way containment; reading the pieces together restores it.
+- Composition does not change `rule_hierarchy` on the hierarchy toys, but there the partners co-fire on only about 3% of tokens, too little to hide an edge: a limit of the toy, not a robustness result.
+- Not yet tested: absorbing dense look-alikes, and splitting dense parents.
 
 ### What ruleset 1 established
 
@@ -118,8 +116,8 @@ Every rule is graded on every class, so a look-alike class that `rule_hierarchy`
 No rule targets `topical_lookalike`, because no gate reads a topic; the topical toy is scored as a negative only.
 `FAILS` is written literally, never as `NOT PASSES`: a gate that was never measurable satisfies neither predicate.
 `rule_hierarchy`, the one rule reading `gate_sres_rank`, is INVALID MEASUREMENT on a run without the probe, not a rejection.
-`PMI > 0` is the independence check of the metrics paper, and only `rule_hierarchy` reads it: on seed 0 it halves the dense look-alikes that pass containment (2,364 to 1,195) and keeps all 12 dense-parent edges, and on the other toys containment already implies it.
-`rule_hierarchy` also requires the paper's token-frequency check, `R_low+mid / R_all >= 0.5`: on seed 0 it removes all 15 frequency look-alikes and no true edge, a success the frequency toy builds in by putting every planted token in the frequent group.
+`PMI > 0` is the independence check of the metrics paper, and only `rule_hierarchy` reads it: it rejects about half of the dense look-alikes that pass containment and keeps every dense-parent edge, and on the other toys containment already implies it.
+`rule_hierarchy` also requires the paper's token-frequency check, `R_low+mid / R_all >= 0.5`: it removes every frequency look-alike and no true edge, a success the frequency toy builds in by putting every planted token in the frequent group.
 
 Deliberately absent:
 
@@ -334,12 +332,13 @@ High base rate is the dense target, so its firing-count baseline is substantive 
 
 These are written down before the run so they cannot be shaped by what comes back.
 A criterion that fails stops the run and gets debugged; it is not relaxed to fit the output.
-The run is 129 dial points per seed at 50k tokens: seed 0 at the oracle and undamaged points first, then seeds 1 to 3.
+The run is 124 dial points per seed at 50k tokens: seed 0 at the oracle and undamaged points first, then seeds 1 to 3.
 The `dense`, `frequency` and `topical` toys were rebuilt after the first run (Section 4); the lines below that name their sizes were updated on 2026-09-27, before those three toys were rerun.
+On 2026-09-29, after the run, one damage kind whose 5 points per seed were never run was taken out of this study, so the declared count is 124 points per seed rather than 129.
 
 Instrument checks, which must all hold or the read is not trustworthy:
 
-- Every declared point is written: 10 on seed 0, 129 on each of seeds 1 to 3.
+- Every declared point is written: 10 on seed 0, 124 on each of seeds 1 to 3.
 - On seed 0 each hierarchy toy's arrays equal the ruleset-1 seed-0 arrays of the same world in `MATRIX-P3` (`only_isa`, `only_firing`) bit for bit, at the oracle and undamaged reads, on every gate except `gate_sres_rank`, which k moves, and `gate_contains` and `gate_pmi_positive`, which that run did not store.
   The rebuilt `dense`, `frequency` and `topical` have no earlier twin.
 - Each designated rule's oracle recall is 1.00 within 0.05 on the toys built for its target: `rule_hierarchy` on `hierarchy_overlap` and on `hierarchy_orthogonal`, `rule_dense_endpoint` on `dense`, `rule_frequency_driven` on `frequency`.
@@ -360,8 +359,6 @@ Registered expectations, declared so that confirming them is not mistaken for di
 - `rule_dense_endpoint` passes every dense look-alike, and also `dense_other` and the dense parents' edges, because its gate reads either endpoint's out-degree.
 - `rule_frequency_driven` passes every frequency look-alike.
 - Every null rate is 0.
-- Hedging is run on neither hierarchy toy: every parent there has exactly one child, so hedging deletes the parent's only hierarchy pair and `gamma_rel` cannot move recall.
-  The column runs on `dense`.
 - Under absorption on `dense` the corrupted pairs are the dense parents' edges (`hierarchy_orthogonal`); the dense look-alikes are touched, not corrupted.
 
 Reporting discipline:
