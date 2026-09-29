@@ -6,7 +6,7 @@ Section 3 keeps only the measured results that constrain how the rules may be re
 
 ## 1. Status and remaining steps
 
-The rules, gate constants and pass criteria in Sections 4, 8 and 9 were fixed before the three-seed damage matrix, and the matrix met every declared criterion (Section 3).
+Ruleset 2 (Sections 2 and 4) replaces the rules the first damage matrix ran under; its pass criteria (Section 9) are declared before its own run.
 Trained-SAE reads of the toys are paused; the steps and settings below that mention an SAE, recovery or matching apply when they resume.
 
 Remaining, in order:
@@ -37,18 +37,26 @@ Keep three notions separate:
 Containment can arise without semantic is-a, and a genuine hierarchy can use an orthogonal child-specific component.
 Neither containment nor positive decoder overlap establishes semantic hierarchy alone.
 
-The generator's labels and what each targets:
+The question is how properties that look like hierarchy mask it, and whether the rules can tell the two apart.
+The generator's labels, for an ordered pair (a, b) with a the candidate parent and b the candidate child:
 
-| Code label | Benchmark target |
+| Code label | Pair |
 | --- | --- |
-| `is_a` | Generated direct containment edge with planted overlap, effective alpha > 0 |
-| `firing_only` | Generated direct containment edge with orthogonal directions, effective alpha = 0 |
-| `superparent` | Either endpoint is a declared high-base-rate feature; firing probability is 0.85, not 1 |
-| `frequency` | Both features share the planted frequent-token set |
-| `topical` | Both features share the planted document topic |
+| `hierarchy_overlap` | a is b's direct parent, and b's direction overlaps a's (alpha > 0) |
+| `hierarchy_orthogonal` | a is b's direct parent, with orthogonal directions (alpha = 0) |
+| `dense_lookalike` | a is a dense feature (firing on 85% of tokens), b a sparse feature outside a's lineage |
+| `dense_other` | every other ordering of a dense pair: sparse to dense, dense to dense |
+| `frequency_lookalike` | a fires on 90% of the tokens with one frequent token id, b on 32% of them |
+| `frequency_other` | every other pair sharing a planted frequent-token set |
+| `topical_lookalike` | a fires on 90% of one topic's tokens, b on 32% of them |
+| `topical_other` | every other pair sharing a planted document topic |
 
-Do not merge is_a and firing_only into a semantic "true hierarchy" label; their union is the target of the containment baseline only.
-They are mutual hard negatives for the planted-overlap distinction, and the generator supplies structural labels, not a validated semantic taxonomy.
+The two hierarchy classes are one target.
+Park et al. (Theorem 8a), Costa et al. (Definition 2.3) and Chanin et al.'s toys model a child's own direction as orthogonal to its parent, so geometry is not what makes an edge hierarchical; the sub-label only lets each geometry be reported separately.
+The two geometries are planted in two worlds, `hierarchy_overlap` and `hierarchy_orthogonal`, that fire identically and differ only in the child's direction.
+A look-alike is the ordering of a spurious pair whose firing looks like a parent-to-child edge: P(a | b) is high and P(b | a) is low.
+It is the only ordering in which the property can pass for hierarchy, so it is the spurious target; the other orderings are scored negatives, kept out of the unrelated null.
+The generator supplies structural labels, not a validated semantic taxonomy.
 
 Stop the single-property stage when every registered metric/expression has a valid result or explicit untestable status for every required seed/class and result-changing audit issues are resolved.
 Do not redesign S_res, change the generator, or search for a better classifier merely because the current expressions fail.
@@ -58,77 +66,39 @@ Do not redesign S_res, change the generator, or search for a better classifier m
 Unless stated otherwise these are at the oracle ceiling: a perfect dictionary, true activations, no damage, full-size toys, 50k tokens.
 A rule that does not fire there cannot fire anywhere.
 
-### Ceiling recall, seed 0, after the Section 4 changes
+Ruleset 1's results (the damage matrix `MATRIX`, seeds 1 to 3, and its seed-0 ceiling `MATRIX-P3`, report schema 4) are kept here only where they constrain ruleset 2; the full record is in git history.
+Ruleset 2's measurements are below; they come from the second damage matrix, `MATRIX2`.
 
-| Rule | Recall | Reading |
-| --- | --- | --- |
-| rule_is_a | 1.00 | all three clauses pass |
-| rule_firing_only | 0.00 in only_firing | the geometry gate passes every firing_only pair there |
-| rule_superparent | 1.00 | null rate 0.00 |
-| rule_frequency | 0.25 | 100% of the ordered container-to-member pairs |
-| rule_topical | 0.33 | 100% of the ordered register-to-member pairs |
-| rule_containment | 1.00 | |
+### What ruleset 2 measured
 
-### The geometry channel does not separate is_a from firing_only
+Seeds 1 to 3 pooled, 50k tokens, counts in pairs.
+With a perfect dictionary:
 
-`gate_sres_rank` passes 100% of is_a and 100% of firing_only pairs at k = 5 and at k = 2, the strictest non-trivial value; k = 2 only tightened the null from 1.3% to at most 0.1%.
-The probe is fitted on the child's firing and the parent co-fires on all of it, so the parent's decoder is the child probe's rank-2 correlate whether or not the two directions are orthogonal.
-No constant inside the current rules separates the classes.
-The S_res values overlap (is_a p1 0.328 is below firing_only p99 0.372), and the same class reads 0.315 in only_firing against 0.042 in only_superparent, an eightfold shift driven by the parent's firing density rather than by geometry.
-The gate responds to density as well: at k = 5 it passed 100% of firing_only edges in only_firing but 58% in only_superparent, where the parent is dense.
-The decoder cosine `G` separates the classes cleanly and identically in every world (median 0.480 for is_a, 0.000 for firing_only); it is reported and read by no rule (Section 4).
+- `rule_hierarchy` found all 360 edges on each hierarchy toy and passed no unrelated pair on any toy.
+- On `dense` it found 14 of the 36 dense-parent edges (5, 5 and 4 per seed), where `rule_containment` found all 36: the rank gate rejects them.
+- The rank gate and `PMI > 0` reject dense look-alikes: `rule_hierarchy` passed 47 of 7,092 (0.7%), where the rank gate alone passes 95 and `rule_containment` all of them.
+- The token-frequency check blocks all 45 frequency look-alikes; `rule_hierarchy` passed all 48 topical look-alikes, as `rule_containment` does, so no check stops shared topics.
+- `rule_frequency_driven` passed every frequency look-alike and nothing else; `rule_dense_endpoint` passed every pair with a dense endpoint, the 36 dense-parent edges included.
 
-### Frequency and topical are capped at 0.25 and 0.33
+Under damage, on the damaged pairs; the undamaged pairs of the same runs stay at their no-damage rates:
 
-Both classes are labelled on both orderings of a pair while `gate_strictly_contains` is directional.
-The rules reach 100% of the ordered pairs the toys plant, which are 25% of the frequency class and 33% of the topical class.
-The caps are accepted and the populations stay symmetric (decided 2026-09-19); Section 8 records that the recall bar does not apply to those two rows.
+- Absorption removes detection through the parent going silent on the child's tokens, not through the child's decoder taking on the parent's direction.
+  With the parent silent on 60% of those tokens `rule_hierarchy` found none of the absorbed edges at any mixing; with no silencing it found all of them at every mixing.
+  The two geometries differ only at mixing 0.75 with 30% silencing: 62% of edges found with overlapping directions, 76% with orthogonal ones.
+- Splitting a parent and reading only its strongest piece drops `rule_hierarchy` to 52% at k = 2 and to 0% at k = 3 or more, in both geometries; recombining the pieces keeps it at 100%.
+- Dense features that are split, or composed with a share of 0.5 or more, hide every dense look-alike from `rule_dense_endpoint` when each piece is read alone; recombining restores it.
+- Composition does not change `rule_hierarchy` on the hierarchy toys.
+- Hedging leaves `rule_dense_endpoint` at 100%, and its effect on `rule_hierarchy`'s dense look-alikes (0.5% to 0.1%) is within noise.
+- The dense-parent edges under damage are too few (9 to 18 pairs) for any change to exceed noise.
+- On seeds 2 and 3 the frequency toy's 12 absorption runs keep no undamaged container-to-member pair, so they have no within-run comparison (Section 9); `rule_frequency_driven`'s dose trend there still runs from 100% at zero dose to 0%.
 
-### The damage matrix, seeds 1 to 3, measured 2026-09-20
+### What ruleset 1 established
 
-333 runs, 111 dial points on each seed at 50k tokens, under the criteria declared in Section 9 before any of these numbers existed.
-All three seeds met every declared criterion, 15 of 15 each.
-Seed 0 is a regression check and not evidence, because it selected `sres_rank_top_k` and the `rule_topical` clauses.
-
-Replication is near-exact: every rule reproduces to three decimals on all three seeds, except `rule_firing_only` on `only_superparent` at 0.833, 0.917 and 0.750 (10, 11 and 9 of 12 pairs).
-Every null false-positive rate is 0.0000, which is flattering rather than informative: unrelated pairs sit at coverage 0.11 to 0.18 against a cut of 0.5.
-The informative negatives are the other structured classes, and against those the set largely fails:
-
-| Rule | On target | Worst off-target | On which class |
-| --- | --- | --- | --- |
-| `rule_frequency` | 0.250 | **0.000** | nothing; clean |
-| `rule_firing_only` | 0.833 | 0.468 | `superparent` |
-| `rule_is_a` | 1.000 | **1.000** | `firing_only` |
-| `rule_superparent` | 1.000 | **1.000** | `firing_only` and `reversed` |
-| `rule_topical` | 0.333 | **1.000** | `is_a` and `firing_only` |
-
-- `rule_topical` contains nothing topic-specific, so every true containment edge passes it; its recall is not a measurement of topical detection.
-- `rule_superparent` passes `reversed` at 1.000, because its gate reads an endpoint's out-degree, which is symmetric in the pair.
-- `rule_frequency` is the only rule with clean specificity.
-- Each discriminator partitions containment exhaustively, so no rule in either pair can abstain; that is the direct cause of the leakage.
-
-What the rules actually read:
-
-- The encoder costs nothing: the largest recall shift between the oracle column and the undamaged NNLS column is 0.0000 everywhere.
-  Of the eight registered metrics, six are bit-identical between the two (`coverage_R`, `asymmetry_R`, `pmi`, `token_freq_survival`, `S_res`, `G`), because they depend only on the firing pattern and the decoder directions, which NNLS on the planted support leaves unchanged.
-  Only `recon_2a` and `recon_child_gain` move, and `gate_recon` shows zero flips.
-  The rule set is therefore almost entirely a firing-pattern test, which will not transfer to a trained SAE, where the encoder sets the support.
-- NNLS reconstructs better than the true coefficients in every toy and seed, so reconstruction quality is not evidence of correct recovery.
-- One clause carries every damage result.
-  On `only_isa` under absorption, at all twelve dial points, `PASSES(strictly_contains)` alone, `strictly_contains AND sres_rank` and `strictly_contains AND recon AND sres_rank` return the same number.
-  Across the whole matrix `gate_recon` changes an answer in 25 of about 950 comparisons, all in one cell (`only_superparent`, composition, `union` readout), where its own question is ill-posed because the readout merged two features into a shared latent.
-  `gate_mutually_contains` is read by no rule.
-- Absorption and splitting act only through coverage, and the rules switch rather than degrade.
-  Coverage falls to about 1 minus eta and crosses the cut between eta 0.3 and 0.6.
-  A feature read on one of k shards has coverage exactly 1/k, so the rule dies above k = 2.
-  The `union` readout restores it, which is an oracle repair: the readout is handed the true shard grouping.
-- `gate_sres_rank` is unmoved by every damage (1.000 at all twelve absorption points in only_firing, 0.056 in only_superparent).
-  `G` tracks the geometry half of absorption instead: 0.480, 0.640, 0.745 and 0.814 at beta 0, 0.25, 0.5 and 0.75, blind to eta and to k.
-
-Caveats: only_frequency and only_topical reach only 24 pooled corrupted pairs, and their transition cells are the least stable (`rule_frequency` at beta 0.75, eta 0 reads 0.12, 0.38 and 0.75 across seeds).
-`transitive` and `sibling` are not planted in any pure toy.
-The matrix is indexed by (toy, class): absorption damages only only_superparent's firing_only edges, and splitting as configured only its superparent pairs.
-Leakage under damage is not measured; the damaged cells report target pass rates only.
+- Across seeds 1 to 3, `gate_recon` changed a rule's answer in 8 of 1,026 point-by-class cells for the is_a rule and 17 of 1,026 for the firing_only rule (5,685 pairs), all in one setting (`only_superparent`, composition, `union` readout), where the readout merged two features into one latent and its question is ill-posed.
+  No rule reads it (Section 4).
+- `gate_sres_rank` does not separate the two geometries at k = 5 or at k = 2: the probe is fitted on the child's firing and the parent co-fires on all of it, so the parent's decoder ranks near the top whether or not the directions overlap.
+- `gate_sres_rank` responds to the parent's firing density: on the seed-0 ceiling at k = 5 it passed 100% of orthogonal edges when the parent fired on 18% of tokens, and 58% (7 of 12) when it fired on 85%.
+- `gate_freq_survives` separates the frequency pairs only because every planted token id is in the high-frequency bucket: survival was exactly 0 on all 180 frequency pairs and 0.500 on every tree edge, against a cut of 0.333.
 
 ## 4. Registry: the committed expressions
 
@@ -138,44 +108,44 @@ They replaced null-quantile predicates, which could not travel to a real SAE: a 
 
 | ID | Target | Exact expression |
 | --- | --- | --- |
-| rule_is_a | is_a | `PASSES(strictly_contains) AND PASSES(recon) AND PASSES(sres_rank)` |
-| rule_firing_only | firing_only | `PASSES(strictly_contains) AND PASSES(recon) AND FAILS(sres_rank)` |
-| rule_superparent | superparent | `PASSES(high_outdegree)` |
-| rule_frequency | frequency | `PASSES(strictly_contains) AND FAILS(freq_survives)` |
-| rule_topical | topical | `PASSES(strictly_contains) AND PASSES(freq_survives)` |
-| rule_containment | Generated direct containment: is_a union firing_only | `PASSES(strictly_contains)` |
-| rule_is_a_no_recon | is_a | `PASSES(strictly_contains) AND PASSES(sres_rank)` |
-| rule_firing_only_no_recon | firing_only | `PASSES(strictly_contains) AND FAILS(sres_rank)` |
+| rule_hierarchy | hierarchy_overlap, hierarchy_orthogonal | `PASSES(strictly_contains) AND PASSES(pmi_positive) AND PASSES(freq_survives) AND PASSES(sres_rank)` |
+| rule_dense_endpoint | dense_lookalike | `PASSES(high_outdegree)` |
+| rule_frequency_driven | frequency_lookalike | `PASSES(strictly_contains) AND FAILS(freq_survives)` |
+| rule_containment | hierarchy_overlap, hierarchy_orthogonal (baseline) | `PASSES(strictly_contains)` |
 
-The first five are designated; the containment baseline and the two no-recon comparators are reported beside them.
+The first three are designated; the containment baseline is reported beside them.
+Every rule is graded on every class, so a look-alike class that `rule_hierarchy` passes shows up as its leak: that leak is the measure of how each property masks hierarchy.
+No rule targets `topical_lookalike`, because no gate reads a topic; the topical toy is scored as a negative only.
 `FAILS` is written literally, never as `NOT PASSES`: a gate that was never measurable satisfies neither predicate.
-The four rules reading `gate_sres_rank` are INVALID MEASUREMENT on a run without the probe, not rejections.
+`rule_hierarchy`, the one rule reading `gate_sres_rank`, is INVALID MEASUREMENT on a run without the probe, not a rejection.
+`PMI > 0` is the independence check of the metrics paper, and only `rule_hierarchy` reads it: on seed 0 it halves the dense look-alikes that pass containment (2,364 to 1,195) and keeps all 12 dense-parent edges, and on the other toys containment already implies it.
+`rule_hierarchy` also requires the paper's token-frequency check, `R_low+mid / R_all >= 0.5`: on seed 0 it removes all 15 frequency look-alikes and no true edge, a success the frequency toy builds in by putting every planted token in the frequent group.
 
 Deliberately absent:
 
 - `G` is in no rule (decided 2026-09-19), so the rule set matches the one the team uses; it is computed and reported as a diagnostic in every artifact.
-  Consequence, registered rather than hidden: the geometry rules rest on `gate_sres_rank` and cannot separate is_a from firing_only (Section 3).
-  A fixed-cut G gate is future work outside this freeze.
-- PMI decides nothing: no fixed constant for it exists in `config.py` or `metrics/`.
-  The support guard and the fixed tau do less of its work, and the leak rates say how much less.
+  No rule separates the two hierarchy geometries; they are one target, and `G` reports the geometry beside it.
+- `gate_recon` is computed and reported, and read by no rule (Section 3).
+- A spurious-coverage rule, `PASSES(strictly_contains) AND FAILS(sres_rank)`, is left out: within containment, wherever the rank gate is measurable, it passes exactly the pairs `rule_hierarchy` rejects, so it measures nothing new.
 
 Names carry no version.
-A change to any rule, gate or constant bumps `metrics.rules.RULESET_VERSION` (now 1), which every artifact records beside `gate_constant_set`.
+A change to any rule, gate or constant bumps `metrics.rules.RULESET_VERSION` (now 2), which every artifact records beside `gate_constant_set`.
+Ruleset 2 (2026-09-26) merged `is_a` and `firing_only` into the hierarchy target, split each spurious class by ordering, dropped the recon clause and `rule_topical`, and returned `sres_rank_top_k` to 5.
+It also added `PMI > 0` and the token-frequency check to `rule_hierarchy` the same day; the version stayed 2 and `MATRIX2` was rerun under it.
+Its toys are `hierarchy_overlap` and `hierarchy_orthogonal`, the ruleset-1 `only_isa` and `only_firing` worlds under new names, and `dense`, `frequency` and `topical`.
+Those three were rebuilt on 2026-09-27 from the ruleset-1 `only_superparent`, `only_frequency` and `only_topical` worlds with more copies of the same construction, because they held too few pairs: each dense parent has two children that never fire together (24 dense-parent edges), the frequency toy has 24 token groups of one frequent token id each (ids 1 to 24), and the topical toy 24 topics (48 look-alikes each).
 Rules and gates were renamed on 2026-09-23 without changing any decision, and the stored gate-era results (`MATRIX`, `MATRIX-P3`) were renamed with them; the old names are in git history and in `outputs_archive/gate_era_original_names.tar` on soar-gpu.
 Schema-2 results predate the gate rules and keep their own names.
 `gate_contains`, one-way containment and the Gemma pipeline's cross-block edge, was added at the same time; no rule reads it yet.
 
-### Constant and clause decisions, 2026-09-19
+### Constant and clause decisions
 
-Eyeballed from the oracle ceiling, not swept; they changed a constant and a clause, never a metric definition.
+They change a constant or a clause, never a metric definition.
 
-1. `sres_rank_top_k` is 2, the strictest non-trivial value: the child's own decoder is essentially always rank 1, so k = 5 admitted any parent in ranks 2 to 5.
-   It did not buy the separation (Section 3) but is strictly tighter on the null at identical recall.
-   `config.SRES_RANK_TOP_K` and Tree SAE use 5; this is the recorded departure.
-2. `rule_topical` reads `PASSES(strictly_contains) AND PASSES(freq_survives)`.
-   The earlier `gate_mutually_contains` form read 0 by construction: the toy plants a register at 0.9 and members at 0.32, and any tau below 0.32 would also make every is_a pair mutual.
-3. `recon_rel_gain_min` stays at 0.01 and is marked inert: at the ceiling it passes about 100% of targets and nulls alike.
-   Its job is rejecting pairs where an endpoint carries no reconstruction mass, a damaged or trained-read condition; if it stays inert under damage, drop the clause rather than tune it.
+1. `sres_rank_top_k` is 5, Tree SAE's operational rule, in both constant sets.
+   Ruleset 1 used 2 to separate is_a from firing_only, which it did not do (Section 3); with the two merged the reason is gone.
+2. `recon_rel_gain_min` stays at 0.01 for the reported `gate_recon`; no rule reads it.
+3. `gate_strictly_contains` is kept rather than Tree SAE's one-way coverage: the two differ only on pairs that cover each other, and in these toys all of those are dense-to-dense pairs.
 4. Unchanged because the ceiling says they work: `edge_tau` 0.5, `superparent_outdeg_frac` 0.30, `freq_survival_min` 0.5 (on the raw ratio), `min_fire_count` 20, `min_joint` 30.
 
 Known failures may replicate; there is no requirement to find a winning expression for every property.
@@ -215,14 +185,14 @@ An artifact whose `detector_constants` still lists `pmi_laplace` carries the ear
 On the pairs the support mask keeps it sat at most 0.03 nats above the current value (100 re-scored points, 2026-09-25); on rare pairs that never co-fire it is large and positive, which the mask hides.
 No rule reads it.
 
-Eight of the sixteen decide nothing; they are persisted at full precision and reported in `metric_diagnostics`, so a reader can tell a diagnostic from a number a verdict rests on.
+Ten of the sixteen decide nothing, the two reconstruction metrics included, since no rule reads `gate_recon`; they are persisted at full precision and reported in `metric_diagnostics`, so a reader can tell a diagnostic from a number a verdict rests on.
 
 ### Gates
 
-Eight fixed-threshold decisions, defined once in `metrics/rules/gates.py`.
+Nine fixed-threshold decisions, defined once in `metrics/rules/gates.py`.
 Each is tristate: 1.0 the rule holds, 0.0 it does not, NaN it was never measurable.
 The constants are eyeballed, as Chanin's absorption paper sets its cutoffs and says so, and form the named set `SYNTHETIC_TOYS` in `metrics/rules/constants.py`.
-The Gemma pipeline uses `GEMMA_MATRYOSHKA` from the same file, which differs in `fire_threshold` (1e-3) and `sres_rank_top_k` (5).
+The Gemma pipeline uses `GEMMA_MATRYOSHKA` from the same file, which differs in `fire_threshold` (1e-3) and `sres_rank_pool` (the whole dictionary).
 The defence of an arbitrary constant is that one fixed rule applies identically to every arm of a comparison.
 
 | Gate | Rule | Constants | Defined where |
@@ -235,14 +205,15 @@ The defence of an arbitrary constant is that one fixed rule applies identically 
 | `gate_sres_rank` | the parent's decoder AND the child's own rank inside the child probe's top k correlations | `sres_rank_top_k` | children whose probe trained |
 | `gate_high_outdegree` | either endpoint has out-degree at least `superparent_outdeg_frac * (R - 1)` | 0.30 | endpoints firing at least `min_fire_count` times |
 | `gate_freq_survives` | `token_freq_survival >= squash(freq_survival_min)`, equality surviving | 0.5 raw, 0.333 squashed | pairs with a defined survival ratio |
+| `gate_pmi_positive` | `PMI(p,c) = log(cofire * N / (fire_p * fire_c)) > 0`, so exact independence fails | 0 | supported pairs |
 
 `squash(x) = x / (1 + x)` converts a threshold stated on the raw ratio to the scale the detector reports; comparing the raw 0.5 against the reported value would demand a raw ratio of 1.0.
 `min_joint` is also the co-firing floor of the edge set and of `token_freq_survival`, as in the Gemma pipeline.
 `gate_sres_rank` scores its competitor pool over the scored frame, not the whole dictionary; on a trained read with recovery attrition that bar is weaker than the paper's, and `n_recovered_features` is the number to watch.
 
 For probe comparisons, use the same probe formula on true firing with true unit g and on learned firing with learned unit W, fitted on the recorded fitting draw and frozen before scoring.
-A probe trained on child firing can exploit parent co-firing even with orthogonal decoders, which is the measured reason `gate_sres_rank` passes firing_only pairs (Section 3).
-The paper's top-five probe ranking is our rule rather than a contrast, so the remaining differences from Tree SAE are the competitor pool and the all-pairs population.
+A probe trained on child firing can exploit parent co-firing even with orthogonal decoders, which is the measured reason `gate_sres_rank` passes orthogonal edges (Section 3).
+The paper's top-five probe ranking is our rule rather than a contrast, so the remaining differences from Tree SAE are the competitor pool, the all-pairs population and strict rather than one-way containment (Section 4).
 Source: [Tree SAE Section 3](https://arxiv.org/html/2605.07922v2#S3), [Section 5.2](https://arxiv.org/html/2605.07922v2#S5.SS2), [Appendix H](https://arxiv.org/html/2605.07922v2#A8).
 Exact containment implies oracle R = 1 when the child fires; it does not imply a recall guarantee for a rule after training.
 
@@ -259,7 +230,7 @@ Procedure:
 4. Freeze the probe directions before the detectors and the gates, because `gate_sres_rank` reads them.
 
 Primary evaluation uses all ordered pairs on the stated endpoint universe, excluding self-pairs, with no coverage shortlist.
-For `frequency` and `topical` the population is the symmetric class, capped as in Section 3.
+The spurious targets are the look-alike orderings (Section 2); the other orderings of each family are reported as their own classes and graded as confounds.
 
 For each target, read and seed, report:
 
@@ -274,6 +245,8 @@ Report every rule's null FPR and leakage in every world, plus multiple-rule and 
 
 The scorability guard is a reported population, not a silent filter: the fraction `gate_support` excludes is reported by cause, because "the rule rejected these pairs" and "the rule could not see them" are different results.
 Survival is `S = r/(1+r)` with `r = R_rest/R_all`, where the restricted corpus drops the high-frequency bucket; unchanged coverage maps to 0.5.
+The high-frequency bucket is the most common half of the scored tokens, so the check sees only causes inside it: a pair tied to token ids outside that half keeps its coverage when the bucket is dropped and is not flagged.
+The half is cut from the sampled counts, so ids near its edge move in and out between draws; the frequency toy plants ids 1 to 24, which fell outside the half on 1 of 300 random 50k-token draws (ids up to 30: 240 of 300).
 `wide(p,c) = min(outdegree[p,c], outdegree[c,p])` requires both values finite; `wide` and `gate_high_outdegree` are endpoint-broadcast, so a per-pair scorability mask must never be applied to them.
 Record `constant_null`, `constant_target` and `constant_overall` with their tolerance and finite counts: a point-mass null against a point-mass target separates perfectly without any real detection.
 
@@ -287,7 +260,7 @@ Record `constant_null`, `constant_target` and `constant_overall` with their tole
 Checklist before freezing; an item closes only when the listed verification exists:
 
 - [x] Literal negative predicates, clause-specific scorable masks, no rule reading a metric, both directions finite before `wide`.
-- [x] Re-run the oracle ceiling after the Section 4 decisions (2026-09-20; it reproduced the Section 3 table exactly).
+- [ ] Re-run the oracle ceiling under ruleset 2: the seed-0 checks in Section 9 (ruleset 1's re-run on 2026-09-20 reproduced its own table exactly).
 - [ ] Persist enough exact data to reproduce every expression: original-precision gate matrices and required metric scores, or sufficient scorable and pass masks, alongside the constants.
 - [ ] Verify instrument names and pair identity: probe `S_res` distinct from cosine `G`, matching feature ids and both pair orderings, the matched-oracle control retained.
 - [ ] Add distribution diagnostics without changing verdicts: constant-null, constant-target and constant-overall flags, support, and dictionary or candidate-pool size beside the four outcome labels.
@@ -302,16 +275,16 @@ Complete this manifest before any fresh-seed result is inspected:
 
 | Setting | Current proposal / action needed |
 | --- | --- |
-| Candidate registry | Five designated expressions, the containment baseline and two no-recon comparators (Section 4); approve exact inclusion |
+| Candidate registry | Three designated rules and the containment baseline (Section 4); approve exact inclusion |
 | Metric definitions | Pin the implementation revision, score modes, signs, normalization, the undefined-cell convention and support gates. The probe and token-bucket settings are `METRIC_SETTINGS`, stamped as `metric_settings` |
-| Gate constants | `edge_tau` 0.5, `min_fire_count` 20, `min_joint` 30, `recon_rel_gain_min` 0.01, `superparent_outdeg_frac` 0.30, `freq_survival_min` 0.5 (squashed 0.333), `sres_rank_top_k` 2: the set `SYNTHETIC_TOYS`, stamped whole as `gate_constants` in every artifact |
-| Operational recall bar | Recall-given-recovery >= 0.8, except `rule_frequency` and `rule_topical`: their caps (Section 3) mean those rows report the curve and the cap, and no MET or DID NOT MEET verdict on recall is read from them. The verdict function still prints one, so the table must carry this note |
+| Gate constants | `edge_tau` 0.5, `min_fire_count` 20, `min_joint` 30, `recon_rel_gain_min` 0.01, `superparent_outdeg_frac` 0.30, `freq_survival_min` 0.5 (squashed 0.333), `sres_rank_top_k` 5: the set `SYNTHETIC_TOYS`, stamped whole as `gate_constants` in every artifact |
+| Operational recall bar | Recall-given-recovery >= 0.8 |
 | Null-FPR bar | Null FPR <= 0.01 in each tested world, over the whole unrelated class |
 | Confound-leakage bar | Each named complete-expression confound rate <= 0.05 |
 | Support requirements | `MIN_SCORABLE_SUPPORT = 10`, applying to the target row, the null row and every confound row |
 | Rate denominators | Recall on `N_recovered`; null FPR and confound leakage on `N_scorable` |
 | Cross-world combination | Null FPR: the worst world, with the pooled rate beside it. Leakage: pooled by counts, with the worst world beside it |
-| Reporting contract version | `REPORT_SCHEMA = 4` (history below). Stamped into every artifact; `write_artifacts` refuses any other value |
+| Reporting contract version | `REPORT_SCHEMA = 5` (history below). Stamped into every artifact; `write_artifacts` refuses any other value |
 | Recovery/end-to-end criterion | Report both; specify an additional bar only if making an operational-recovery success claim |
 | Seeds and draws | Record the exact three unused world/training seed ids, the draw derivations (Section 6) and sample sizes. The draw offsets are in `scoring/config.py`, stamped as `benchmark_settings`, and the census thresholds as `pathology_settings` in `census.json` |
 | SAE setup | Pin per-toy variant, sparsity, dictionary/prefix sizes, training configuration and checkpoint provenance |
@@ -326,6 +299,7 @@ Complete this manifest before any fresh-seed result is inspected:
 2. `recall_given_recovery` moved to N_pass / N_recovered, with the scorable rate split out as `pass_rate_given_scorable`; `fpr` split into `fpr_given_scorable` and `fpr_over_half`; `leakage` read the scorable rate, with `leakage_over_recovered` beside it; the support floor extended to the null and confound rows; `verdict` decides established failures before unmeasurable evidence.
 3. The fixed-gate contract: the null is no longer halved, so `fpr_given_scorable` is measured over the whole null and `fpr_over_half` is gone.
 4. The shared-rules contract: every rule and three gates were renamed (Section 4); the arithmetic is unchanged.
+5. Ruleset 2's classes: `is_a` and `firing_only` became `hierarchy_overlap` and `hierarchy_orthogonal`, and each spurious class split into `_lookalike` and `_other`, so a stored class code means a different class; `synthdict/export.py` refuses any other schema.
 
 ### Why the settings are shaped this way
 
@@ -345,7 +319,7 @@ Shared-feature pairs are not independent replications, and p10-p90 ranges are no
 Use MET CRITERIA, DID NOT MEET CRITERIA, UNTESTABLE and INVALID MEASUREMENT as distinct labels; all three bars are inclusive.
 A missing class has zero end-to-end recall and an untestable conditional detector, not perfect specificity evidence.
 A valid negative score is not INVALID MEASUREMENT.
-High base rate is the superparent target, so its firing-count baseline is substantive rather than something every detector must beat.
+High base rate is the dense target, so its firing-count baseline is substantive rather than something every detector must beat.
 
 ## 9. Freeze, replicate, and report
 
@@ -356,32 +330,49 @@ High base rate is the superparent target, so its firing-count baseline is substa
 - [ ] Report whether each pilot success or failure replicated; state when the signal is within uncertainty rather than calling it an improvement.
 - [ ] Finish the single-property stage, including properties for which no designated expression met criteria.
 
-### Pass criteria for the damage-matrix run, declared 2026-09-20 before any seed 1-3 result
+### Pass criteria for the ruleset-2 damage-matrix run (`MATRIX2`), declared 2026-09-26 before any result
 
 These are written down before the run so they cannot be shaped by what comes back.
 A criterion that fails stops the run and gets debugged; it is not relaxed to fit the output.
+The run is 129 dial points per seed at 50k tokens: seed 0 at the oracle and undamaged points first, then seeds 1 to 3.
+The `dense`, `frequency` and `topical` toys were rebuilt after the first run (Section 4); the lines below that name their sizes were updated on 2026-09-27, before those three toys were rerun.
 
 Instrument checks, which must all hold or the read is not trustworthy:
 
-- Each designated rule reproduces its seed-0 oracle ceiling recall within 0.05 absolute, on the toy that plants its target class.
+- Every declared point is written: 10 on seed 0, 129 on each of seeds 1 to 3.
+- On seed 0 each hierarchy toy's arrays equal the ruleset-1 seed-0 arrays of the same world in `MATRIX-P3` (`only_isa`, `only_firing`) bit for bit, at the oracle and undamaged reads, on every gate except `gate_sres_rank`, which k moves, and `gate_contains` and `gate_pmi_positive`, which that run did not store.
+  The rebuilt `dense`, `frequency` and `topical` have no earlier twin.
+- Each designated rule's oracle recall is 1.00 within 0.05 on the toys built for its target: `rule_hierarchy` on `hierarchy_overlap` and on `hierarchy_orthogonal`, `rule_dense_endpoint` on `dense`, `rule_frequency_driven` on `frequency`.
+  This follows from the ruleset-1 gate arrays (Section 3), so a miss means the labels or the rule wiring are wrong.
 - The worst null false-positive rate across every rule and every toy is at or below 0.01.
-- No expression row reads INVALID, and every arm row carries its counts for all four populations (corrupted, touched, intact, null).
-- Absorption at `beta = 0, eta = 0` reproduces that toy's undamaged cell exactly. These are the same dictionary, so any difference is a bug in the damage path, not a result.
+- No expression row reads INVALID.
+- Absorption at `beta = 0, eta = 0` reproduces that toy's undamaged cell exactly.
+  These are the same dictionary, so any difference is a bug in the damage path, not a result.
 - Composition at `pi = 0` under the `union` readout reproduces that toy's undamaged cell exactly, per the invariant recorded in `synthdict/PARAMETERS.md`.
-- Every damage cell has a non-empty intact arm. Coverage is 0.5 precisely to guarantee this; a cell that arrives without one is reported as uncontrolled rather than compared.
+- Every damage cell has a non-empty intact arm.
+  Coverage is 0.5 precisely to guarantee this; a cell that arrives without one is reported as uncontrolled rather than compared.
 
 Registered expectations, declared so that confirming them is not mistaken for discovery and contradicting them is not quietly absorbed:
 
-- `rule_firing_only` reads 0 recall and `rule_is_a` leaks fully onto `firing_only`, on every toy and every read. The geometry channel does not separate the two classes at any `k`; this is settled and is not reopened by this run.
-- `rule_frequency` and `rule_topical` cap at 0.25 and 0.33 because their classes are labelled on both orderings while the rules are directional. Those are ceilings, not failures, and the 0.80 bar does not apply to those rows.
-- Under absorption on `only_superparent` the `superparent` class has no corrupted pairs by construction, because absorbed edges are `firing_only`. Its signal is in the touched arm.
-- Hedging is not run on `only_isa`. Every parent there has exactly one child, so hedging deletes the parent's only `is_a` pair and `gamma_rel` cannot move recall by any amount. Measured seed 0: corrupted and touched arms are 0 at every coverage. The column runs on `only_superparent` instead, where the same coverage gives 1686 corrupted and 3144 intact pairs.
+- `rule_hierarchy` passes every edge on both hierarchy toys.
+- It passes about half of the dense parents' edges on `dense`, now 24 per seed (on the earlier one-child toy: 7 of 12 on seed 0 and 5 of 12 on seed 1 under ruleset-1 ranks at k = 5, and 14 of 36 over seeds 1 to 3 in the first `MATRIX2` run).
+- It leaks onto `topical_lookalike`: the pair from the feature firing on 90% of a topic's tokens to one firing on 32% passes containment, and the probe ranks the 90% feature high by the same co-firing; the token-frequency check blocks `frequency_lookalike`.
+- `rule_dense_endpoint` passes every dense look-alike, and also `dense_other` and the dense parents' edges, because its gate reads either endpoint's out-degree.
+- `rule_frequency_driven` passes every frequency look-alike.
+- Every null rate is 0.
+- Hedging is run on neither hierarchy toy: every parent there has exactly one child, so hedging deletes the parent's only hierarchy pair and `gamma_rel` cannot move recall.
+  The column runs on `dense`.
+- Under absorption on `dense` the corrupted pairs are the dense parents' edges (`hierarchy_orthogonal`); the dense look-alikes are touched, not corrupted.
 
 Reporting discipline:
 
-- Counts are printed beside every rate. `only_frequency` and `only_topical` reach only about 8 corrupted pairs, so their rates carry wide intervals.
-- No difference is called real unless its interval excludes the comparison. A gap inside the interval is reported as within noise, in those words.
-- Seed 0 is a regression check against the recorded ceiling and is never quoted as evidence for a constant, because it selected `sres_rank_top_k = 2` and the `rule_topical` clauses.
+- Counts are printed beside every rate, for all four populations of an arm row (corrupted, touched, intact, null).
+  `frequency` and `topical` reach about 24 corrupted pairs per seed, so their rates carry wide intervals.
+- No difference is called real unless its interval excludes the comparison.
+  A gap inside the interval is reported as within noise, in those words.
+- Seed 0 is the instrument check above and is not quoted as evidence.
+- Each target class is reported under `rule_hierarchy` (its recall on a hierarchy class, its leak on a look-alike) and under the class's own designated detector.
+  A table cell's rate is the pass rate among that class's measurable pairs; the recall criterion above is checked separately.
 
 Expected findings are hypotheses, not requirements imposed on the outputs.
 If a previously failing rule succeeds, report that result with the same checks; do not engineer either success or failure.
