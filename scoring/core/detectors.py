@@ -312,11 +312,12 @@ def token_freq_survival(Fm: torch.Tensor, tokens: torch.Tensor, vocab: int, min_
     fire_b = torch.stack([f.sum(dim=0) for f in Fb])                  # [buckets, R]
     cofire_all = cofire_b.sum(dim=0)
     measurable = (cofire_all >= min_joint) & (cofire_all > 0)
-    # unclamped, and x/(1+x) below rather than a clamp, so the >1 tail stays ranked; floor on
-    # total child firing, not rare-bucket firing: a zero rare-bucket rate is the signal
+    # unclamped, and x/(1+x) below rather than a clamp, so the >1 tail stays ranked; a child
+    # that never fires on rare tokens scores 0: a zero rare-bucket rate is the signal
     ratio = frequency_controlled_coverage(cofire_b, fire_b, measurable,
                                           min_fire_low=settings.freq_min_fire_low,
-                                          clamp_max=None, floor="total")["survival"]
+                                          clamp_max=None,
+                                          no_rare_firing_scores_zero=True)["survival"]
     return _nan_diag(squash(ratio))
 
 

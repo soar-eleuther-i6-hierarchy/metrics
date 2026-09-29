@@ -171,7 +171,7 @@ Undefined cells are NaN: scoring passes `undefined=NaN` where the Gemma pipeline
 | `S_res` | Tree SAE probe score, min over endpoints of decoder-probe alignment | `sres.sres_scores` | gate_sres_rank |
 | `outdegree` | kept-children count per parent, sign-flipped | `outdegree.kept_outdegree` | gate_high_outdegree |
 | `wide` | the larger out-degree of the two endpoints, sign-flipped | `outdegree.either_endpoint_outdegree` | gate_high_outdegree |
-| `token_freq_survival` | r/(1+r) with r the restricted-corpus coverage ratio | `token_control.frequency_controlled_coverage`, unclamped and floored on total firing | gate_freq_survives |
+| `token_freq_survival` | r/(1+r) with r the restricted-corpus coverage ratio | `token_control.frequency_controlled_coverage`, unclamped; a child with no rare-token firing scores 0, one with 1 to 4 is unmeasurable | gate_freq_survives |
 | `pmi` | log(P(p,c) / (P(p) P(c))), unsmoothed | `independence_null.independence_scores` | none |
 | `joint_child_J` | min(1, sum of forward coverage over kept children) | `coverage.joint_child_coverage_upper` | none |
 | `joint_child_supp` | share of the parent's firing tokens where a kept child fires | `joint_child.r_supp` | none |
@@ -203,7 +203,7 @@ The defence of an arbitrary constant is that one fixed rule applies identically 
 | `gate_mutually_contains` | `R(p,c) >= edge_tau` AND `R(c,p) >= edge_tau`, on a supported pair | 0.5 | supported pairs |
 | `gate_recon` | `recon_2a >= recon_rel_gain_min` AND `recon_child_gain >= recon_rel_gain_min` | 0.01 | both gains finite |
 | `gate_sres_rank` | the parent's decoder AND the child's own rank inside the child probe's top k correlations | `sres_rank_top_k` | children whose probe trained |
-| `gate_high_outdegree` | either endpoint has out-degree at least `superparent_outdeg_frac * (R - 1)` | 0.30 | endpoints firing at least `min_fire_count` times |
+| `gate_high_outdegree` | either endpoint has out-degree at least `superparent_outdeg_frac * (R - 1)` | 0.30 | every pair, unless both endpoints fire under `min_fire_count` times |
 | `gate_freq_survives` | `token_freq_survival >= squash(freq_survival_min)`, equality surviving | 0.5 raw, 0.333 squashed | pairs with a defined survival ratio |
 | `gate_pmi_positive` | `PMI(p,c) = log(cofire * N / (fire_p * fire_c)) > 0`, so exact independence fails | 0 | supported pairs |
 
@@ -247,7 +247,7 @@ The scorability guard is a reported population, not a silent filter: the fractio
 Survival is `S = r/(1+r)` with `r = R_rest/R_all`, where the restricted corpus drops the high-frequency bucket; unchanged coverage maps to 0.5.
 The high-frequency bucket is the most common half of the scored tokens, so the check sees only causes inside it: a pair tied to token ids outside that half keeps its coverage when the bucket is dropped and is not flagged.
 The half is cut from the sampled counts, so ids near its edge move in and out between draws; the frequency toy plants ids 1 to 24, which fell outside the half on 1 of 300 random 50k-token draws (ids up to 30: 240 of 300).
-`wide(p,c) = min(outdegree[p,c], outdegree[c,p])` requires both values finite; `wide` and `gate_high_outdegree` are endpoint-broadcast, so a per-pair scorability mask must never be applied to them.
+`wide(p,c) = min(outdegree[p,c], outdegree[c,p])` requires both values finite, while `gate_high_outdegree` is undefined only when both endpoints are; both are endpoint-broadcast, so a per-pair scorability mask must never be applied to them.
 Record `constant_null`, `constant_target` and `constant_overall` with their tolerance and finite counts: a point-mass null against a point-mass target separates perfectly without any real detection.
 
 ## 7. Reproducibility requirements
