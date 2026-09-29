@@ -158,14 +158,15 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
                 c = new("broad_child")
                 parents[c] = [(b, cfg.child_p_edge, cfg.broad_alpha)]
                 children[b].append(c)
-        # dense true parent: as dense as a superparent, with one exactly orthogonal child.
+        # dense true parent: as dense as a superparent, with exactly orthogonal children that split its tokens.
         for _ in range(cfg.n_dense_parents):
             d = new("dense_parent")
             root_p[d] = cfg.superparent_p
-            exclusive[d] = False
-            c = new("dense_child")
-            parents[c] = [(d, cfg.child_p_edge, 0.0)]
-            children[d].append(c)
+            exclusive[d] = True
+            for _ in range(cfg.children_per_dense_parent):
+                c = new("dense_child")
+                parents[c] = [(d, cfg.child_p_edge, 0.0)]
+                children[d].append(c)
 
         # token-bound pairs: co-fire only through shared top-frequency ids, with no declared edge
         for i in range(cfg.n_token_bound_pairs):
@@ -224,17 +225,17 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
 
 
 def _token_groups(cfg: ToyConfig) -> tuple[list[tuple[int, ...]], list[float]]:
-    """Split ids 1..n_token_groups*token_ids_per_group into groups of equal design-Zipf mass.
+    """Split ids 1..n_token_group_ids into n_token_groups groups of near-equal design-Zipf mass.
 
     Greedy: heaviest id into the currently lightest group. Id 0 is left out since its mass alone
     exceeds a group's.
     """
     from .sample import _zipf_probs     # lazy: sample imports tree
-    n_ids = cfg.n_token_groups * cfg.token_ids_per_group
-    if n_ids > cfg.vocab - 1:
+    n_ids = cfg.n_token_group_ids
+    if not cfg.n_token_groups <= n_ids <= cfg.vocab - 1:
         raise ValueError(
-            f"token groups need ids 1..{n_ids} but vocab is {cfg.vocab}; lower n_token_groups "
-            f"or token_ids_per_group")
+            f"{cfg.n_token_groups} token groups need at least one id each from ids 1..{n_ids}, "
+            f"inside a vocab of {cfg.vocab}")
     probs = _zipf_probs(cfg.vocab, cfg.zipf_s)
     groups: list[list[int]] = [[] for _ in range(cfg.n_token_groups)]
     mass = [0.0] * cfg.n_token_groups
@@ -277,7 +278,7 @@ def _backbone_lattice(cfg, new, parents, children, exclusive, root_p) -> None:
 
 
 def _backbone_random(cfg, gen, new, parents, children, exclusive, root_p) -> None:
-    """Seed-varied backbone: ragged per-root depth and branching, and a fixed firing_only share.
+    """Seed-varied backbone: ragged per-root depth and branching, and a fixed orthogonal-edge share.
 
     Each parent's Dirichlet edge probs sum to `p_tot`, so L0 stays roughly constant and the
     exclusive-sibling budget holds.

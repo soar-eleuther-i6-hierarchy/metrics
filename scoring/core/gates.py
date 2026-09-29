@@ -22,6 +22,7 @@ GATE_SOURCES: dict[str, tuple[str, ...]] = {
     "gate_sres_rank": ("S_res",),
     "gate_high_outdegree": ("outdegree", "wide"),
     "gate_freq_survives": ("token_freq_survival",),
+    "gate_pmi_positive": ("pmi",),
 }
 assert set(GATE_SOURCES) == set(MR.GATE_NAMES), "a gate has no declared source metrics"
 
@@ -73,7 +74,8 @@ def square_pair_stats(cofire: torch.Tensor, fire: torch.Tensor, R_mat: torch.Ten
                       constants: MR.GateConstants,
                       probe_directions: torch.Tensor | None = None,
                       probe_available: torch.Tensor | None = None,
-                      W_unit: torch.Tensor | None = None) -> MR.PairStats:
+                      W_unit: torch.Tensor | None = None,
+                      n_tokens: int | None = None) -> MR.PairStats:
     """`metrics.rules.PairStats` for the square frame, ready for `score_pairs`."""
     R = int(R_mat.shape[0])
     wide = MR.high_outdegree(edge_mask, fire, max(R - 1, 1), constants.superparent_outdeg_frac,
@@ -87,4 +89,4 @@ def square_pair_stats(cofire: torch.Tensor, fire: torch.Tensor, R_mat: torch.Ten
                         survival=survival, survival_scale="squashed",
                         high_outdeg_p=wide, high_outdeg_c=wide,
                         probe_corr=corr, parent_ids=ids, child_ids=ids,
-                        probe_available=probe_available, self_pairs=True)
+                        probe_available=probe_available, n_tokens=n_tokens, self_pairs=True)

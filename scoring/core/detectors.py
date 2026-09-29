@@ -396,7 +396,7 @@ def compute_bundle(inputs: DetectorInputs, *, gates: GateConstants = SYNTHETIC_T
     stats = square_pair_stats(
         ctx["cofire"], ctx["fire"], ctx["R_mat"], ctx["em"], raw["recon_2a"], ctx["child_gain"],
         raw["token_freq_survival"], gates, probe_directions=probe_directions,
-        probe_available=probe_available, W_unit=inputs.W_unit)
+        probe_available=probe_available, W_unit=inputs.W_unit, n_tokens=int(ctx["N"]))
     gate_vals = score_pairs(stats, gates)["gates"]
     counts = ctx["support_counts"]
 

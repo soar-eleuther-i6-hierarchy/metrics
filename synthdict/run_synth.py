@@ -4,7 +4,7 @@
 <out>/<tag>/seed<N>/<toy>/<kind>/<dials>/<readout>/ (scores.npz, expressions.json,
 run_config.json, census.json), never under a benchmark tag.
 
-  python -m synthdict.run_synth --toy only_isa --kind hedging --gamma-rel 1 --tag T [--no-probe]
+  python -m synthdict.run_synth --toy dense --kind hedging --gamma-rel 1 --tag T [--no-probe]
 """
 
 from __future__ import annotations

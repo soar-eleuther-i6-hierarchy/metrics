@@ -299,12 +299,12 @@ def classify_dictionary(g: torch.Tensor, W_dec: torch.Tensor, A: torch.Tensor, a
                    "unclassified": len(unclassified_children),
                    "below_rho": len(below_rho_children)},
         "absorbed_by_relation": {
-            "is_a": sum(1 for e in absorbed_edges if e["is_a"]),
-            "firing_only": sum(1 for e in absorbed_edges if not e["is_a"]),
+            "hierarchy_overlap": sum(1 for e in absorbed_edges if e["is_a"]),
+            "hierarchy_orthogonal": sum(1 for e in absorbed_edges if not e["is_a"]),
         },
         "unclassified_by_relation": {
-            "is_a": sum(1 for e in unclassified_edges if e["is_a"]),
-            "firing_only": sum(1 for e in unclassified_edges if not e["is_a"]),
+            "hierarchy_overlap": sum(1 for e in unclassified_edges if e["is_a"]),
+            "hierarchy_orthogonal": sum(1 for e in unclassified_edges if not e["is_a"]),
         },
     }
 
