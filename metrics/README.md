@@ -62,7 +62,7 @@ On the ratios (`coverage_legs`, `r_supp`, `r_mass`, `edge_reconstruction_conditi
 
 **The synthetic benchmark calls these same functions.**
 `scoring/core/detectors.py` passes `undefined=NaN`, so an unmeasurable cell is never read as a zero.
-It also calls `coverage_asymmetry`, `kept_outdegree`, and `frequency_controlled_coverage` with `clamp_max=None, floor="total"`; `scoring/benchmark/reads.py` calls `either_endpoint_outdegree`.
+It also calls `coverage_asymmetry`, `kept_outdegree`, and `frequency_controlled_coverage` with `clamp_max=None, no_rare_firing_scores_zero=True`; `scoring/benchmark/reads.py` calls `either_endpoint_outdegree`.
 No default changed.
 The new functions stay out of `metrics.__all__`, which lists only what the Tier-1 calibration covers.
 

@@ -13,8 +13,8 @@ The 2026-09-19 revision updated the document only; the 2026-09-20 one reports 33
 
 Work in this order:
 
-1. DONE 2026-09-19: `sres_rank_top_k` is 2 and `rule_topical` reads `PASSES(strictly_contains) AND PASSES(freq_survives)`, both measured at the ceiling before and after (Section 3).
-2. DONE 2026-09-19: the 0.25 and 0.33 caps are accepted, the target populations stay symmetric, and `BAR_RECALL` does not apply to those two rows (Sections 4 and 8).
+1. DONE 2026-09-19, reverted 2026-09-26: `sres_rank_top_k` was 2 and `rule_topical` read `PASSES(strictly_contains) AND PASSES(freq_survives)`, both measured at the ceiling before and after (Section 3). The current rule set (Section 4) returns the cut to 5 and drops `rule_topical`.
+2. DONE 2026-09-19, superseded 2026-09-26: the 0.25 and 0.33 caps were accepted, the target populations stayed symmetric, and `BAR_RECALL` did not apply to those two rows. The current classes are split by ordering, so the caps no longer arise (Sections 4 and 8).
 3. DONE 2026-09-19: G stays out of every rule and remains a reported diagnostic, so the geometry failure is a registered negative result rather than an open search (Sections 3 and 4).
 4. DONE 2026-09-20: gate mutation anchors filled and killed, and the oracle ceiling re-run on all five toys, reproducing the Section 3 table exactly.
 5. DONE 2026-09-20: the pass criteria were written into Section 9 before any seed 1-3 result existed, and the three-seed damage matrix was run and met all of them (Section 3).
@@ -67,6 +67,8 @@ Do not redesign S_res, flip G predicates, change the generator, or search for a 
 
 The subsections down to "What the pilot currently says" were measured under the NULL-QUANTILE rules and are kept as history.
 They are not restatements of how the current rules behave; the gate-era measurement is the ceiling check at the end of this section.
+Every gate-era table in this section was measured under the first rule set, with its rule and class names (`rule_is_a`, `only_isa`, ...) and `sres_rank_top_k` 2, except the "Before" column of the ceiling table, which is at 5.
+Results for the current rule set (Section 4) come with the follow-up scoring pull request, next to the code that produces them.
 
 ### G_W has now been measured
 
@@ -346,22 +348,22 @@ A gate is a fixed-threshold decision, tristate over pass / fail / not measurable
 The rules are defined once, in `metrics/rules/rules.py`, and graded by `metrics/rules/grading.py`; both are shared with the Gemma pipeline, and `scoring/` imports them.
 This replaced the null-quantile predicates, which could not travel to a real SAE: a q99 cut accepts 1% of whatever population it is pointed at, and the false-positive bar it produced could not fail.
 
-Recommended freeze set: five designated expressions, the containment baseline, and two historical probe comparators.
+The current rule set (ruleset 2, 2026-09-26):
 
 | ID | Target | Exact expression |
 | --- | --- | --- |
-| rule_is_a | is_a | `PASSES(strictly_contains) AND PASSES(recon) AND PASSES(sres_rank)` |
-| rule_firing_only | firing_only | `PASSES(strictly_contains) AND PASSES(recon) AND FAILS(sres_rank)` |
-| rule_superparent | superparent | `PASSES(high_outdegree)` |
-| rule_frequency | frequency | `PASSES(strictly_contains) AND FAILS(freq_survives)` |
-| rule_topical | topical | `PASSES(strictly_contains) AND PASSES(freq_survives)` |
-| rule_containment | Generated direct containment: is_a union firing_only | `PASSES(strictly_contains)` |
-| rule_is_a_no_recon | is_a | `PASSES(strictly_contains) AND PASSES(sres_rank)` |
-| rule_firing_only_no_recon | firing_only | `PASSES(strictly_contains) AND FAILS(sres_rank)` |
+| rule_hierarchy | hierarchy_overlap, hierarchy_orthogonal | `PASSES(strictly_contains) AND PASSES(pmi_positive) AND PASSES(freq_survives) AND PASSES(sres_rank)` |
+| rule_dense_endpoint | dense_lookalike | `PASSES(high_outdegree)` |
+| rule_frequency_driven | frequency_lookalike | `PASSES(strictly_contains) AND FAILS(freq_survives)` |
+| rule_containment | hierarchy_overlap, hierarchy_orthogonal (baseline) | `PASSES(strictly_contains)` |
 
+The first three are designated; the containment baseline is reported beside them.
+No rule targets `topical_lookalike`, because no gate reads a topic.
 `FAILS` is written literally, never as `NOT PASSES`: a gate that was never measurable must satisfy neither predicate.
-Keep primary code labels separate when reporting the baseline's combined target.
-Four of the eight rules read the probe (`gate_sres_rank`), so a no-probe run marks those INVALID MEASUREMENT rather than reading an absent probe as a rejection.
+`rule_hierarchy`, the one rule reading the probe (`gate_sres_rank`), is INVALID MEASUREMENT on a run without the probe, not a rejection.
+
+Ruleset 2 merged `is_a` and `firing_only` into the hierarchy target, split each spurious class into a `*_lookalike` ordering (the one that looks like parent -> child) and `*_other`, dropped the recon clause and `rule_topical`, added `PMI > 0` and the token-frequency check to `rule_hierarchy`, and returned `sres_rank_top_k` to 5.
+The notes below, down to "Changes applied 2026-09-19", describe the first rule set and are kept as its record.
 
 What was deleted, and what carries its work:
 
@@ -370,7 +372,7 @@ What was deleted, and what carries its work:
 - G is dropped from every RULE at the team's decision, and is DELIBERATELY NOT REINSTATED (decided 2026-09-19), so the benchmark's rule set matches the set the team is using. All four geometry rules therefore rest on `gate_sres_rank`, Tree SAE's top-k rank rule, which carries no numeric threshold.
   G is still COMPUTED and reported as a diagnostic column in every artifact (`reads.py` writes it from the decoder cosine). That is what makes the Section 3 contrast measurable: the rules cannot separate is_a from firing_only, and the column shows a measurement that can. Keeping the column costs one cosine per pair and removes nothing from the team's set.
   The consequence is registered rather than hidden: `rule_firing_only` and `rule_firing_only_no_recon` are expected to read 0 recall on every read, and `rule_is_a` is expected to leak onto firing_only. A proposal to add the cosine back as a fixed-cut gate is future work, outside this freeze.
-- Names carry no version since 2026-09-23. A change to any rule, gate or constant bumps `metrics.rules.RULESET_VERSION` (now 1), which every artifact written since then records beside `gate_constant_set`.
+- Names carry no version since 2026-09-23. A change to any rule, gate or constant bumps `metrics.rules.RULESET_VERSION` (now 2), which every artifact written since then records beside `gate_constant_set`.
 
 Rules and gates were renamed on 2026-09-23 without changing any decision, and the stored gate-era results (`MATRIX`, `MATRIX-P3`) were renamed with them; the old names are in git history and in `outputs_archive/gate_era_original_names.tar` on soar-gpu.
 Schema-2 results predate the gate rules and keep their own names.
@@ -380,9 +382,9 @@ Schema-2 results predate the gate rules and keep their own names.
 
 Eyeballed from the oracle-ceiling read in Section 3, not swept.
 They changed a constant and a clause, never a metric definition.
-Items 1 and 2 are IN THE CODE; item 3 is a decision to leave something alone; item 4 lists what was not touched.
+Items 1 and 2 were in the code until ruleset 2 (above) reverted item 1, setting `sres_rank_top_k` back to 5 in both constant sets, and dropped `rule_topical`; item 3 is a decision to leave something alone; item 4 lists what was not touched.
 
-1. **`sres_rank_top_k` 5 to 2. APPLIED, and it did not buy the separation.**
+1. **`sres_rank_top_k` 5 to 2. APPLIED, and it did not buy the separation. Reverted to 5 in ruleset 2.**
 The gate requires the child's own decoder AND the parent's to rank inside the child probe's top k.
 The probe is fitted on the child's firing, so the child's own decoder is essentially always rank 1, which means k = 5 admits any parent in ranks 2 to 5.
 At the ceiling that passed 100% of is_a AND 100% of firing_only pairs, so the rule separated nothing.
@@ -447,10 +449,10 @@ They are persisted at full precision and reported in `metric_diagnostics`, and a
 
 ### Gates
 
-Eight fixed-threshold decisions, defined once in `metrics/rules/gates.py` and checked against the functions in `metrics/` they share a rule with.
+Nine fixed-threshold decisions, defined once in `metrics/rules/gates.py` and checked against the functions in `metrics/` they share a rule with.
 Each is tristate: 1.0 the rule holds, 0.0 it does not, NaN it was never measurable.
 The constants are eyeballed values, not derived ones, exactly as Chanin's absorption paper sets its cutoffs and says so.
-They are the named set `SYNTHETIC_TOYS` in `metrics/rules/constants.py`; the Gemma pipeline uses `GEMMA_MATRYOSHKA` from the same file, which differs in `fire_threshold` (1e-3) and `sres_rank_top_k` (5).
+They are the named set `SYNTHETIC_TOYS` in `metrics/rules/constants.py`; the Gemma pipeline uses `GEMMA_MATRYOSHKA` from the same file, which differs in `fire_threshold` (1e-3) and `sres_rank_pool` (the whole dictionary).
 Relocating the arbitrariness somewhere visible does not remove it; the defence is that one fixed rule applies identically to every arm of a comparison.
 
 | Gate | Rule | Constants | Defined where |
@@ -461,8 +463,9 @@ Relocating the arbitrariness somewhere visible does not remove it; the defence i
 | `gate_mutually_contains` | `R(p,c) >= edge_tau` AND `R(c,p) >= edge_tau`, on a supported pair | 0.5 | supported pairs |
 | `gate_recon` | `recon_2a >= recon_rel_gain_min` AND `recon_child_gain >= recon_rel_gain_min` | 0.01 | both gains finite |
 | `gate_sres_rank` | the parent's decoder AND the child's own rank inside the child probe's top k correlations | `sres_rank_top_k` | children whose probe trained |
-| `gate_high_outdegree` | either endpoint has out-degree at least `superparent_outdeg_frac * (R - 1)` | 0.30 | endpoints firing at least `min_fire_count` times |
+| `gate_high_outdegree` | either endpoint has out-degree at least `superparent_outdeg_frac * (R - 1)` | 0.30 | every pair, unless both endpoints fire under `min_fire_count` times |
 | `gate_freq_survives` | `token_freq_survival >= squash(freq_survival_min_raw)`, equality surviving | 0.5 raw, 0.333 squashed | pairs with a defined survival ratio |
+| `gate_pmi_positive` | `PMI(p,c) = log(cofire * N / (fire_p * fire_c)) > 0`, so exact independence fails | 0 | supported pairs |
 
 `squash(x) = x / (1 + x)` converts a threshold stated on the raw ratio to the scale the detector reports.
 Comparing the raw 0.5 against the reported value would demand a raw ratio of 1.0, twice as strict as intended.
@@ -582,11 +585,11 @@ Complete this manifest before any fresh-seed result is inspected:
 
 | Setting | Current proposal / action needed |
 | --- | --- |
-| Candidate registry | Five designated expressions, C baseline, and two historical probe comparators in Section 4; approve exact inclusion |
+| Candidate registry | Three designated rules and the containment baseline in Section 4; approve exact inclusion |
 | Metric definitions | Pin canonical implementation revision, score modes, signs, normalization, smoothing, and support gates |
-| Gate constants | `edge_tau` 0.5, `min_fire_count` 20, `support_min_joint` 30, `recon_rel_gain_min` 0.01, `superparent_outdeg_frac` 0.30, `freq_survival_min_raw` 0.5 (squashed 0.333), `sres_rank_top_k` 2, applied 2026-09-19 (config.py keeps 5; Section 4). Stamped in every artifact's `gate_constants` |
+| Gate constants | `edge_tau` 0.5, `min_fire_count` 20, `support_min_joint` 30, `recon_rel_gain_min` 0.01, `superparent_outdeg_frac` 0.30, `freq_survival_min_raw` 0.5 (squashed 0.333), `sres_rank_top_k` 5, Tree SAE's operational rule (the first rule set used 2; Section 4). Stamped in every artifact's `gate_constants` |
 | Nothing fitted | No quantiles, no calibration half, no per-read threshold block. The null FPR is measured over the whole unrelated class |
-| Operational recall bar | Recall-given-recovery >=0.8, EXCEPT `rule_frequency` and `rule_topical`, whose symmetric class labels cap them at 0.25 and 0.33 (Section 4). Those two rows report the curve and the cap; the bar does not apply and no MET or DID NOT MEET verdict on recall is read from them. The verdict function still prints one, because the bar lives in code; the table must carry this note beside it |
+| Operational recall bar | Recall-given-recovery >=0.8. The first rule set exempted `rule_frequency` and `rule_topical`, whose symmetric class labels capped them at 0.25 and 0.33; the current classes are split by ordering, so no rule is capped |
 | Null-FPR bar | Null FPR <=0.01 in each tested world, measured over the whole unrelated class |
 | Confound-leakage bar | Each named complete-expression confound rate <=0.05 |
 | Support requirements | `MIN_SCORABLE_SUPPORT = 10`, applying to the TARGET row, the null row, and EVERY confound row. The calibration-support floor is gone with the calibration half |
@@ -661,6 +664,7 @@ High base rate is the superparent target, so its firing-count baseline is substa
 
 ### Pass criteria for the damage-matrix run, declared 2026-09-20 before any seed 1-3 result
 
+These criteria were declared for the first rule set's damage matrix (`MATRIX`) and are kept as its record; the criteria for the current rule set come with the follow-up scoring pull request.
 These are written down before the run so they cannot be shaped by what comes back.
 A criterion that fails stops the run and gets debugged; it is not relaxed to fit the output.
 

@@ -80,7 +80,7 @@ def frequency_controlled_coverage(
     min_fire_low: int = 5,
     *,
     clamp_max: float | None = 1.5,
-    floor: str = "rare",
+    no_rare_firing_scores_zero: bool = False,
 ) -> dict[str, torch.Tensor]:
     """Per-edge reverse coverage per bucket + survival on non-frequent tokens.
 
@@ -88,16 +88,10 @@ def frequency_controlled_coverage(
     Edges whose child barely fires outside bucket 0 (fewer than min_fire_low
     tokens) are marked untestable (survival = nan) rather than failed.
 
-    `clamp_max=None` leaves the ratio unclamped. `floor="total"` applies min_fire_low to all of
-    the child's firing rather than its rare-token firing. `edge_mask` can be any [P, C] mask of
-    the pairs to report, e.g. a support mask.
+    `clamp_max=None` leaves the ratio unclamped. `no_rare_firing_scores_zero=True` scores a child
+    that never fires outside bucket 0, but fires at least min_fire_low times in all, 0 rather than
+    untestable. `edge_mask` can be any [P, C] mask of the pairs to report, e.g. a support mask.
     """
-    # Review note: under floor="rare" a child that never fires on rare tokens is untestable,
-    # yet R_rest = 0 on such a child is the plainest sign of a frequency-driven edge. The
-    # synthetic benchmark passes floor="total", which scores it 0; worth checking which one
-    # this pipeline wants.
-    if floor not in ("rare", "total"):
-        raise ValueError(f"floor must be 'rare' or 'total', got {floor!r}")
     cf = cofire_by_bucket.double()
     fc = fire_c_by_bucket.double()
 
@@ -109,8 +103,10 @@ def frequency_controlled_coverage(
     survival = R_rest / R_all.clamp(min=1e-12)
     if clamp_max is not None:
         survival = survival.clamp(max=clamp_max)  # noise guard: tiny denominators
-    fc_floor = fc_rest if floor == "rare" else fc.sum(0)
-    untestable = (fc_floor < min_fire_low).unsqueeze(0).expand_as(survival)
+    untestable = fc_rest < min_fire_low                                # [C]
+    if no_rare_firing_scores_zero:
+        untestable &= ~((fc_rest == 0) & (fc.sum(0) >= min_fire_low))
+    untestable = untestable.unsqueeze(0).expand_as(survival)
     survival = torch.where(untestable, torch.nan, survival)
     survival = torch.where(edge_mask, survival, torch.nan)
 

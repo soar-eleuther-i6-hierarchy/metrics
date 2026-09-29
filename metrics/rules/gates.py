@@ -154,10 +154,11 @@ def high_outdegree(edge_mask: torch.Tensor, fire_p: torch.Tensor, n_candidates: 
 
 def either_endpoint(t_p: torch.Tensor, t_c: torch.Tensor) -> torch.Tensor:
     """Pair tristate [P, C] from per-feature tristates: passes when either endpoint passes,
-    defined only when both are."""
+    fails when neither does, undefined only when both endpoints are."""
     fp, fc = t_p > 0.5, t_c > 0.5                       # NaN > 0.5 is False
     dp, dc = torch.isfinite(t_p), torch.isfinite(t_c)
-    return tristate(fp.reshape(-1, 1) | fc.reshape(1, -1), dp.reshape(-1, 1) & dc.reshape(1, -1))
+    flag = fp.reshape(-1, 1) | fc.reshape(1, -1)
+    return tristate(flag, dp.reshape(-1, 1) | dc.reshape(1, -1))
 
 
 # --- frequency survival (metrics/token_control.py) ---
