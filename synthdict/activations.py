@@ -2,6 +2,7 @@
 
 acts[t, S] = argmin over a >= 0 of ||h_t - a . W_S||^2 + lam ||a||^2, zero off the support S.
 A planted latent the fit sets to 0 is off for every `> 0` detector; `zeroed_rate` measures that.
+`reconstruction_fvu` is the fit's unexplained variance.
 """
 
 from __future__ import annotations
@@ -12,11 +13,13 @@ import numpy as np
 import torch
 from scipy.optimize import nnls
 
-from scoring.oracle.validate_metrics import RIDGE_LAMBDA
+from scoring.config import BENCHMARK
+
+_TINY = 1e-12
 
 
 def nnls_acts(h: torch.Tensor, W_raw: torch.Tensor, support: torch.Tensor,
-              lam: float = RIDGE_LAMBDA) -> torch.Tensor:
+              lam: float = BENCHMARK.ridge_lambda) -> torch.Tensor:
     """[n, L] float64 non-negative strengths on the support, zero elsewhere.
 
     `support` is latent-space: one column per decoder row.
@@ -54,3 +57,10 @@ def zeroed_rate(acts: torch.Tensor, support: torch.Tensor) -> float:
     if int(on) == 0:
         return 0.0
     return float((acts[support] <= 0.0).sum()) / float(on)
+
+
+def reconstruction_fvu(h: torch.Tensor, acts: torch.Tensor, g: torch.Tensor) -> float:
+    """`||h - acts @ g||^2 / ||h||^2` with the raw decoder `g`, not mean-centered."""
+    h_hat = acts.double() @ g.double()
+    err = h.double() - h_hat
+    return float((err ** 2).sum() / (h.double() ** 2).sum().clamp_min(_TINY))

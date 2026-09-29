@@ -20,9 +20,7 @@ from dataclasses import dataclass
 
 import torch
 
-# Floor on the norm of a union group's mean unit row: a loose check that the group is not
-# cancelling, not a dial.
-UNION_MIN_MEAN_NORM = 0.5
+from scoring.config import BENCHMARK
 
 # PlantedMap checks membership, so a readout typo fails at construction
 READOUTS = ("identity", "strongest_shard", "own", "union")
@@ -221,7 +219,8 @@ class PlantedMap:
                 continue
             m = (unit_L[live] * w[:, None]).sum(dim=0) / w.sum()
             n = float(m.norm())
-            if n < UNION_MIN_MEAN_NORM:
+            # a loose check that the group is not cancelling, not a dial
+            if n < BENCHMARK.union_min_mean_norm:
                 raise ValueError(
                     f"the {len(live)} latents reduced here do not point the same way (their "
                     f"weighted mean has norm {n:.3g}); the 'union' readout averages directions, "

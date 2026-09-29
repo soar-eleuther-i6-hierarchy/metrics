@@ -76,7 +76,7 @@ def build_directions(cfg: ToyConfig, tree: Tree, seed: int | None = None) -> Geo
             par = tree.parent_of(k)
             a_k = float(tree.alpha_of(k))
             if par is None or a_k == 0.0:
-                g[k] = u[k]                                   # root, or firing_only edge: no parent mix
+                g[k] = u[k]                                   # root, or orthogonal edge: no parent mix
                 Lam[k, k] = 1.0
             else:
                 w = u[par]                                    # unit-norm parent residual direction

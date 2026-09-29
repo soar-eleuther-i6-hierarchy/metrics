@@ -1,25 +1,14 @@
-"""Per-metric diagnostics for a read; grading is re-exported from `metrics.rules.grading`."""
+"""Per-metric diagnostics for a read: finite counts, medians and constant-distribution flags.
+
+Grading itself is `metrics.rules.grading`.
+"""
 
 from __future__ import annotations
 
 import torch
 
-from metrics.rules.grading import (  # noqa: F401
-    BAR_CONFOUND_LEAK,
-    VERDICT_SCOPE,
-    VERDICTS,
-    class_counts,
-    grade_rules,
-    leak_exceedances,
-    leakage,
-    leakage_over_recovered,
-    rule_overlap,
-    target_rollup,
-    under_supported_confounds,
-    unmeasurable_confounds,
-    verdict,
-)
-from scoring.benchmark.registry import CONSTANT_TOL, NULL_CLASS
+from metrics.rules.grading import NULL_CLASS
+from scoring.config import BENCHMARK
 from toygen import labels
 
 
@@ -36,7 +25,7 @@ def _is_constant(v: torch.Tensor, tol: float) -> bool | None:
 
 
 def constant_flags(vals: torch.Tensor, y: torch.Tensor, eval_null_idx: list[int],
-                   tol: float = CONSTANT_TOL, null_class: str = NULL_CLASS,
+                   tol: float = BENCHMARK.constant_tol, null_class: str = NULL_CLASS,
                    target: tuple[str, ...] | None = None) -> dict:
     """`constant_null`, `constant_target` and `constant_overall`, with tolerance and finite counts.
 
@@ -92,7 +81,7 @@ SYMMETRIC_METRICS: tuple[str, ...] = ("pmi", "G", "wide", "abs_asymmetry_R",
 
 
 def metric_diagnostics(vals: dict[str, torch.Tensor], y: torch.Tensor,
-                       eval_null_idx: list[int], tol: float = CONSTANT_TOL,
+                       eval_null_idx: list[int], tol: float = BENCHMARK.constant_tol,
                        targets: dict[str, tuple[str, ...]] | None = None) -> dict:
     """Per-metric and per-gate distributions and constant flags. `metric_class` and
     `n_effective_null` mark rates resting on fewer independent decisions than the denominator."""

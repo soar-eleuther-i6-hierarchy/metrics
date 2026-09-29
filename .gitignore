@@ -38,7 +38,6 @@ toygen/*.html
 .DS_Store
 
 toygen/DESIGN.md
-training/_fetched
 tests_local/
 outputs_local/
 outputs_archive/pilot_seed0
@@ -47,22 +46,11 @@ synthdict/tests
 
 /KNOWN_BUGS.md
 *.pdf
-scoring/MATCHING_METHODS.md
 synthdict/*.md
 /scripts
 
 # This codebase was used for other toys (not bussman) + SAE training, since this is inactive and not pursuing, removing it from remote for easy understanding of the codebase
 /training
-
-# AUROC-era scoring drivers and trained-SAE analyses, unused by the current pipeline; kept locally
-/scoring/run_scoring.py
-/scoring/run_validate.py
-/scoring/oracle/score_dump.py
-/scoring/trained/cascade.py
-/scoring/trained/diagnostics.py
-/scoring/trained/recovery.py
-/scoring/trained/retrieval.py
-/scoring/trained/sweep.py
 
 # Sibling repos (MEETING_NOTES/, PCFG/, sae-training/) live BESIDE experiment_0,
 # not inside it — nothing to ignore here. Tier-2 calibration finds the

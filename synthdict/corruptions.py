@@ -10,8 +10,8 @@
                fires on a share pi of p and r's co-fire tokens, where their own are off.  L > F
 
 Rows and selections depend on (world_seed, dials) only, so every draw sees the same dictionary;
-token assignments also depend on sample_seed. No stream touches the global RNG. This module
-imports neither the census's `ABSORPTION_CONSTANTS` nor the detectors' `CONSTANTS`.
+token assignments also depend on sample_seed. No stream touches the global RNG. This module does
+not itself import the census thresholds (`scoring.config`) or the gate constants (`metrics.rules`).
 """
 
 from __future__ import annotations

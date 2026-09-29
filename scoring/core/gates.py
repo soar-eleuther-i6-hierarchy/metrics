@@ -12,14 +12,6 @@ from metrics import rules as MR
 
 DT = torch.float64
 
-GATE_NAMES: tuple[str, ...] = MR.GATE_NAMES
-
-# CONSTANTS keys the gates read; stamped on every artifact.
-GATE_CONSTANT_KEYS: tuple[str, ...] = (
-    "edge_tau", "min_fire_count", "support_min_joint", "recon_rel_gain_min",
-    "sres_rank_top_k", "superparent_outdeg_frac", "freq_survival_min_raw",
-)
-
 # Metrics each gate decides on, so a metric can inherit a rule's target.
 GATE_SOURCES: dict[str, tuple[str, ...]] = {
     "gate_support": (),
@@ -30,8 +22,9 @@ GATE_SOURCES: dict[str, tuple[str, ...]] = {
     "gate_sres_rank": ("S_res",),
     "gate_high_outdegree": ("outdegree", "wide"),
     "gate_freq_survives": ("token_freq_survival",),
+    "gate_pmi_positive": ("pmi",),
 }
-assert set(GATE_SOURCES) == set(GATE_NAMES), "a gate has no declared source metrics"
+assert set(GATE_SOURCES) == set(MR.GATE_NAMES), "a gate has no declared source metrics"
 
 
 def support_mask(cofire: torch.Tensor, fire: torch.Tensor, min_fire: int,
@@ -61,28 +54,39 @@ def support_mask(cofire: torch.Tensor, fire: torch.Tensor, min_fire: int,
     return keep, counts
 
 
+def probe_correlations(probe_directions: torch.Tensor, probe_available: torch.Tensor,
+                       W_unit: torch.Tensor) -> torch.Tensor:
+    """[R, R]: row c is child c's probe against every unit decoder, zero for a child without one.
+
+    Read by both `gate_sres_rank` and the S_res value, so the two see one set of correlations."""
+    Wu = W_unit.to(DT)
+    R = int(Wu.shape[0])
+    corr = torch.zeros((R, R), dtype=DT, device=Wu.device)
+    for c in range(R):
+        if bool(probe_available[c]):
+            corr[c] = Wu @ probe_directions[c].to(Wu.device).to(DT)
+    return corr
+
+
 def square_pair_stats(cofire: torch.Tensor, fire: torch.Tensor, R_mat: torch.Tensor,
                       edge_mask: torch.Tensor, parent_gain: torch.Tensor,
                       child_gain: torch.Tensor, survival: torch.Tensor,
                       constants: MR.GateConstants,
                       probe_directions: torch.Tensor | None = None,
                       probe_available: torch.Tensor | None = None,
-                      W_unit: torch.Tensor | None = None) -> MR.PairStats:
+                      W_unit: torch.Tensor | None = None,
+                      n_tokens: int | None = None) -> MR.PairStats:
     """`metrics.rules.PairStats` for the square frame, ready for `score_pairs`."""
     R = int(R_mat.shape[0])
     wide = MR.high_outdegree(edge_mask, fire, max(R - 1, 1), constants.superparent_outdeg_frac,
                              constants.min_fire_count)
     corr = ids = None
     if probe_directions is not None and probe_available is not None:
-        Wu = W_unit.to(DT)
-        corr = torch.zeros((R, R), dtype=DT, device=Wu.device)
-        for c in range(R):
-            if bool(probe_available[c]):
-                corr[c] = Wu @ probe_directions[c].to(Wu.device).to(DT)
-        ids = torch.arange(R, device=Wu.device)
+        corr = probe_correlations(probe_directions, probe_available, W_unit)
+        ids = torch.arange(R, device=corr.device)
     return MR.PairStats(cofire=cofire, fire_p=fire, fire_c=fire, R=R_mat, R_rev=R_mat.T,
                         parent_gain=parent_gain, child_gain=child_gain,
                         survival=survival, survival_scale="squashed",
                         high_outdeg_p=wide, high_outdeg_c=wide,
                         probe_corr=corr, parent_ids=ids, child_ids=ids,
-                        probe_available=probe_available, self_pairs=True)
+                        probe_available=probe_available, n_tokens=n_tokens, self_pairs=True)

@@ -15,12 +15,20 @@ from pathlib import Path
 
 import numpy as np
 
-from metrics.rules import GATE_NAMES, LABELS, RULES
+from metrics.rules import (
+    GATE_NAMES,
+    GATE_TRUE,
+    LABELS,
+    NULL_CLASS,
+    REPORT_SCHEMA,
+    RULES,
+)
 
-# only_superparent plants two classes: its dense features are superparent, its dense edges firing_only
-TARGET_CLASSES_BY_TOY = {"only_isa": ("is_a",), "only_firing": ("firing_only",),
-                         "only_superparent": ("superparent", "firing_only"),
-                         "only_frequency": ("frequency",), "only_topical": ("topical",)}
+# dense plants two classes: its dense -> sparse look-alikes, and its dense parents' orthogonal edges
+TARGET_CLASSES_BY_TOY = {"hierarchy_overlap": ("hierarchy_overlap",),
+                         "hierarchy_orthogonal": ("hierarchy_orthogonal",),
+                         "dense": ("dense_lookalike", "hierarchy_orthogonal"),
+                         "frequency": ("frequency_lookalike",), "topical": ("topical_lookalike",)}
 DIALS = ("beta", "eta", "edge_fraction", "gamma_rel", "k", "roles", "skew", "fraction", "pi")
 METRICS = ("coverage_R", "G", "S_res")        # the firing, decoder and probe channels
 
@@ -33,18 +41,22 @@ def _median(x: np.ndarray) -> float:
 def _pass_rate(x: np.ndarray) -> float:
     """Share of the measurable cells of a gate that passed."""
     x = x[np.isfinite(x)]
-    return float((x > 0.5).mean()) if x.size else float("nan")
+    return float((x > GATE_TRUE).mean()) if x.size else float("nan")
 
 
 def point_rows(d: Path) -> list[dict]:
     """The rows for one artifact directory."""
     npz = np.load(d / "scores.npz", allow_pickle=False)
     meta = json.loads(str(npz["__meta__"]))
+    # `y` holds indices into LABELS, so another schema's codes would decode to the wrong classes
+    if meta.get("report_schema") != REPORT_SCHEMA:
+        raise ValueError(f"{d}: report_schema is {meta.get('report_schema')!r}, expected "
+                         f"{REPORT_SCHEMA}; its class codes do not index today's LABELS")
     report = json.loads((d / "expressions.json").read_text())
     y = npz["y"]
     corr = npz["corrupted_pair"].astype(bool)
     damaged = npz["touched_pair"].astype(bool) | corr
-    null = (y == LABELS.index("unrelated")) & (npz["split"] > 0)
+    null = (y == LABELS.index(NULL_CLASS)) & (npz["split"] > 0)
 
     dials = meta.get("dials") or {}
     base = {"toy": meta["toy"], "seed": meta["seed"], "kind": meta["corruption"],
@@ -75,6 +87,7 @@ def point_rows(d: Path) -> list[dict]:
             for a, m in arms.items():
                 n = int((s & m).sum())
                 row[f"{name}__pass_{a}"] = float((p & m).sum()) / n if n else float("nan")
+                row[f"{name}__scorable_{a}"] = n
         rows.append(row)
     return rows
 

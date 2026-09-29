@@ -33,11 +33,6 @@ def firing_rates(tree: Tree) -> torch.Tensor:
     return p
 
 
-def target_l0(tree: Tree) -> float:
-    """Expected L0 (mean active features per token) = sum of firing rates; world.choose_k uses it."""
-    return float(firing_rates(tree).sum())
-
-
 def topic_rates(p_i: float | torch.Tensor, kappa: float, z_i: int | None,
                 pi: torch.Tensor) -> torch.Tensor:
     """Per-topic firing rates that average back to `p_i` under a uniform topic prior.

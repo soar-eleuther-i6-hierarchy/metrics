@@ -2,5 +2,6 @@
 
 Damages are absorption, hedging, split and composition (see `corruptions.py`); activations are
 NNLS strengths on the planted support, with no SAE trained. Kept outside the trees
-`manifest.EVALUATOR_SOURCES` hashes, so edits here do not move `evaluator_sha256`.
+`scoring.benchmark.provenance.EVALUATOR_SOURCES` hashes, so edits here do not move
+`evaluator_sha256`.
 """
