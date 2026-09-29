@@ -1,11 +1,4 @@
-"""
-Feasibility guards for a built toy.
-
-Reject any config whose sampled world would silently disagree with the ground-truth answer
-key. Each check raises `ValueError` at build time, so an infeasible config fails loudly
-instead of producing a wrong `truth.pt` without erroring. These are structural checks only;
-the old energy-feasibility constraints are gone.
-"""
+"""Build-time checks that raise `ValueError` when a sampled world would disagree with its answer key."""
 
 from __future__ import annotations
 
@@ -24,12 +17,8 @@ DT = torch.float64
 
 
 def validate_config(cfg: ToyConfig, tree: Tree) -> None:
-    """Raise `ValueError` if the built tree/config is infeasible; return None if OK.
-
-    Called at the end of `build_tree`. Checks only the structural feasibility that the sampler
-    and the answer key both rely on.
-    """
-    # Basic config sanity -- fail fast on degenerate values before any per-feature work (e.g. Z=0 would divide by zero below).
+    """Raise `ValueError` if the built tree and config are infeasible; called at the end of `build_tree`."""
+    # basic sanity first: Z = 0 would divide by zero below
     if cfg.Z < 1:
         raise ValueError(f"Z (number of topics) must be >= 1 (got {cfg.Z})")
     if cfg.vocab < cfg.n_bind_ids:
@@ -64,7 +53,8 @@ def validate_config(cfg: ToyConfig, tree: Tree) -> None:
                 f"feature {k} is a non-root with a cause (topic, token binding or cause_rate); "
                 f"the sampler draws a child from its parent and ignores the cause")
 
-    # Every parent declares exclusivity, and a non-exclusive parent may not sit under an exclusive one: exclusive children are drawn after all non-exclusive ones, so its children would read an all-False parent column.
+    # Exclusive children are drawn after all others, so a non-exclusive parent under an exclusive one
+    # would hand its children an all-False parent column.
     for par, kids in tree.children.items():
         if not kids:
             continue
@@ -76,7 +66,7 @@ def validate_config(cfg: ToyConfig, tree: Tree) -> None:
                 f"non-exclusive parent {par} sits under exclusive parent {gp}; the sampler draws "
                 f"exclusive children last, so {par}'s children would never fire")
 
-    # Firing rates must be probabilities; outside (0, 1] `rand < rate` never or always fires.
+    # firing rates must lie in (0, 1]
     for k, rp in tree.root_p.items():
         if not (0.0 < rp <= 1.0):
             raise ValueError(f"feature {k} has root_p {rp}; firing rates must lie in (0, 1]")
@@ -87,7 +77,7 @@ def validate_config(cfg: ToyConfig, tree: Tree) -> None:
 
     _validate_fixed_rate_causes(cfg, tree)
 
-    # Per-edge firing probability and per-feature loading bounds, keeping the eps_p / eps_alpha safety margins.
+    # per-edge p_edge and alpha bounds, with the eps_p / eps_alpha margins
     for k in range(tree.F):
         if tree.parent_of(k) is None:
             continue
@@ -102,7 +92,8 @@ def validate_config(cfg: ToyConfig, tree: Tree) -> None:
                 f"alpha must be <= 1 - eps_alpha = {1.0 - cfg.eps_alpha:.4f}; "
                 f"feature {k} has alpha {a}")
 
-    # Exclusive siblings split one draw by p_edge, so per-edge probs must sum to <= 1 -- above that the sampler truncates the realized rate while firing_rates keeps the nominal one. Non-exclusive parents carry no such budget and are skipped.
+    # Exclusive siblings split one draw, so their p_edges must sum to <= 1;
+    # above that the realized rates fall below what firing_rates reports.
     for par, kids in tree.children.items():
         if not tree.exclusive.get(par, False) or not kids:
             continue
@@ -116,7 +107,7 @@ def validate_config(cfg: ToyConfig, tree: Tree) -> None:
                 f"firing_rates keeps the nominal rate, so truth.pt would disagree "
                 f"with the sampled world")
 
-    # Topical admissibility: per-topic firing rate must stay in [0, 1], or the "averages back to exactly p_i" guarantee breaks silently (`rand < rate` just never/always fires).
+    # topical pairs: per-topic rates must stay in [0, 1], or they stop averaging back to p
     p = firing_rates(tree)
     pi = torch.full((cfg.Z,), 1.0 / cfg.Z, dtype=DT)
     for k in range(tree.F):
@@ -129,7 +120,7 @@ def validate_config(cfg: ToyConfig, tree: Tree) -> None:
                 f"outside [0, 1] (min {float(rates.min()):.4f}, "
                 f"max {float(rates.max()):.4f}); reduce kappa or increase Z")
 
-    # Token-bound admissibility: firing rate can't exceed the top-n_bind_ids id set's Zipf mass, or the sampler silently caps the realized rate while firing_rates keeps the nominal p_k.
+    # token-bound pairs: p can't exceed the Zipf mass of their id set, or the sampler caps the realized rate
     if any(tree.token_bound[k] for k in range(tree.F)):
         ranks = torch.arange(1, cfg.vocab + 1, dtype=DT)
         w = ranks ** (-cfg.zipf_s)
@@ -149,10 +140,8 @@ def validate_config(cfg: ToyConfig, tree: Tree) -> None:
 def _validate_fixed_rate_causes(cfg: ToyConfig, tree: Tree) -> None:
     """Check roots that fire at a fixed rate inside one cause (token groups, topic registers).
 
-    Each needs exactly one cause, token ids inside the design top-frequency bucket or a valid
-    topic, and root_p equal to the cause's design mass times its rate. Given the cause, features
-    fire independently, so P(a | b) = cause_rate[a] for two features on one cause; each cause
-    must therefore plant containment: a partner and some rate >= the hierarchy cut.
+    Features on one cause fire independently given it, so P(a | b) = cause_rate[a]; each cause
+    therefore needs a partner and some rate >= EDGE_TAU_REFERENCE to plant containment.
     """
     groups: dict[tuple, list[int]] = {}
     cum = None

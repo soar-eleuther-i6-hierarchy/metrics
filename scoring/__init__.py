@@ -1,7 +1,5 @@
-"""SAE dictionary-evaluation harness for the toy generator.
+"""Score toy SAEs against the toy generator's ground truth.
 
-Scores a trained toy SAE against the generator's ground truth: feature recovery,
-relationship-retrieval AUROCs, the Stage-0 clean-ceiling survival map, and the
-absorption / decoder-multiplicity / composition decomposition. Kept separate from the
-world generator in `toygen` and the trainer in `training`.
+`core` holds the checkpoint-free pieces, `oracle` checks detectors on true inputs, `trained` loads
+checkpoints and classifies absorption, and `benchmark` evaluates the rules per toy, seed and read.
 """

@@ -27,6 +27,9 @@ def degree_stats(edge_mask: torch.Tensor) -> dict:
     n_edges = int(edge_mask.sum())
 
     n_parented = int((indeg > 0).sum())
+    # Review note: a block pair with no edges gets poly_frac, top1_edge_share and outdeg_gini of
+    # 0.0, the values of a healthy spread, though nothing was measured; NaN, or skipping the
+    # pair, would keep it out of averages.
     stats = {
         "n_edges": n_edges,
         "outdeg": outdeg,
@@ -40,6 +43,31 @@ def degree_stats(edge_mask: torch.Tensor) -> dict:
         "outdeg_gini": gini(outdeg.double()),
     }
     return stats
+
+
+def kept_outdegree(
+    edge_mask: torch.Tensor,   # [P, C] kept edges
+    fire_p: torch.Tensor,      # [P]    parent firing counts
+    *,
+    undefined: float | None = None,
+) -> torch.Tensor:
+    """[P] kept children per parent, float64. A parent that never fires has out-degree 0, or
+    `undefined` when given."""
+    outdeg = edge_mask.to(torch.float64).sum(dim=1)
+    if undefined is not None:
+        outdeg = torch.where(fire_p > 0, outdeg, undefined)
+    return outdeg
+
+
+def either_endpoint_outdegree(
+    outdeg_p: torch.Tensor,    # parent out-degree, broadcastable to [P, C] (e.g. [P, 1])
+    outdeg_c: torch.Tensor,    # child out-degree (e.g. [1, C])
+) -> torch.Tensor:
+    """[P, C] the larger out-degree of the pair's two endpoints, so a pair touching a wide
+    feature at either end scores wide. NaN unless both are finite."""
+    both = torch.isfinite(outdeg_p) & torch.isfinite(outdeg_c)
+    wide = torch.maximum(outdeg_p, outdeg_c)
+    return torch.where(both, wide, torch.full_like(wide, float("nan")))
 
 
 def gini(x: torch.Tensor) -> float:

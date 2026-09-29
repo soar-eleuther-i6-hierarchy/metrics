@@ -28,12 +28,27 @@ def coverage_legs(
     cofire: torch.Tensor,      # [P, C] co-firing counts
     fire_p: torch.Tensor,      # [P]    parent firing counts
     fire_c: torch.Tensor,      # [C]    child firing counts
+    *,
+    undefined: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return (R, F), both [P, C]. Zero-fire features get coverage 0."""
+    """Return (R, F), both [P, C]. Zero-fire features get coverage 0, or `undefined` when
+    given (e.g. NaN, for a caller that treats them as unmeasurable)."""
     cofire = cofire.double()
+    if undefined is not None:
+        fc, fp = fire_c.double().unsqueeze(0), fire_p.double().unsqueeze(1)
+        return (torch.where(fc > 0, cofire / fc, undefined),
+                torch.where(fp > 0, cofire / fp, undefined))
     R = cofire / fire_c.double().clamp(min=1.0).unsqueeze(0)
     F = cofire / fire_p.double().clamp(min=1.0).unsqueeze(1)
     return R, F
+
+
+def coverage_asymmetry(
+    R: torch.Tensor,           # [P, C] reverse coverage P(p fires | c fires)
+    F: torch.Tensor,           # [P, C] forward coverage P(c fires | p fires)
+) -> torch.Tensor:
+    """[P, C] R - F: > 0 when the child sits inside the parent, ~0 for symmetric co-firing."""
+    return R - F
 
 
 def keep_edges(

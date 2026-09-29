@@ -1,15 +1,7 @@
-"""
-Builds the feature forest from a ToyConfig: parent/child edges, their transitive closure,
-and per-feature tags.
+"""Builds the feature forest from a `ToyConfig`: direct edges, transitive closure and per-feature tags.
 
-`parents` holds only direct edges; `ancestors`/`descendents` hold the transitive closure --
-a grandparent-grandchild pair is contained but not a direct edge, so it's labelled
-`transitive` and scored separately. Every feature has exactly one parent, so firing rate is
-a clean product down its chain: p_child = p_parent * p_edge.
-
-`root_p` is always a root's marginal firing rate. Roots driven by an observed or latent cause
-(token groups, topic registers) also carry `cause_rate`, their firing rate inside the cause;
-their `root_p` is the cause's design mass times that rate.
+`root_p` is a root's marginal firing rate. A root driven by a cause (token group, topic register)
+also carries `cause_rate`, its rate inside the cause; its `root_p` is the cause's mass times that.
 """
 
 from __future__ import annotations
@@ -38,12 +30,12 @@ class Tree:
     descendents: dict[int, set[int]]
     topology_ordering: list[int]
     root_p: dict[int, float]                             # roots only; the marginal firing rate
-    # --- tags -------------------------------------------------------------
+    # --- per-feature tags ---
     kappa: dict[int, float] = field(default_factory=dict)       # topic modulation, 0 = off
     topic: dict[int, int | None] = field(default_factory=dict)
     token_bound: dict[int, bool] = field(default_factory=dict)
     token_ids: dict[int, tuple[int, ...]] = field(default_factory=dict)  # token-bound features: the ids they fire on
-    cause_rate: dict[int, float | None] = field(default_factory=dict)    # firing rate inside the cause; None = not cause-driven at a fixed rate
+    cause_rate: dict[int, float | None] = field(default_factory=dict)    # firing rate inside the cause; None if no fixed-rate cause
     tags: dict[int, set[str]] = field(default_factory=dict)
 
     def parent_of(self, k: int) -> int | None:
@@ -84,13 +76,12 @@ def _close(parents: dict[int, list[tuple[int, float, float]]], F: int
 
 
 def build_tree(cfg: ToyConfig) -> Tree:
-    """Build the feature forest, returning only a config the sampler can actually honour.
+    """Build the feature forest and check it with `validate_config`.
 
-    `randomize_structure=False` (default) reproduces the fixed lattice exactly. When True the
-    backbone is drawn from `cfg.seed` and retried deterministically until it clears both the
-    structural floors and `validate_config`. The confound set is identical in both modes.
+    With `randomize_structure`, the backbone is drawn from `cfg.seed` and redrawn until it clears
+    the structure floors and `validate_config`.
     """
-    from .validate import validate_config     # lazy: avoid a tree <-> strengths import cycle
+    from .validate import validate_config     # lazy: validate imports tree
 
     if not cfg.randomize_structure:
         tree = _assemble_tree(cfg, gen=None)
@@ -100,7 +91,7 @@ def build_tree(cfg: ToyConfig) -> Tree:
     _check_randomize_feasible(cfg)     # fail fast on params no draw could satisfy
     last_reason = "(no attempt ran)"
     for attempt in range(STRUCTURE_MAX_ATTEMPTS):
-        # Multiply into the sub-seed so two seeds' attempt-streams can't overlap; cfg.seed itself is never advanced.
+        # scale cfg.seed so adjacent seeds' attempt streams never overlap
         gen = torch.Generator().manual_seed(cfg.seed * 1_000_003 + STRUCTURE_SEED_OFFSET + attempt)
         tree = _assemble_tree(cfg, gen=gen)
         ok, last_reason = _structure_guards_pass(tree)
@@ -108,7 +99,7 @@ def build_tree(cfg: ToyConfig) -> Tree:
             continue
         try:
             validate_config(cfg, tree)
-        except ValueError as e:            # infeasible draw: retry with the next sub-seed
+        except ValueError as e:
             last_reason = f"validate_config: {e}"
             continue
         return tree
@@ -119,11 +110,7 @@ def build_tree(cfg: ToyConfig) -> Tree:
 
 
 def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
-    """Construct one tree (backbone + confounds + closure) WITHOUT validation.
-
-    `gen is None` -> the deterministic lattice backbone; otherwise a seed-varied backbone
-    drawn from `gen`. The confound layer and the closure are identical either way.
-    """
+    """Build one tree (backbone, confounds, closure) without validation; `gen=None` is the lattice."""
     parents: dict[int, list[tuple[int, float, float]]] = {}
     children: dict[int, list[int]] = {}
     exclusive: dict[int, bool] = {}
@@ -150,14 +137,14 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
         children[k] = []
         return k
 
-    # --- backbone forest --------------------------------------------------
+    # --- backbone forest ---
     if gen is None:
         _backbone_lattice(cfg, new, parents, children, exclusive, root_p)
     else:
         _backbone_random(cfg, gen, new, parents, children, exclusive, root_p)
 
-    # --- confounds (the per-archetype firing rates below are hand-tuned constants) ----
-    # Counts/rates are identical in both backbone modes; confound ids may shift under randomization but counts/rates/topics stay seed-invariant, so they form a fixed control group.
+    # --- confounds (the per-archetype rates below are hand-tuned) ---
+    # Counts, rates and topics do not depend on the backbone draw; only the ids shift.
     if cfg.confounds:
         # superparent: an always-on childless feature, with a broad parent as its foil.
         for _ in range(cfg.n_superparent):
@@ -180,7 +167,7 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
             parents[c] = [(d, cfg.child_p_edge, 0.0)]
             children[d].append(c)
 
-        # frequency-coincidence pairs: token-bound features co-fire only via shared high-frequency token ids, with no declared edge.
+        # token-bound pairs: co-fire only through shared top-frequency ids, with no declared edge
         for i in range(cfg.n_token_bound_pairs):
             for j in (0, 1):
                 k = new("token_bound")
@@ -203,7 +190,7 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
                     cause_rate[k] = rate
                     root_p[k] = group_mass[i] * rate
 
-        # topical pairs: co-occur via a shared document topic z -- correlated overall, independent once z is known.
+        # topical pairs: correlated through a shared document topic, independent given the topic
         for i in range(cfg.n_topical_pairs):
             z = i % cfg.Z
             for j in (0, 1):
@@ -237,10 +224,10 @@ def _assemble_tree(cfg: ToyConfig, gen: "torch.Generator | None") -> Tree:
 
 
 def _token_groups(cfg: ToyConfig) -> tuple[list[tuple[int, ...]], list[float]]:
-    """Split design-Zipf ids 1..n_token_groups*token_ids_per_group into equal-mass groups.
+    """Split ids 1..n_token_groups*token_ids_per_group into groups of equal design-Zipf mass.
 
-    Id 0 is excluded: its mass alone exceeds a group's. Greedy: heaviest id first, into the
-    currently lightest group. Masses come from the design Zipf, never from realized counts.
+    Greedy: heaviest id into the currently lightest group. Id 0 is left out since its mass alone
+    exceeds a group's.
     """
     from .sample import _zipf_probs     # lazy: sample imports tree
     n_ids = cfg.n_token_groups * cfg.token_ids_per_group
@@ -268,9 +255,7 @@ def token_mass(cfg: ToyConfig, ids: tuple[int, ...]) -> float:
 
 
 def _backbone_lattice(cfg, new, parents, children, exclusive, root_p) -> None:
-    """The fixed lattice backbone: `n_roots` roots, uniform `branching` and `depth`, with
-    firing_only on every `alpha_zero_every`-th edge (counted across the whole forest).
-    `alpha_zero_every=0` disables firing_only, so every edge is a real alpha>0 is-a edge."""
+    """Fixed lattice backbone: uniform branching and depth, alpha = 0 on every n-th edge of the forest."""
     edge_i = 0
     frontier = []
     for _ in range(cfg.n_roots):
@@ -292,13 +277,10 @@ def _backbone_lattice(cfg, new, parents, children, exclusive, root_p) -> None:
 
 
 def _backbone_random(cfg, gen, new, parents, children, exclusive, root_p) -> None:
-    """A seed-varied backbone: ragged per-root depth/branching, mass-preserving edge
-    probabilities, and a balanced is-a/firing_only split.
+    """Seed-varied backbone: ragged per-root depth and branching, and a fixed firing_only share.
 
-    Edge probs are Dirichlet-drawn and scaled to a fixed budget `p_tot`, so total firing mass
-    (and L0) stays roughly constant regardless of child count, and the exclusive-sibling budget
-    holds automatically. alpha is assigned after the backbone is built so firing_only edges land
-    at exactly a 1/alpha_zero_every fraction without clumping.
+    Each parent's Dirichlet edge probs sum to `p_tot`, so L0 stays roughly constant and the
+    exclusive-sibling budget holds.
     """
     max_branch = max(1, int(1.0 / cfg.child_p_edge))    # floor(1/p_edge): the exclusive-budget cap
     lo_branch = max(1, max_branch - 1)
@@ -324,7 +306,7 @@ def _backbone_random(cfg, gen, new, parents, children, exclusive, root_p) -> Non
                 exclusive[p] = cfg.exclusive_siblings
                 w = torch.empty(n_c, dtype=torch.float64).exponential_(generator=gen)
                 pe = (w / w.sum() * p_tot)
-                # nudge the realized sum down against float drift so validate_config's budget holds
+                # rescale against float drift so validate_config's sum <= 1 budget holds
                 s = float(pe.sum())
                 if s > 1.0 - 1e-9:
                     pe = pe * ((1.0 - 1e-9) / s)
@@ -337,7 +319,7 @@ def _backbone_random(cfg, gen, new, parents, children, exclusive, root_p) -> Non
                     nxt_frontier.append(c)
             frontier = nxt_frontier
 
-    # balanced is-a / firing_only: exactly round(n_edges / alpha_zero_every) edges get alpha=0.
+    # exactly round(n_edges / alpha_zero_every) random edges get alpha = 0
     n_edges = len(edge_order)
     n_zero = round(n_edges / cfg.alpha_zero_every) if (n_edges and cfg.alpha_zero_every > 0) else 0
     zero_children: set[int] = set()
@@ -350,17 +332,12 @@ def _backbone_random(cfg, gen, new, parents, children, exclusive, root_p) -> Non
 
 
 def _structure_guards_pass(tree: Tree) -> tuple[bool, str]:
-    """Reject a randomized draw that would starve the dictionary or a scored class.
-
-    Returns (ok, reason); `reason` is empty on success. Checks total feature count against
-    `F_MIN` and each guarded class against `MIN_PAIRS_PER_CLASS` ordered pairs -- stronger
-    than validate_config's global budget check.
-    """
+    """Return (ok, reason); fails if F < F_MIN or a guarded class has < MIN_PAIRS_PER_CLASS pairs."""
     if tree.F < F_MIN:
         return False, f"F={tree.F} < F_MIN={F_MIN}"
     from .labels import _index, pair_label
     pl = pair_label(tree)
-    # Count off-diagonal cells only: a self-pair is never a real relation, so floors must be measured over genuine ordered pairs.
+    # count off-diagonal cells only: a self-pair is not a relation
     off_diag = ~torch.eye(tree.F, dtype=torch.bool)
     for name in GUARDED_STRUCTURE_CLASSES:
         n = int(((pl == _index(name)) & off_diag).sum())
@@ -370,10 +347,10 @@ def _structure_guards_pass(tree: Tree) -> tuple[bool, str]:
 
 
 def _check_randomize_feasible(cfg: ToyConfig) -> None:
-    """Reject randomize params no draw could satisfy -- fail fast instead of burning every attempt.
+    """Fail fast on randomize params that no draw could satisfy.
 
-    `child_p_edge >= 0.5` caps children-per-parent at 1, making 'sibling' (a guarded class)
-    unreachable. `depth < 1` leaves the per-root depth draw with an empty randint range.
+    `child_p_edge >= 0.5` allows one child per parent, so no siblings; `depth < 1` leaves the
+    per-root depth draw empty.
     """
     max_branch = max(1, int(1.0 / cfg.child_p_edge))
     if "sibling" in GUARDED_STRUCTURE_CLASSES and max_branch < 2:

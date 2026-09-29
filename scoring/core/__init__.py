@@ -1,2 +1,3 @@
-"""Dependency-free foundation: config, detectors, recovery math, the AUROC grid, and
-world regeneration. No checkpoint loading — importable in the CPU test env."""
+"""Checkpoint-free pieces: constants, detectors, gates, recovery matching, pair grids, world regeneration.
+
+Imports no `sae_training`, so it runs in the CPU test environment."""

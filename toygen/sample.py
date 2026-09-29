@@ -1,13 +1,7 @@
-"""
-The sampler: documents, topics, token ids, coefficients, activations.
+"""Sampler: documents, topics, token ids, coefficients and activations.
 
-Two structural rules are enforced token by token, not just on average:
-  - containment: a child can only fire where its parent fires;
-  - exclusivity: mutually exclusive siblings never fire together.
-
-Both are drawn so the per-feature firing rates still come out at their designed values.
-Exclusive children share one uniform draw split by their `p_edge`, which stays exact as
-long as the sibling budget holds -- each parent's child edge-probs sum to <= 1.
+Containment and sibling exclusivity hold on every token, and firing rates match their design
+as long as each exclusive parent's child p_edges sum to <= 1.
 """
 
 from __future__ import annotations
@@ -44,11 +38,9 @@ def _zipf_probs(vocab: int, s: float) -> torch.Tensor:
 
 
 def _strength(n: int, mean_strength: float, cv: float, gen: torch.Generator) -> torch.Tensor:
-    """Draw positive strengths with mean `mean_strength` and sd `cv*mean_strength`, exactly.
+    """Lognormal strengths with mean `mean_strength` and sd `cv * mean_strength`.
 
-    Uses a lognormal (right-skewed, positive) with its first two moments matched to those
-    targets. Lognormal rather than Gamma: `torch.distributions.Gamma` takes no explicit
-    `generator`, and the only Gamma sampler that does is a private, unstable API.
+    Lognormal, not Gamma: `torch.distributions.Gamma` takes no `generator`.
     """
     if n == 0:
         return torch.zeros(0, dtype=DT)
@@ -59,7 +51,7 @@ def _strength(n: int, mean_strength: float, cv: float, gen: torch.Generator) -> 
 
 
 def sample_world(cfg: ToyConfig, tree: Tree, strengths: StrengthSpec, geo: Geometry, n_tokens: int, seed: int | None = None) -> World:
-    # offset the seed from the geometry stream so the two draws are independent
+    # +1000 keeps this stream apart from geometry's when both get the same seed
     gen = torch.Generator().manual_seed((cfg.seed if seed is None else seed) + 1000)
     F = tree.F
 
@@ -74,7 +66,7 @@ def sample_world(cfg: ToyConfig, tree: Tree, strengths: StrengthSpec, geo: Geome
     probs = _zipf_probs(cfg.vocab, cfg.zipf_s)
     tokens = torch.multinomial(probs, n, replacement=True, generator=gen)
 
-    # Legacy token-bound pairs share one top-frequency id set; token groups carry their own ids.
+    # token-bound pairs share one top-frequency id set; token groups carry their own ids
     token_sets: dict[int, torch.Tensor] = {
         k: torch.tensor(tree.token_ids[k], dtype=torch.long) for k in range(F) if tree.token_bound[k]
     }
@@ -108,7 +100,8 @@ def sample_world(cfg: ToyConfig, tree: Tree, strengths: StrengthSpec, geo: Geome
             continue                                      # handled per-parent below
         fires[:, k] = fires[:, par] & (torch.rand(n, generator=gen, dtype=DT) < tree.p_edge_of(k))
 
-    # Exclusive sibling groups: one uniform draw per token, split into p_edge-sized bands. Must run in topological order since this reads `fires[:, par]`.
+    # exclusive siblings: one uniform draw per token, split into p_edge-sized bands.
+    # Must run in topological order since it reads fires[:, par].
     for par in tree.topology_ordering:
         kids = tree.children.get(par, [])
         if not tree.exclusive.get(par, False) or not kids:

@@ -1,39 +1,17 @@
-"""Latent-side corruption generators — physical dials only, no instrument thresholds.
+"""Latent-side damage generators, set by physical dials only (no instrument thresholds).
 
-Four damages, each built to its literature definition:
+  absorption   (Chanin et al. 2409.14507) child row unit(g_c + beta * rbar * g_p); the parent
+               is off on round(eta * n) of its co-fire tokens with absorbed children.     L = F
+  hedging      (Chanin, Dulka, Garriga-Alonso 2505.11756) child row deleted; parent row
+               unit(g_p + gamma * g_c), gamma = gamma_rel * gamma*.                       L < F
+  split        (Bricken et al.; Chanin et al.) k latents share a feature's direction and
+               partition its firing tokens.                                               L > F
+  composition  (Anders et al. 2024; Leask et al. 2502.04878) an added latent unit(g_p + g_r)
+               fires on a share pi of p and r's co-fire tokens, where their own are off.  L > F
 
-  absorption   (Chanin et al. 2409.14507) the parent latent fails where it should fire and
-               the child latent carries a component of the parent direction.
-                 child row      unit(g_c + beta * rbar * g_p)
-                 firing hole    parent removed on round(eta * n) of the tokens where it
-                                co-fires with any of its absorbed children
-                 edges          a deterministic `edge_fraction` of the eligible edges:
-                                tree parent -> child, token container -> member,
-                                topic register -> member                          L = F
-  hedging      (Chanin, Dulka, Garriga-Alonso 2505.11756) too few latents: a child has no
-               latent and its parent's latent mixes in the child direction.
-                 child row      deleted
-                 parent row     unit(g_p + gamma * g_c), gamma = gamma_rel * gamma*
-                 edges          a deterministic `edge_fraction` of the tree edges    L < F
-  split        (Bricken et al.; Chanin et al.) a feature carried by k latents sharing its
-               direction and partitioning its firing tokens; chosen within declared roles.
-                                                                                   L > F
-  composition  (Anders et al. 2024; Leask et al. 2502.04878) a latent for the CONJUNCTION of
-               two independent co-occurring features.
-                 own rows       kept
-                 combination    unit(g_p + g_r), firing on a share `pi` of the tokens where
-                                p and r both fire; p's and r's own latents are off there
-                                                                                   L > F
-
-TAUTOLOGY GUARD (tested): this module imports neither `ABSORPTION_CONSTANTS` (the census's
-thresholds) nor `scoring.core.registry.CONSTANTS` (the detectors').
-
-Determinism contract — the DICTIONARY is a property of the world, the TOKEN assignments are
-per draw, and no stream touches the global RNG:
-  * selected edges, features, partners, shard structure and rows depend on (world_seed,
-    dials) only, so every draw of one world sees the same dictionary;
-  * the hole, the token->shard partition and the combination tokens depend on
-    (world_seed, sample_seed, the features involved).
+Rows and selections depend on (world_seed, dials) only, so every draw sees the same dictionary;
+token assignments also depend on sample_seed. No stream touches the global RNG. This module
+imports neither the census's `ABSORPTION_CONSTANTS` nor the detectors' `CONSTANTS`.
 """
 
 from __future__ import annotations
@@ -47,9 +25,8 @@ from toygen.strengths import build_strengths
 
 _TINY = 1e-12
 
-# Dedicated seed offsets for the private RNG streams, away from the repo's other derivations
-# (toygen STRUCTURE_SEED_OFFSET=9973, held-out +10000, probe fit +20000). One per stream, so
-# two damages sharing a world seed do not select the same edges or features.
+# One private RNG offset per stream, away from the repo's other seed offsets, so two damages on
+# one world seed do not select the same edges or features.
 EDGE_SEED_OFFSET = 61_211
 HOLE_SEED_OFFSET = 77_003
 HEDGE_SEED_OFFSET = 34_919
@@ -58,10 +35,10 @@ SHARD_SEED_OFFSET = 41_213
 COMPOSE_SEED_OFFSET = 88_547
 COMBINATION_SEED_OFFSET = 23_417
 
-# What `realized_severity` MEASURES, per damage:
-#   edge_cos_parent       one entry per absorbed EDGE — cos(child row, g_p)
-#   child_own_component   one entry per hedged EDGE — the parent row's component along the
-#                         child's own direction (g_c minus its g_p component, unit)
+# What `realized_severity` measures, per damage:
+#   edge_cos_parent       per absorbed edge, cos(child row, g_p)
+#   child_own_component   per hedged edge, the parent row along the child's own direction
+#                         (g_c minus its g_p component, unit)
 #   none                  no severity axis; the dose is the dial (split k, composition pi)
 SEVERITY_KINDS = ("none", "edge_cos_parent", "child_own_component")
 
@@ -93,8 +70,7 @@ def _check_fraction(name: str, v: float, allow_zero: bool) -> None:
 
 @dataclass(frozen=True)
 class AbsorptionDials:
-    """`rbar` is the parent/child mean-magnitude ratio; 1.0 is analytic for this generator
-    (toygen/strengths.py builds a FLAT mean strength)."""
+    """`rbar` is the parent/child mean-magnitude ratio, 1.0 for toygen's flat mean strength."""
 
     KIND = "absorption"
 
@@ -178,17 +154,10 @@ class CompositionDials:
 
 @dataclass(frozen=True)
 class Corruption:
-    """One synthetic dictionary's corruption record.
+    """One synthetic dictionary's damage record.
 
-    dials              the damage's own dial dataclass; its `KIND` names the damage
-    W_raw              [L, D] float64 decoder rows (unit-norm; undamaged rows are g unchanged)
-    planted_map        the feature->latent correspondence this dictionary was built with
-    corrupted_edges    ordered (parent, child) edges — absorption and hedging
-    corrupted_features the features the pair rule reads
-    hedged_children    features left with no latent — hedging
-    composition_pairs  (p, r) pairs sharing a combination latent — composition
-    realized_severity  the severity axis, whose population `severity_kind` declares
-    details            derived values recorded with the run (JSON-able)
+    `W_raw` is [L, D] unit rows, undamaged rows equal to g. `corrupted_features` are what the
+    pair rule reads; `hedged_children` have no latent; `details` is JSON-able.
     """
 
     dials: object
@@ -205,12 +174,12 @@ class Corruption:
 
     @property
     def kind(self) -> str:
-        """The damage name, DERIVED from the dials type, so it cannot disagree with them."""
+        """The damage name, derived from the dials type so the two cannot disagree."""
         return type(self.dials).KIND
 
     def touched_features(self) -> tuple[int, ...]:
-        """Every feature whose row or firing the damage changed: the damaged features plus both
-        endpoints of every damaged edge. A pair touching one is not an intact control."""
+        """Damaged features plus both ends of every damaged edge. A pair touching one is not
+        an intact control."""
         return tuple(sorted(set(self.corrupted_features)
                             | {int(x) for e in self.corrupted_edges for x in e}))
 
@@ -234,9 +203,7 @@ class Corruption:
                 f"not inferred from its length")
 
 
-# --------------------------------------------------------------------------
-# populations: eligible edges, roles, partners
-# --------------------------------------------------------------------------
+# --- populations: eligible edges, roles, partners ---
 def _tagged(tree, tag: str) -> list[int]:
     return [k for k in range(tree.F) if tag in tree.tags[k]]
 
@@ -288,8 +255,8 @@ def composition_partners(tree, fraction: float, world_seed: int
                          ) -> tuple[tuple[tuple[int, int], ...], dict]:
     """One-to-one partner pairs, deterministic from the world seed.
 
-    A superparent with a dense parent where the world has both; otherwise a parent with a
-    parent of ANOTHER tree. `fraction` is the share of the largest possible set of pairs.
+    A superparent with a dense parent where the world has both, else a parent with a parent of
+    another tree. `fraction` is the share of the largest possible set of pairs.
     """
     roles = split_roles(tree)
     sp, dp, par = roles["superparent"], roles["dense_parent"], roles["parent"]
@@ -329,13 +296,11 @@ def composition_partners(tree, fraction: float, world_seed: int
                           "max_pairs": max_pairs, "role_counts": role_counts}
 
 
-# --------------------------------------------------------------------------
-# selection
-# --------------------------------------------------------------------------
+# --- selection ---
 def select_edges(cont_edges, edge_fraction: float, world_seed: int,
                  offset: int = EDGE_SEED_OFFSET) -> tuple[tuple[int, int], ...]:
-    """A deterministic `edge_fraction` subset of the edges, by world seed only (no sample
-    seed, by contract: every draw sees the same dictionary). f=1.0 keeps the given order."""
+    """A deterministic `edge_fraction` subset of the edges, seeded by the world only so every
+    draw sees the same dictionary."""
     _check_fraction("edge_fraction", edge_fraction, allow_zero=False)
     edges = [(int(p), int(c)) for p, c in cont_edges]
     if edge_fraction >= 1.0:
@@ -373,10 +338,8 @@ def select_features(candidates, fraction: float, world_seed: int, offset: int
 
 
 def shard_shares(k: int, skew: float = 0.0) -> tuple[float, ...]:
-    """The `k` token shares of one split feature, DESCENDING and summing to 1.
-
-    Descending order makes `feature_to_latents[f][0]` the strongest shard by declaration.
-    """
+    """The `k` token shares of a split feature, summing to 1 and descending, so
+    `feature_to_latents[f][0]` is the strongest shard."""
     if int(k) < 1:
         raise ValueError(f"k must be >= 1, got {k}")
     if not (0.0 <= float(skew) < 1.0):
@@ -412,21 +375,19 @@ def composition_generator_seed(world_seed: int, sample_seed: int, p: int, r: int
             + 3 * int(r))
 
 
-# --------------------------------------------------------------------------
-# builders
-# --------------------------------------------------------------------------
+# --- builders ---
 def absorb(world, dials: AbsorptionDials, world_seed: int, readout: str = "identity"
            ) -> Corruption:
     """Carry `beta * rbar` of the parent direction into each selected child's row, unit norm.
 
-    Undamaged rows pass through EXACTLY, so beta=0 or an unselected edge changes nothing.
+    Undamaged rows pass through exactly, so beta=0 or an unselected edge changes nothing.
     """
     g = world.g
     edges, details = _select_eligible_edges(world, "absorption", dials.edge_fraction,
                                             world_seed, EDGE_SEED_OFFSET)
     children = [c for _, c in edges]
     if len(set(children)) != len(children):
-        # Each row is rebuilt FROM g[c], so a second parent would silently drop the first carry.
+        # each row is rebuilt from g[c], so a second parent would silently drop the first carry
         raise ValueError("absorb: a child appears on more than one corrupted edge; "
                          "multi-parent carry is not defined for this corruption")
     W = g.double().clone()
@@ -445,18 +406,10 @@ def absorb(world, dials: AbsorptionDials, world_seed: int, readout: str = "ident
 
 
 def hedging_gamma_star(world, p: int, c: int) -> float:
-    """The reference mixing of child c into parent p's decoder row: the least-squares row
-    when the parent latent's code is held at p's TRUE strength.
+    """Reference mixing of child c into parent p's row: the least-squares row with the parent's
+    code held at p's true strength, gamma* = P(c|p) * m_c / (m_p * (1 + spread^2)).
 
-    That row is d = g_p + (E[A_p A_c] / E[A_p^2]) g_c. Strengths are drawn independently with
-    mean m and sd spread*m, so E[A_p A_c] = P(c|p) m_p m_c and E[A_p^2] = P(p) m_p^2 (1 + spread^2)
-    per firing token:
-
-        gamma* = P(c|p) * m_c / (m_p * (1 + spread^2))
-
-    It is not the MSE optimum once the code is refit by NNLS, where the optimum is the top
-    principal direction of the parent's tokens and sits higher; gamma_rel is relative to this
-    fixed reference, so read curves against the realized severity.
+    The optimum under an NNLS refit sits higher, so read curves against the realized severity.
     """
     tree, cfg = world.tree, world.cfg
     if tree.parent_of(c) != p:
@@ -470,8 +423,8 @@ def hedge(world, dials: HedgingDials, world_seed: int, readout: str = "identity"
           ) -> Corruption:
     """Delete each selected child's row and mix gamma of it into its parent's row.
 
-    Rows and the map are built from ONE `keep` list, so a deletion cannot shift the latent id
-    of a later feature between the two.
+    Rows and the map come from one `keep` list, so a deletion cannot shift later latent ids
+    between the two.
     """
     g = world.g.double()
     F = int(g.shape[0])
@@ -480,8 +433,8 @@ def hedge(world, dials: HedgingDials, world_seed: int, readout: str = "identity"
     parents = [p for p, _ in edges]
     children = [c for _, c in edges]
     if len(set(parents)) != len(parents) or set(parents) & set(children):
-        # Each parent row is rebuilt FROM g[p], so a second hedged child would silently replace
-        # the first carry, and a hedged child cannot also carry a hedge of its own.
+        # each parent row is rebuilt from g[p], so a second hedged child would silently replace
+        # the first; a hedged child cannot carry a hedge of its own
         raise ValueError("hedging: a feature sits on more than one hedged edge; mixing several "
                          "children into one row is not defined for this corruption")
     star = [hedging_gamma_star(world, p, c) for p, c in edges]
@@ -512,11 +465,10 @@ def hedge(world, dials: HedgingDials, world_seed: int, readout: str = "identity"
 
 
 def split(world, dials: SplitDials, world_seed: int, readout: str = "identity") -> Corruption:
-    """Carry each chosen feature on `k` latents that SHARE its direction: L = F + (k-1)*n.
+    """Carry each chosen feature on `k` latents that share its direction: L = F + (k-1)*n.
 
-    Latent ids are feature-major and CONTIGUOUS: `support[t].nonzero()` returns ascending ids,
-    so a token's active rows arrive in the unsplit order, which with identical rows and
-    disjoint firing makes the `union` readout reproduce the unsplit firing channel exactly.
+    Latent ids are feature-major and contiguous, so the `union` readout reproduces the unsplit
+    firing channel exactly.
     """
     g = world.g
     F = int(g.shape[0])
@@ -574,19 +526,14 @@ def compose(world, dials: CompositionDials, world_seed: int, readout: str = "ide
                       corrupted_pair_rule="candidate_parent_feature", details=details)
 
 
-# --------------------------------------------------------------------------
-# per-draw firing transforms
-# --------------------------------------------------------------------------
+# --- per-draw firing transforms ---
 def apply_hole(support: torch.Tensor, corruption: Corruption, world_seed: int,
                sample_seed: int) -> tuple[torch.Tensor, dict[int, int]]:
-    """Remove each absorbing PARENT on `round(eta * n)` of the tokens where it co-fires with
-    any of its absorbed children. Returns (new support [n, F] bool, holed tokens per parent).
+    """Turn each absorbing parent off on `round(eta * n)` of its co-fire tokens with its absorbed
+    children. Returns (support [n, F] bool, holed tokens per parent).
 
-    One hole per parent over the union of its children's co-fire tokens: drawn per edge, a
-    container's co-firing members would stack their holes on one column and remove more than
-    eta. Co-fire rather than child tokens, because a member also fires without its container.
-    On strict hierarchy with one child per parent this is the child-token hole. Only parent
-    columns change; private generator per parent.
+    One hole per parent over the union of its children's co-fire tokens; per-edge holes would
+    stack on one column and remove more than eta.
     """
     eta = float(corruption.dials.eta)
     out = support.clone()
@@ -613,10 +560,8 @@ def expand_support(support: torch.Tensor, corruption: Corruption, world_seed: in
                    sample_seed: int) -> torch.Tensor:
     """`[n, F]` feature-space support -> `[n, L]` latent-space support, through the planted map.
 
-    A split feature's firing tokens are PARTITIONED over its shards (randperm plus contiguous
-    slices at cumulative counts, so disjoint and exactly covering by construction). A composed
-    pair's co-firing tokens go, for a share `pi`, to the combination latent, with both own
-    latents off there.
+    A split feature's tokens are partitioned over its shards; a share `pi` of a composed pair's
+    co-fire tokens go to the combination latent, with both own latents off there.
     """
     pmap = corruption.planted_map
     n, F = support.shape
@@ -676,8 +621,8 @@ CORRUPTIONS = {
 
 
 def build_corruption(world, dials, world_seed: int, readout: str = "identity") -> Corruption:
-    """The dictionary this dials object describes for this world. The damage is chosen by the
-    dials TYPE, so there is no way to ask for one damage with another's knobs."""
+    """The damaged dictionary for this world. The damage is chosen by the dials type, so one
+    damage cannot be run with another's knobs."""
     kind = type(dials).KIND
     builder = CORRUPTIONS.get(kind)
     if builder is None:

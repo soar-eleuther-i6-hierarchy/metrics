@@ -78,12 +78,19 @@ def frequency_controlled_coverage(
     fire_c_by_bucket: torch.Tensor,   # [K, C]    child firing counts per bucket
     edge_mask: torch.Tensor,          # [P, C]    kept edges (from all-token coverage)
     min_fire_low: int = 5,
+    *,
+    clamp_max: float | None = 1.5,
+    no_rare_firing_scores_zero: bool = False,
 ) -> dict[str, torch.Tensor]:
     """Per-edge reverse coverage per bucket + survival on non-frequent tokens.
 
     survival[p, c] = R restricted to buckets 1+2 (mid+low), divided by R_all.
     Edges whose child barely fires outside bucket 0 (fewer than min_fire_low
     tokens) are marked untestable (survival = nan) rather than failed.
+
+    `clamp_max=None` leaves the ratio unclamped. `no_rare_firing_scores_zero=True` scores a child
+    that never fires outside bucket 0, but fires at least min_fire_low times in all, 0 rather than
+    untestable. `edge_mask` can be any [P, C] mask of the pairs to report, e.g. a support mask.
     """
     cf = cofire_by_bucket.double()
     fc = fire_c_by_bucket.double()
@@ -94,8 +101,12 @@ def frequency_controlled_coverage(
     R_rest = cf_rest / fc_rest.clamp(min=1.0).unsqueeze(0)             # [P, C]
 
     survival = R_rest / R_all.clamp(min=1e-12)
-    survival = survival.clamp(max=1.5)  # noise guard: tiny denominators
-    untestable = (fc_rest < min_fire_low).unsqueeze(0).expand_as(survival)
+    if clamp_max is not None:
+        survival = survival.clamp(max=clamp_max)  # noise guard: tiny denominators
+    untestable = fc_rest < min_fire_low                                # [C]
+    if no_rare_firing_scores_zero:
+        untestable &= ~((fc_rest == 0) & (fc.sum(0) >= min_fire_low))
+    untestable = untestable.unsqueeze(0).expand_as(survival)
     survival = torch.where(untestable, torch.nan, survival)
     survival = torch.where(edge_mask, survival, torch.nan)
 

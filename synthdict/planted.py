@@ -1,38 +1,15 @@
-"""The planted feature->latent correspondence — an INPUT to the synthetic path, never an inference.
+"""The planted feature->latent map: an input to the synthetic path, never inferred by a matcher.
 
-Matching exists to solve an INVERSE problem: someone else built the dictionary, so which latent
-corresponds to which feature has to be inferred (activation correlation, a Hungarian assignment,
-a rho threshold). Synthesis has no inverse problem — we build the dictionary, so the
-correspondence is known at construction time and simply recorded here.
+The map lists the latents carrying each feature; the readout picks which single column the
+metrics score when there are several:
 
-Two things live in this record, and keeping them apart is the point:
+  identity         one latent per feature; a multi-latent feature is refused
+  strongest_shard  the strongest declared shard, what a one-to-one pipeline sees after a split
+  own              a composed feature's own latent, ignoring the shared combination latent
+  union            the whole group: activations sum, rows are activation-mass-weighted means
 
-  the MAP        feature f -> the latent ids carrying it. Identity for absorption. Splitting
-                 gives a feature several shards; hedging leaves a child with none; composition
-                 gives two features a shared combination latent after their own ones.
-  the READOUT    when a feature lives in several latents, WHICH single column the metrics score.
-                 That is a measurement decision, declared per run, never inferred — which is
-                 what keeps this matcher-free rather than a matcher by another name.
-
-The four policies, and what each one measures:
-
-  identity         one latent per feature; a multi-latent feature is REFUSED rather than
-                   silently reduced.
-  strongest_shard  the feature is read on its strongest DECLARED shard — what a one-to-one
-                   pipeline effectively sees once a feature has been split.
-  own              a composed feature is read on its own latent only, ignoring the
-                   combination latent it shares.
-  union            the feature IS its whole latent group: activations sum, directions and
-                   reconstruction rows are averaged by activation mass. A shared combination
-                   latent counts in both features' groups.
-
-For a split cell the gap between `strongest_shard` and `union` is the measurement of what
-splitting costs the metrics, with no matcher noise in it.
-
-The ordering of `feature_to_latents[f]` is what keeps "strongest" declarative: shards are listed
-by DESCENDING PLANTED SHARE, so `lats[0]` is strongest by construction and nothing here inspects
-an activation to decide. At an equal-share split (`skew = 0`) that ordering is a tie-break on
-lowest latent id — recorded here rather than left to be discovered.
+Shards are listed by descending planted share, so `lats[0]` is the strongest by construction
+(lowest latent id on a tie).
 """
 
 from __future__ import annotations
@@ -43,24 +20,20 @@ from dataclasses import dataclass
 
 import torch
 
-# Floor on ||mean of a union group's unit rows||. Shards share a direction by construction, so
-# this sits at ~1.0 in every reachable case; anything near 0 means the group is cancelling and
-# the averaged direction is meaningless. Loose on purpose — it is a sanity floor, not a dial.
+# Floor on the norm of a union group's mean unit row: a loose check that the group is not
+# cancelling, not a dial.
 UNION_MIN_MEAN_NORM = 0.5
 
-# The registered readout policies. Membership is checked at construction, so a typo fails at the
-# call site rather than silently selecting a default.
+# PlantedMap checks membership, so a readout typo fails at construction
 READOUTS = ("identity", "strongest_shard", "own", "union")
 
 
 @dataclass(frozen=True)
 class PlantedMap:
-    """`feature_to_latents[f]` = the latent ids carrying true feature f, in the dictionary the
-    corruption built. `n_latents` is that dictionary's width (== F only while the map is 1-1).
+    """`feature_to_latents[f]` = the latent ids carrying feature f; `n_latents` is the width.
 
-    `composition` declares each shared latent as (feature_a, feature_b, latent). A latent may be
-    claimed by two features only through such an entry, and it must follow both features' own
-    latent, so `lats[0]` is always a feature's own latent or strongest shard.
+    `composition` declares each shared latent as (feature_a, feature_b, latent), listed after
+    both features' own latents, so `lats[0]` is always a feature's own latent or strongest shard.
     """
 
     feature_to_latents: tuple[tuple[int, ...], ...]
@@ -104,7 +77,6 @@ class PlantedMap:
                         f"feature {f} lists combination latent {lat} first; its own latent "
                         f"must come first, or the 'own' readout would read the combination")
 
-    # --------------------------------------------------------------------
     @classmethod
     def identity(cls, F: int, readout: str = "identity") -> "PlantedMap":
         """One latent per feature, latent id == feature id (absorption, and every no-op dial)."""
@@ -138,12 +110,9 @@ class PlantedMap:
         return int(lats[0])
 
     def recovered(self) -> torch.Tensor:
-        """`[F]` bool: does this feature have any latent at all.
+        """`[F]` bool: whether feature f has any latent, by declaration; only hedging empties one.
 
-        DECLARATIVE — a planted feature is present because we planted it, not because a matcher
-        cleared a correlation threshold. Only hedging empties an entry (the deleted child).
-        Shape is fixed at `[F]` because `scoring.core.recovery.per_class_recovery` broadcasts it
-        against `pair_labels`, and that stays feature-indexed even when the latent count does not.
+        Feature-indexed because `per_class_recovery` broadcasts it against `pair_labels`.
         """
         return torch.tensor([len(lats) > 0 for lats in self.feature_to_latents],
                             dtype=torch.bool)
@@ -153,12 +122,8 @@ class PlantedMap:
         return [f for f, lats in enumerate(self.feature_to_latents) if lats]
 
     def groups(self) -> tuple[tuple[int, ...], ...]:
-        """The latent ids per SCORED feature, aligned with `feats()`.
-
-        The one shared helper behind all three reductions. `feats()` skips features with no
-        latent, so this must skip exactly the same ones or every reduction sits one position
-        away from the feature it claims to describe.
-        """
+        """The latent ids per scored feature, aligned with `feats()`: it must skip exactly the
+        features `feats()` skips, or every reduction is off by a position."""
         return tuple(self.feature_to_latents[f] for f in self.feats())
 
     def _check_latent_width(self, width: int) -> None:
@@ -170,10 +135,8 @@ class PlantedMap:
     def columns(self) -> torch.Tensor:
         """The latent column each scored feature is read on, aligned with `feats()`.
 
-        Single-column readouts only. Under `identity` a feature carried by several latents has
-        no single column and choosing one here (the first, the strongest) would be exactly the
-        silent reduction this module exists to prevent; under `union` no single column exists
-        at all, by definition of the policy.
+        Single-column readouts only: `identity` refuses a multi-latent feature rather than pick
+        one, and `union` has no single column.
         """
         if self.readout == "union":
             raise ValueError(
@@ -182,17 +145,10 @@ class PlantedMap:
         return torch.tensor([self._single_latent(f) for f in self.feats()], dtype=torch.long)
 
     def feature_lookup(self) -> torch.Tensor:
-        """`[F]` long, indexed by TRUE FEATURE id: the latent carrying feature f, or -1.
+        """`[F]` long, indexed by feature id: the latent carrying feature f, or -1.
 
-        Distinct from `columns()`, which is indexed by POSITION in the scored frame. Consumers
-        that index by feature id — `scoring.trained.absorption.classify_dictionary` does
-        (`match[c]` for a true child id) — must use this one. The two coincide only while every
-        feature is present, which is exactly the case that hides the bug.
-
-        Readout-keyed, like `columns()`: under `union` there is no single latent id for a
-        feature, and returning `lats[0]` here would report a union run's numbers against one
-        shard. Consumers that must name a latent anyway take `representative_lookup()` and
-        stamp the approximation.
+        Not `columns()`, which is indexed by position in the scored frame; the two agree only
+        while every feature is present. Refuses `union`: use `representative_lookup()` there.
         """
         if self.readout == "union":
             raise ValueError(
@@ -204,12 +160,10 @@ class PlantedMap:
         return out
 
     def representative_lookup(self) -> torch.Tensor:
-        """`[F]` long, feature-indexed: ONE latent standing in for each feature, or -1.
+        """`[F]` long, feature-indexed: the own latent or strongest shard, or -1, under any readout.
 
-        The feature's own latent or strongest declared shard, defined under every readout. This is an
-        APPROXIMATION wherever a feature has more than one shard, so every consumer records the
-        policy beside its output (`census.py` stamps `census_latent_policy`) — an approximation
-        that is visible on disk is a caveat; one that is not is a wrong number.
+        An approximation for multi-latent features, so consumers record the policy beside their
+        output (`census.py` stamps `census_latent_policy`).
         """
         out = torch.full((self.F,), -1, dtype=torch.long)
         for f, lats in enumerate(self.feature_to_latents):
@@ -217,13 +171,12 @@ class PlantedMap:
                 out[f] = int(lats[0])
         return out
 
-    # -- the three reductions: [.., L] -> [.., R], one per channel --------
+    # --- the three reductions: [.., L] -> [.., R], one per channel ---
     def reduce_acts(self, acts_L: torch.Tensor) -> torch.Tensor:
         """`[n, L]` -> `[n, R]` activations, one column per scored feature.
 
-        Under `union` the group SUMS. Planted shards fire disjointly, and a composed feature's
-        own latent is off wherever its combination latent fires, so at most one term is nonzero
-        per token (0 + x == x in IEEE754): the union anchor is bit-exact in the firing channel.
+        Under `union` the group sums. At most one term is nonzero per token, so the union
+        readout is bit-exact in the firing channel.
         """
         self._check_latent_width(acts_L.shape[1])
         if self.readout != "union":
@@ -237,12 +190,10 @@ class PlantedMap:
 
     def _live_weights(self, lats: tuple[int, ...], mass: torch.Tensor
                       ) -> tuple[list[int], torch.Tensor]:
-        """The group's latents that carry activation mass, with that mass as weights.
+        """The group's latents with activation mass, weighted by it; equal weights if none has any.
 
-        A latent with zero mass on the draw contributes nothing to the feature's reconstruction,
-        so it is dropped rather than averaged in: a combination latent that never fires (pi = 0)
-        must leave its features' rows untouched. A group with no mass at all falls back to
-        equal weights over every latent.
+        Dropping zero-mass latents keeps a never-firing combination latent (pi = 0) out of its
+        features' rows.
         """
         live = [j for j in lats if float(mass[j]) > 0.0]
         if not live:
@@ -250,19 +201,12 @@ class PlantedMap:
         return live, mass[live]
 
     def reduce_unit(self, unit_L: torch.Tensor, acts_L: torch.Tensor) -> torch.Tensor:
-        """`[L, D]` -> `[R, D]` geometry-channel rows: under `union`, the unit-normalized mean
-        weighted by each latent's activation mass on the draw (`acts_L` [n, L]).
+        """`[L, D]` -> `[R, D]` geometry rows: under `union`, the unit-normalized mean weighted
+        by each latent's activation mass on the draw.
 
-        Mass weighting is the direction of the feature's total reconstruction contribution.
-        For split shards, which share one direction, it equals the plain mean; for a composed
-        feature it weights the combination row by how much it actually fires.
-
-        A group with ONE live latent is that row itself, not a renormalized copy (renormalizing
-        an already-unit row moves it by ~6e-17, so the seam would be inert only to a tolerance).
-
-        REQUIRES the live latents to point roughly the same way. `signed_normalized_decoder`
-        orients each row on its own tokens, so a starved shard can be oriented against its
-        siblings; a cancelling group would normalize to a meaningless direction, so it fails.
+        A group with one live latent is that row itself, not a renormalized copy, so the seam
+        stays bit-exact. A cancelling group raises: `signed_normalized_decoder` can orient a
+        starved shard against its siblings.
         """
         self._check_latent_width(unit_L.shape[0])
         self._check_latent_width(acts_L.shape[1])
@@ -287,13 +231,8 @@ class PlantedMap:
         return torch.stack(rows)
 
     def reduce_raw(self, raw_L: torch.Tensor, acts_L: torch.Tensor) -> torch.Tensor:
-        """`[L, D]` -> `[R, D]` reconstruction-channel rows: under `union`, the activation-mass
-        weighted mean, NOT renormalized.
-
-        (sum of a group's acts) x (mass-weighted mean row) has the same total reconstruction
-        over the draw as the group's latents; renormalizing would rescale every reconstruction
-        contribution by 1/||mean||.
-        """
+        """`[L, D]` -> `[R, D]` reconstruction rows: under `union`, the activation-mass weighted
+        mean, not renormalized, so the group's total reconstruction over the draw is kept."""
         self._check_latent_width(raw_L.shape[0])
         self._check_latent_width(acts_L.shape[1])
         if self.readout != "union":
@@ -309,8 +248,7 @@ class PlantedMap:
         return torch.stack(rows)
 
     def sha256(self) -> str:
-        """Content hash of the correspondence, stamped into every artifact so two runs whose
-        maps differ are distinguishable on disk."""
+        """Content hash of the map, stamped into every artifact."""
         payload = {"map": [list(l) for l in self.feature_to_latents],
                    "readout": self.readout, "n_latents": self.n_latents}
         if self.composition:
