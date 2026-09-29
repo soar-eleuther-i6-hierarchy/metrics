@@ -94,7 +94,8 @@ def _run_metrics(stats):
         stats["err_sum_c"], stats["g_parent_sum"], stats["g_child_sum"], C.RECON_REL_GAIN_MIN
     )
     fcov = frequency_controlled_coverage(
-        stats["cofire_by_bucket"], stats["fire_c_by_bucket"], edge_mask
+        stats["cofire_by_bucket"], stats["fire_c_by_bucket"], edge_mask,
+        min_fire_low=C.FREQ_MIN_FIRE_LOW,
     )
     deg = degree_stats(edge_mask)
     superparents = find_superparents(
@@ -320,7 +321,8 @@ def _score_per_token(stats, labels, m, kept) -> list[dict]:
         probe = train_probe(resid.float(), fired[:, gc], seed=gc,
                             neg_ratio=C.SRES_NEG_RATIO,
                             max_tokens=C.SRES_MAX_PROBE_TOKENS,
-                            min_neg=C.SRES_MIN_NEG)
+                            min_neg=C.SRES_MIN_NEG,
+                            steps=C.SRES_STEPS, lr=C.SRES_LR)
         if probe is None:
             continue
         corr = probe.double() @ W_dec.T                    # [D] over ALL features

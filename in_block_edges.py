@@ -89,7 +89,8 @@ def analyse_block(b, stats, ranges, cache, labels, W_dec, device, do_sres):
             gc = s0 + cl
             probe = train_probe(resid, cache.feature_mask(gc).to(device), seed=gc,
                                 neg_ratio=C.SRES_NEG_RATIO,
-                                max_tokens=C.SRES_MAX_PROBE_TOKENS, min_neg=C.SRES_MIN_NEG)
+                                max_tokens=C.SRES_MAX_PROBE_TOKENS, min_neg=C.SRES_MIN_NEG,
+                                steps=C.SRES_STEPS, lr=C.SRES_LR)
             if probe is None:
                 n_untestable += 1
                 continue

@@ -124,6 +124,7 @@ def compute(stats, p_blk, c_blk):
         stats["cofire_by_bucket"][key].double(),
         stats["fire_c_by_bucket"][c_blk].double(),
         edge_mask,
+        min_fire_low=C.FREQ_MIN_FIRE_LOW,
     )
     superparents = find_superparents(
         edge_mask, fire_p, total, C.SUPERPARENT_OUTDEG_FRAC, C.SUPERPARENT_FIRE_FRAC

@@ -203,6 +203,7 @@ def analyse_pair(stats, p_blk, c_blk, labels=None, legacy_guards=False):
         stats["cofire_by_bucket"][key].double(),
         stats["fire_c_by_bucket"][c_blk].double(),
         edge_mask,
+        min_fire_low=C.FREQ_MIN_FIRE_LOW,
     )
     survival = fcov["survival"]                               # [P, C] nan off-edge/untestable
     surv_vals = survival[~torch.isnan(survival)]
@@ -220,6 +221,7 @@ def analyse_pair(stats, p_blk, c_blk, labels=None, legacy_guards=False):
             stats["cofire_by_local_bucket"][key].double(),
             stats["fire_c_by_local_bucket"][c_blk].double(),
             edge_mask,
+            min_fire_low=C.FREQ_MIN_FIRE_LOW,
         )
         lsurv = lcov["survival"]
         lvals = lsurv[~torch.isnan(lsurv)]

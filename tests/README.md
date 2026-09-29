@@ -11,6 +11,8 @@ itself — the kind that break silently, with every downstream number still look
 | [`test_calibration_covers_metrics.py`](test_calibration_covers_metrics.py) | every function in `metrics.__all__` is actually called by the Tier-1 calibration | AST only, ~0.1s |
 | [`test_metric_math.py`](test_metric_math.py) | every metric equals its own definition, recomputed independently | no network, no GPU, ~2s |
 | [`test_site_links.py`](test_site_links.py) | every `href` and `src` on the generated site resolves | ~1s |
+| [`test_metrics_v2.py`](test_metrics_v2.py) | every `metrics_v2` name is the identical object as its `metrics` original; the new functions match their definitions | ~1s |
+| [`test_rules.py`](test_rules.py) | every gate and rule of `metrics/rules/` pinned on a 2x2 frame worked out by hand, with and without a probe; the one-sided `either_endpoint` case | ~0.1s |
 
 ```bash
 python3 -m tests.test_collect_generic
