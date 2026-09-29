@@ -1,0 +1,266 @@
+{
+ "stages": [
+  "1 candidates",
+  "2 PMI \u2265 0.5",
+  "3 survival \u2265 0.5",
+  "4 reconstruction",
+  "5 direction alignment"
+ ],
+ "chance_pmi": 0.5,
+ "data": {
+  "matryoshka_gemma": {
+   "counts": [
+    1473,
+    355,
+    329,
+    188,
+    16
+   ],
+   "unmeasurable": {
+    "3 survival \u2265 0.5": 0,
+    "5 direction alignment": 0
+   }
+  },
+  "tsae_gemma": {
+   "counts": [
+    1621,
+    1621,
+    null,
+    null,
+    null
+   ],
+   "interval": {
+    "3 survival \u2265 0.5": [
+     1191,
+     1191
+    ],
+    "4 reconstruction": [
+     1168,
+     1191
+    ],
+    "5 direction alignment": [
+     317,
+     770
+    ]
+   },
+   "unmeasurable": {
+    "3 survival \u2265 0.5": 323,
+    "5 direction alignment": 303
+   },
+   "note": "stages 3 and 4 bounded from the report; statistics file not on disk"
+  },
+  "matryoshka_toy": {
+   "counts": [
+    9,
+    9,
+    9,
+    9,
+    9
+   ],
+   "unmeasurable": {
+    "3 survival \u2265 0.5": 0,
+    "5 direction alignment": 0
+   }
+  },
+  "tsae_toy": {
+   "runs": [
+    {
+     "counts": [
+      9,
+      9,
+      9,
+      9,
+      null
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0
+     }
+    },
+    {
+     "counts": [
+      9,
+      9,
+      9,
+      9,
+      null
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0
+     }
+    },
+    {
+     "counts": [
+      10,
+      10,
+      10,
+      10,
+      null
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0
+     }
+    }
+   ]
+  },
+  "matryoshka_pcfg": {
+   "runs": [
+    {
+     "counts": [
+      30,
+      25,
+      25,
+      21,
+      0
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0,
+      "5 direction alignment": 0
+     }
+    },
+    {
+     "counts": [
+      75,
+      49,
+      49,
+      46,
+      3
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0,
+      "5 direction alignment": 0
+     }
+    },
+    {
+     "counts": [
+      184,
+      82,
+      82,
+      82,
+      8
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0,
+      "5 direction alignment": 0
+     }
+    },
+    {
+     "counts": [
+      91,
+      26,
+      26,
+      26,
+      3
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0,
+      "5 direction alignment": 0
+     }
+    },
+    {
+     "counts": [
+      33,
+      32,
+      32,
+      32,
+      1
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0,
+      "5 direction alignment": 0
+     }
+    },
+    {
+     "counts": [
+      125,
+      47,
+      47,
+      38,
+      1
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0,
+      "5 direction alignment": 0
+     }
+    },
+    {
+     "counts": [
+      53,
+      53,
+      48,
+      44,
+      4
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0,
+      "5 direction alignment": 0
+     }
+    },
+    {
+     "counts": [
+      27,
+      27,
+      27,
+      27,
+      4
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0,
+      "5 direction alignment": 0
+     }
+    },
+    {
+     "counts": [
+      64,
+      29,
+      27,
+      27,
+      1
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 0,
+      "5 direction alignment": 0
+     }
+    },
+    {
+     "counts": [
+      493,
+      241,
+      96,
+      92,
+      4
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 10,
+      "5 direction alignment": 0
+     }
+    },
+    {
+     "counts": [
+      71,
+      57,
+      30,
+      29,
+      6
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 22,
+      "5 direction alignment": 0
+     }
+    },
+    {
+     "counts": [
+      647,
+      500,
+      414,
+      399,
+      15
+     ],
+     "unmeasurable": {
+      "3 survival \u2265 0.5": 19,
+      "5 direction alignment": 0
+     }
+    }
+   ]
+  }
+ }
+}

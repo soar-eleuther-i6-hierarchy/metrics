@@ -17,6 +17,11 @@ dataset.
 One file per architecture, named for what is in it. They were one file until the name stopped
 telling a reader where to look.
 
+`pipeline/` holds the four toy runs that went through the full metrics path (`adapters/from_toy.py`
+→ `run_metrics.py`): `matryoshka_toy/` (the Tier-2 checkpoint) and `tsaeip_s{0,1,2}/` (the
+inner-product T-SAE, one per seed). Each has `toy_stats.pt` and `report/`. They feed the
+Temporal SAE toy column of `paper_figuers/pure_metrics.*`.
+
 ## Two trees
 
 `configs/tree.json` has parents at 0.15 and distractors at 0.05, so parents are also the most
