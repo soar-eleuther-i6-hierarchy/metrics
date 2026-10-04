@@ -2,7 +2,8 @@
 
 `run_read` and `write_artifacts` (`scoring.benchmark.score_read`) are reused as is. Artifacts go to
 <out>/<tag>/seed<N>/<toy>/<kind>/<dials>/<readout>/ (scores.npz, expressions.json,
-run_config.json, census.json), never under a benchmark tag.
+run_config.json, census.json, and pathology_detection.json, the pathology detectors' output on
+undamaged, absorption and split points), never under a benchmark tag.
 
   python -m synthdict.run_synth --toy dense --kind hedging --gamma-rel 1 --tag T [--no-probe]
 """
@@ -30,10 +31,12 @@ from scoring.core.world import regenerate_world
 from synthdict.census import pathology_classifier_sha256, run_census
 from synthdict.corruptions import (SPLIT_ROLES, AbsorptionDials, CompositionDials,
                                    HedgingDials, SplitDials, build_corruption)
+from synthdict.detect import pathology_detection_applies  # noqa: F401
 from synthdict.planted import READOUTS
 from synthdict.read import ACTS_MODELS, resolved_config, synthetic_read
 
 SYNTHDICT_SOURCES = ("synthdict",)
+PATHOLOGY_DETECTION_SOURCES = "scoring/pathology_detection"
 _ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -51,6 +54,18 @@ def synthdict_sha256(root: Path | None = None) -> str:
                 continue
             h.update(str(p.relative_to(root)).encode())
             h.update(p.read_bytes())
+    return h.hexdigest()
+
+
+def pathology_detection_sha256(root: Path | None = None) -> str:
+    """Content hash of `scoring/pathology_detection`, which is outside `evaluator_sha256`."""
+    base = (_ROOT if root is None else Path(root)) / PATHOLOGY_DETECTION_SOURCES
+    h = hashlib.sha256()
+    for p in sorted(base.rglob("*.py")):
+        if "__pycache__" in p.parts:
+            continue
+        h.update(str(p.relative_to(base)).encode())
+        h.update(p.read_bytes())
     return h.hexdigest()
 
 
@@ -104,7 +119,7 @@ def dial_dirname(dials) -> str:
     if isinstance(dials, HedgingDials):
         return f"gamma{dials.gamma_rel:g}-f{dials.edge_fraction:g}"
     if isinstance(dials, SplitDials):
-        return (f"k{dials.k:g}-skew{dials.skew:g}-f{dials.fraction:g}"
+        return (f"k{dials.k:g}-sub{dials.subgroup_strength:g}-f{dials.fraction:g}"
                 f"-roles_{'+'.join(dials.roles)}")
     if isinstance(dials, CompositionDials):
         return f"pi{dials.pi:g}-f{dials.fraction:g}"
@@ -171,6 +186,7 @@ def build_run_config(read, toy: str, seed: int, dials, n_tokens: int,
                  "synthdict_sha256": synthdict_sha256(),
                  "toygen_commit": toygen_commit(),
                  "pathology_classifier_sha256": pathology_classifier_sha256(),
+                 "pathology_detection_sha256": pathology_detection_sha256(),
                  **git_provenance(_ROOT)},
     }
 
@@ -178,13 +194,18 @@ def build_run_config(read, toy: str, seed: int, dials, n_tokens: int,
 def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: str,
                    readout: str = "identity", with_probe: bool = True,
                    with_census: bool = True, force: bool = False,
-                   cfg_overrides: dict | None = None) -> list[Path]:
+                   cfg_overrides: dict | None = None, with_pathology_detection: bool = True,
+                   pathology_detection_settings=None) -> list[Path]:
     """Score one (toy, seed, dials) under the declared readout; write its artifacts."""
     rc = resolved_config(toy, seed, cfg_overrides)
     damage, acts_mode = damage_of(dials), acts_mode_of(dials)
     t0 = time.time()
     read = synthetic_read(toy, seed, damage, readout, n_tokens, with_probe=with_probe,
-                          acts_mode=acts_mode, cfg_overrides=cfg_overrides)
+                          acts_mode=acts_mode, cfg_overrides=cfg_overrides,
+                          with_pathology_detection=with_pathology_detection,
+                          pathology_detection_settings=pathology_detection_settings)
+    # detection goes to pathology_detection.json only, not into expressions.json's copy of `extra`
+    detection = read.extra.pop("pathology_detection")
     report, arrays = run_read(read)
     report["secs"] = round(time.time() - t0, 1)
     ex = read.extra
@@ -258,12 +279,17 @@ def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: st
     } | git_provenance(_ROOT)
 
     # A forced rewrite must not leave a previous run's side files beside the new artifact.
-    for stale in ("census.json", "run_config.json"):
+    for stale in ("census.json", "run_config.json", "pathology_detection.json"):
         (d / stale).unlink(missing_ok=True)
     write_artifacts(d, arrays, report, meta, force=force)
     (d / "run_config.json").write_text(json.dumps(run_config, indent=2), encoding="utf-8")
     if cen is not None:
         (d / "census.json").write_text(json.dumps(cen, indent=2), encoding="utf-8")
+    if detection is not None:
+        detection |= {"pathology_detection_sha256":
+                      run_config["code"]["pathology_detection_sha256"]}
+        (d / "pathology_detection.json").write_text(json.dumps(detection, indent=2),
+                                                     encoding="utf-8")
     print(f"[{toy} seed{seed} {dial_dirname(dials)} {readout}] wrote {d} "
           f"({report['secs']}s, sev_med={ex['realized_severity_median']:.3f}, "
           f"fvu={ex['fvu']['scoring']:.3f}, zeroed={ex['zeroed_rate']['scoring']:.2e})")
@@ -274,7 +300,7 @@ def run_dial_point(toy: str, seed: int, dials, n_tokens: int, out: Path, tag: st
 DIALS_BY_KIND = {
     "absorption": (AbsorptionDials, ("beta", "eta", "edge_fraction")),
     "hedging": (HedgingDials, ("gamma_rel", "edge_fraction")),
-    "split": (SplitDials, ("k", "roles", "skew", "fraction")),
+    "split": (SplitDials, ("k", "roles", "subgroup_strength", "fraction")),
     "composition": (CompositionDials, ("pi", "fraction")),
     # the oracle and undamaged columns
     "none": (NoDamageDials, ("acts_mode",)),
@@ -320,7 +346,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gamma-rel", type=float, help="hedging: mixing as a multiple of gamma*")
     ap.add_argument("--k", type=int, help="split: shards per split feature")
     ap.add_argument("--roles", nargs="+", choices=SPLIT_ROLES, help="split: roles to split")
-    ap.add_argument("--skew", type=float, help="split: 0 = equal shard shares (default)")
+    ap.add_argument("--subgroup-strength", type=float,
+                    help="split: s, the sub-group component; 0 at k = 1, 0.5 in the matrix")
     ap.add_argument("--fraction", type=float,
                     help="split: share per role; composition: share of partner pairs "
                          "(default 1.0)")
@@ -335,6 +362,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="shrink the world (cheap local runs); recorded in resolved_config")
     ap.add_argument("--no-probe", action="store_true")
     ap.add_argument("--no-census", action="store_true")
+    ap.add_argument("--no-pathology-detection", action="store_true",
+                    help="skip pathology_detection.json (the detectors need scikit-learn)")
     ap.add_argument("--force", action="store_true")
     return ap
 
@@ -345,7 +374,8 @@ def main() -> None:
     overrides = {"n_roots": args.n_roots} if args.n_roots is not None else None
     run_dial_point(args.toy, args.seed, dials, args.n_tokens, Path(args.out), args.tag,
                    readout=args.readout, with_probe=not args.no_probe,
-                   with_census=not args.no_census, force=args.force, cfg_overrides=overrides)
+                   with_census=not args.no_census, force=args.force, cfg_overrides=overrides,
+                   with_pathology_detection=not args.no_pathology_detection)
 
 
 if __name__ == "__main__":
