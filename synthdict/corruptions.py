@@ -1,11 +1,11 @@
 """Latent-side damage generators, set by physical dials only (no instrument thresholds).
 
-  absorption   (Chanin et al. 2409.14507) child row unit(g_c + beta * rbar * g_p); the parent
-               is off on round(eta * n) of its co-fire tokens with absorbed children.     L = F
+  absorption   (Chanin et al. 2409.14507) child row unit(g_c + beta * rbar * g_p); at eta = 1
+               the parent is off on every co-fire token with an absorbed child.           L = F
   hedging      (Chanin, Dulka, Garriga-Alonso 2505.11756) child row deleted; parent row
                unit(g_p + gamma * g_c), gamma = gamma_rel * gamma*.                       L < F
-  split        (Bricken et al.; Chanin et al.) k latents share a feature's direction and
-               partition its firing tokens.                                               L > F
+  split        (Bricken et al.; Chanin et al.) k latents unit(g_f + s * u_{f,j}), each firing
+               on one of k sub-groups planted in the feature's tokens (`subgroups`).      L > F
   composition  (Anders et al. 2024; Leask et al. 2502.04878) an added latent unit(g_p + g_r)
                fires on a share pi of p and r's co-fire tokens, where their own are off.  L > F
 
@@ -16,22 +16,25 @@ not itself import the census thresholds (`scoring.config`) or the gate constants
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import torch
 
 from synthdict.planted import PlantedMap
+from synthdict.subgroups import (SHARD_SEED_OFFSET, SUBGROUP_SEED_OFFSET,  # noqa: F401
+                                 shard_generator_seed, split_partition, subgroup_directions)
 from toygen.strengths import build_strengths
 
 _TINY = 1e-12
 
 # One private RNG offset per stream, away from the repo's other seed offsets, so two damages on
 # one world seed do not select the same edges or features.
+# The split's token partition and sub-group directions use SHARD_SEED_OFFSET and
+# SUBGROUP_SEED_OFFSET from `synthdict.subgroups`.
 EDGE_SEED_OFFSET = 61_211
-HOLE_SEED_OFFSET = 77_003
 HEDGE_SEED_OFFSET = 34_919
 SPLIT_SEED_OFFSET = 52_711
-SHARD_SEED_OFFSET = 41_213
 COMPOSE_SEED_OFFSET = 88_547
 COMBINATION_SEED_OFFSET = 23_417
 
@@ -70,7 +73,11 @@ def _check_fraction(name: str, v: float, allow_zero: bool) -> None:
 
 @dataclass(frozen=True)
 class AbsorptionDials:
-    """`rbar` is the parent/child mean-magnitude ratio, 1.0 for toygen's flat mean strength."""
+    """`rbar` is the parent/child mean-magnitude ratio, 1.0 for toygen's flat mean strength.
+
+    `eta` is 0 or 1: the parent is off on none or all of its co-fire tokens. No encoder can turn
+    it off on a random share, so no value between is offered.
+    """
 
     KIND = "absorption"
 
@@ -82,7 +89,8 @@ class AbsorptionDials:
     def __post_init__(self) -> None:
         if float(self.beta) < 0.0:
             raise ValueError(f"beta must be non-negative, got {self.beta}")
-        _check_fraction("eta", self.eta, allow_zero=True)
+        if float(self.eta) not in (0.0, 1.0):
+            raise ValueError(f"eta must be 0 or 1, got {self.eta}")
         _check_fraction("edge_fraction", self.edge_fraction, allow_zero=False)
         if float(self.rbar) <= 0.0:
             raise ValueError(f"rbar must be positive, got {self.rbar}")
@@ -106,17 +114,18 @@ class HedgingDials:
 
 @dataclass(frozen=True)
 class SplitDials:
-    """One feature carried by `k` latents that share its direction and partition its firing.
+    """One feature carried by `k` latents, each firing on one of k equal sub-groups of its tokens.
 
-    `roles` names the candidate-parent populations split; `fraction` applies within each role.
-    `skew` tilts the token shares geometrically; 0.0 is an equal split.
+    `subgroup_strength` is s: sub-group j adds s * u_{f,j} to the feature's activation and piece j's
+    row is unit(g_f + s * u_{f,j}); 0 gives k copies of g_f. `roles` names the candidate-parent
+    populations split; `fraction` applies within each role.
     """
 
     KIND = "split"
 
     k: int
     roles: tuple[str, ...]
-    skew: float = 0.0
+    subgroup_strength: float
     fraction: float = 1.0
 
     def __post_init__(self) -> None:
@@ -125,8 +134,11 @@ class SplitDials:
             raise ValueError(f"k must be an int, got {self.k!r}")
         if int(self.k) < 1:
             raise ValueError(f"k must be >= 1, got {self.k}")
-        if not (0.0 <= float(self.skew) < 1.0):
-            raise ValueError(f"skew must be in [0, 1), got {self.skew}")
+        s = float(self.subgroup_strength)
+        if not (math.isfinite(s) and s >= 0.0):
+            raise ValueError(f"subgroup_strength must be finite and >= 0, got {s}")
+        if int(self.k) == 1 and s != 0.0:
+            raise ValueError("k = 1 has no sub-groups; subgroup_strength must be 0")
         _check_fraction("fraction", self.fraction, allow_zero=True)
         if not self.roles:
             raise ValueError(f"split needs at least one declared role from {SPLIT_ROLES}")
@@ -337,35 +349,6 @@ def select_features(candidates, fraction: float, world_seed: int, offset: int
     return tuple(sorted(cand[i] for i in perm[:k]))
 
 
-def shard_shares(k: int, skew: float = 0.0) -> tuple[float, ...]:
-    """The `k` token shares of a split feature, summing to 1 and descending, so
-    `feature_to_latents[f][0]` is the strongest shard."""
-    if int(k) < 1:
-        raise ValueError(f"k must be >= 1, got {k}")
-    if not (0.0 <= float(skew) < 1.0):
-        raise ValueError(f"skew must be in [0, 1), got {skew}")
-    w = [(1.0 - float(skew)) ** i for i in range(int(k))]
-    total = sum(w)
-    return tuple(x / total for x in w)
-
-
-def hole_generator_seed(world_seed: int, sample_seed: int, p: int, c: int) -> int:
-    """Per-(world, draw, edge) seed for the hole; distinct multipliers per input."""
-    return (HOLE_SEED_OFFSET
-            + 1_000_003 * int(world_seed)
-            + 7_919 * int(sample_seed)
-            + 613 * int(p)
-            + int(c))
-
-
-def shard_generator_seed(world_seed: int, sample_seed: int, feature: int) -> int:
-    """Per-(world, draw, feature) seed for the token->shard partition."""
-    return (SHARD_SEED_OFFSET
-            + 1_000_003 * int(world_seed)
-            + 7_919 * int(sample_seed)
-            + 613 * int(feature))
-
-
 def composition_generator_seed(world_seed: int, sample_seed: int, p: int, r: int) -> int:
     """Per-(world, draw, pair) seed for the combination latent's tokens."""
     return (COMBINATION_SEED_OFFSET
@@ -465,10 +448,10 @@ def hedge(world, dials: HedgingDials, world_seed: int, readout: str = "identity"
 
 
 def split(world, dials: SplitDials, world_seed: int, readout: str = "identity") -> Corruption:
-    """Carry each chosen feature on `k` latents that share its direction: L = F + (k-1)*n.
+    """Carry each chosen feature on `k` latents unit(g_f + s * u_{f,j}): L = F + (k-1)*n.
 
     Latent ids are feature-major and contiguous, so the `union` readout reproduces the unsplit
-    firing channel exactly.
+    firing channel exactly. The world must carry the same sub-groups (`plant_subgroups`).
     """
     g = world.g
     F = int(g.shape[0])
@@ -483,19 +466,25 @@ def split(world, dials: SplitDials, world_seed: int, readout: str = "identity") 
                               SPLIT_SEED_OFFSET + 101 * SPLIT_ROLES.index(r))
         role_counts[r] = {"n_eligible": len(roles[r]), "n_selected": len(sel)}
         chosen |= set(sel)
-    rows: list[int] = []
+    s = float(dials.subgroup_strength)
+    rows: list[torch.Tensor] = []
     f2l: list[tuple[int, ...]] = []
     for f in range(F):
         k = int(dials.k) if f in chosen else 1
         f2l.append(tuple(range(len(rows), len(rows) + k)))
-        rows.extend([f] * k)
-    W = g.double()[torch.tensor(rows, dtype=torch.long)]
+        gf = g[f].double()
+        if k == 1 or s == 0.0:
+            rows.extend([gf] * k)
+            continue
+        for d in gf[None, :] + s * subgroup_directions(gf, k, world_seed, f):
+            rows.append(d / d.norm().clamp_min(_TINY))
+    W = torch.stack(rows)
     return Corruption(dials=dials, W_raw=W,
                       planted_map=PlantedMap(feature_to_latents=tuple(f2l), readout=readout,
                                              n_latents=len(rows)),
                       corrupted_features=tuple(sorted(chosen)),
                       corrupted_pair_rule="candidate_parent_feature",
-                      details={"roles": role_counts})
+                      details={"roles": role_counts, "subgroup_strength": s})
 
 
 def compose(world, dials: CompositionDials, world_seed: int, readout: str = "identity"
@@ -527,14 +516,10 @@ def compose(world, dials: CompositionDials, world_seed: int, readout: str = "ide
 
 
 # --- per-draw firing transforms ---
-def apply_hole(support: torch.Tensor, corruption: Corruption, world_seed: int,
-               sample_seed: int) -> tuple[torch.Tensor, dict[int, int]]:
-    """Turn each absorbing parent off on `round(eta * n)` of its co-fire tokens with its absorbed
-    children. Returns (support [n, F] bool, holed tokens per parent).
-
-    One hole per parent over the union of its children's co-fire tokens; per-edge holes would
-    stack on one column and remove more than eta.
-    """
+def apply_hole(support: torch.Tensor, corruption: Corruption
+               ) -> tuple[torch.Tensor, dict[int, int]]:
+    """At eta = 1 turn each absorbing parent off on every token where it fires with any of its
+    absorbed children; at eta = 0 change nothing. Returns (support [n, F], holed per parent)."""
     eta = float(corruption.dials.eta)
     out = support.clone()
     children_of: dict[int, list[int]] = {}
@@ -545,14 +530,10 @@ def apply_hole(support: torch.Tensor, corruption: Corruption, world_seed: int,
         child_fires = torch.zeros(support.shape[0], dtype=torch.bool, device=support.device)
         for c in cs:
             child_fires |= support[:, c]
-        cofire = (child_fires & support[:, p]).nonzero(as_tuple=True)[0]
-        want = round(eta * int(cofire.numel()))
-        n_holed[p] = want
-        if want <= 0:
-            continue
-        gen = torch.Generator().manual_seed(hole_generator_seed(world_seed, sample_seed, p, cs[0]))
-        perm = torch.randperm(int(cofire.numel()), generator=gen)
-        out[cofire[perm[:want]], p] = False
+        cofire = child_fires & support[:, p]
+        n_holed[p] = int(cofire.sum()) if eta == 1.0 else 0
+        if eta == 1.0:
+            out[cofire, p] = False
     return out, n_holed
 
 
@@ -560,8 +541,8 @@ def expand_support(support: torch.Tensor, corruption: Corruption, world_seed: in
                    sample_seed: int) -> torch.Tensor:
     """`[n, F]` feature-space support -> `[n, L]` latent-space support, through the planted map.
 
-    A split feature's tokens are partitioned over its shards; a share `pi` of a composed pair's
-    co-fire tokens go to the combination latent, with both own latents off there.
+    A split feature's piece j fires on its sub-group j (`split_partition`); a share `pi` of a
+    composed pair's co-fire tokens go to the combination latent, with both own latents off there.
     """
     pmap = corruption.planted_map
     n, F = support.shape
@@ -578,23 +559,11 @@ def expand_support(support: torch.Tensor, corruption: Corruption, world_seed: in
             continue
         if not isinstance(corruption.dials, SplitDials):
             raise ValueError(
-                f"{corruption.kind} declares feature {f} on {len(lats)} latents but carries no "
-                f"share policy; a partition needs declared shares, not a default")
-        tok = support[:, f].nonzero(as_tuple=True)[0]
-        n_f = int(tok.numel())
-        gen = torch.Generator().manual_seed(shard_generator_seed(world_seed, sample_seed, f))
-        perm = torch.randperm(n_f, generator=gen)
-        shares = shard_shares(len(lats), float(corruption.dials.skew))
-        # Cumulative bounds, so the shard counts sum to n_f exactly.
-        bounds, cum = [], 0.0
-        for s in shares:
-            cum += s
-            bounds.append(int(round(cum * n_f)))
-        bounds[-1] = n_f
-        start = 0
-        for i, end in enumerate(bounds):
-            out[tok[perm[start:end]], lats[i]] = True
-            start = end
+                f"{corruption.kind} declares feature {f} on {len(lats)} latents but only a split "
+                f"defines how a feature's tokens are partitioned")
+        piece = split_partition(support[:, f], len(lats), world_seed, sample_seed, f)
+        for i, j in enumerate(lats):
+            out[:, j] = piece == i
     for a, b, lat in pmap.composition:
         if not isinstance(corruption.dials, CompositionDials):
             raise ValueError(f"{corruption.kind} declares a combination latent but no pi")

@@ -3,7 +3,8 @@
 The planted map (`synthdict.planted`) is the feature->latent correspondence. `synth_encode`
 returns the dictionary frame [., L], one column per decoder row; the detectors see the scored
 frame [., R], one column per feature after the readout. Draws follow the benchmark: scoring on
-`held_out_sample_seed(seed)`, probe fit on `probe_fit_sample_seed(seed)`.
+`held_out_sample_seed(seed)`, probe fit on `probe_fit_sample_seed(seed)`. A split's sub-groups are
+planted on every draw (`plant_subgroups`), so h is the world the split dictionary was built for.
 """
 
 from __future__ import annotations
@@ -18,13 +19,16 @@ from scoring.core.detectors import (DetectorInputs, compute_bundle, decoder_cosi
                                     fit_probe_directions, s_res_from_directions)
 from scoring.core.frame import held_out_sample_seed, pair_frame, probe_fit_sample_seed
 from scoring.core.world import WorldBundle, regenerate_world, signed_normalized_decoder
+from scoring.pathology_detection import ABSORPTION_SPLITTING
 from toygen import spec
 from toygen.world import resolve_config
 
 from synthdict.activations import nnls_acts, reconstruction_fvu, zeroed_rate
 from synthdict.corruptions import (AbsorptionDials, Corruption, apply_hole, build_corruption,
                                    expand_support)
+from synthdict.detect import detect_pathologies, pathology_detection_applies
 from synthdict.planted import READOUTS, resolve_map
+from synthdict.subgroups import plant_subgroups
 
 _TINY = 1e-12
 _NAN = float("nan")
@@ -55,7 +59,7 @@ def synth_encode(bundle: WorldBundle, corruption: Corruption | None, world_seed:
     n_holed = 0
     # The hole is absorption's firing transform; no other damage carries an eta.
     if corruption is not None and isinstance(corruption.dials, AbsorptionDials):
-        support, holed = apply_hole(support, corruption, world_seed, sample_seed)
+        support, holed = apply_hole(support, corruption)
         n_holed = sum(holed.values())
     if acts_mode == "true_A":
         if corruption is not None:
@@ -120,11 +124,14 @@ def _damaged_latents(corruption: Corruption | None, pmap) -> list[int]:
 def synthetic_read(toy: str, seed: int, dials, readout: str,
                    n_tokens: int, with_probe: bool = True, acts_mode: str = "nnls",
                    cfg_overrides: dict | None = None,
-                   probe_fit_seed: int | None = None) -> Read:
+                   probe_fit_seed: int | None = None, with_pathology_detection: bool = False,
+                   pathology_detection_settings=None) -> Read:
     """Build, encode, and score one synthetic dictionary as a `Read(read="synthetic")`.
 
     The dials type picks the damage; `dials=None` is the undamaged dictionary (W = g), and with
-    `acts_mode="true_A"` it must reproduce the benchmark's oracle read bit-for-bit.
+    `acts_mode="true_A"` it must reproduce the benchmark's oracle read bit-for-bit. With
+    `with_pathology_detection`, the pathology detectors run where they apply
+    (`pathology_detection_applies`).
     """
     if readout not in READOUTS:
         raise ValueError(f"readout must be one of {READOUTS}, got {readout!r}")
@@ -138,6 +145,10 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
     corruption = None
     if dials is not None:
         corruption = build_corruption(score, dials, world_seed=int(seed), readout=readout)
+    score = plant_subgroups(score, corruption, int(seed), score_seed)
+    kind = corruption.kind if corruption is not None else "none"
+    run_detection = (bool(with_pathology_detection)
+                     and pathology_detection_applies(kind, acts_mode))
     W_raw = corruption.W_raw if corruption is not None else score.g.double()
 
     acts_ho, support_ho, holed_ho = synth_encode(score, corruption, seed, score_seed, acts_mode)
@@ -163,9 +174,11 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
 
     fit_seed = probe_fit_sample_seed(int(seed)) if probe_fit_seed is None else int(probe_fit_seed)
     probe, P, avail = None, None, None
-    if with_probe:
-        fw = regenerate_world(rc, sample_seed=fit_seed, n_tokens=n_tokens)
+    if with_probe or run_detection:
+        fw = plant_subgroups(regenerate_world(rc, sample_seed=fit_seed, n_tokens=n_tokens),
+                             corruption, int(seed), fit_seed)
         acts_f, support_f, holed_f = synth_encode(fw, corruption, seed, fit_seed, acts_mode)
+    if with_probe:
         # labels are the dictionary's own activations on the scored columns, as on a trained read,
         # so the probe at position k belongs to the latent scored at k
         acts_f_rec = pmap.reduce_acts(acts_f)
@@ -193,6 +206,13 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
 
     sev = (corruption.realized_severity if corruption is not None
            else torch.zeros(0, dtype=torch.float64))
+    detection = None
+    if run_detection:
+        settings = (ABSORPTION_SPLITTING if pathology_detection_settings is None
+                    else pathology_detection_settings)
+        detection = detect_pathologies(
+            score, fw, acts_ho, acts_f, W_raw, corruption, pmap, settings,
+            int(seed)) | {"eval_sample_seed": score_seed, "fit_sample_seed": fit_seed}
     extra = {
         "support": bnd["support"],
         "dials": (dataclasses.asdict(dials) if dials is not None else None),
@@ -234,6 +254,7 @@ def synthetic_read(toy: str, seed: int, dials, readout: str,
         # latent_l0 on the [n, L] dictionary frame, feature_l0 on the [n, R] scored frame
         "latent_l0": float(acts_ho.gt(0).double().sum(dim=1).mean()),
         "feature_l0": float(di.acts_rec.gt(0).double().sum(dim=1).mean()),
+        "pathology_detection": detection,
     }
     return Read(
         toy=toy, seed=int(seed), read="synthetic", n_tokens=n_tokens,

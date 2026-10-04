@@ -78,6 +78,8 @@ Ruleset 1's full record is in git history; the constraints it set that still hol
 ### Under damage
 
 On the damaged pairs; the undamaged pairs of the same runs stay at their no-damage rates, apart from rank reshuffles at the top-5 cut on `dense`.
+The absorption and splitting rows were measured under the old constructs, which silenced the parent on a random share of its co-fire tokens and gave split pieces the feature's exact direction with randomly dealt tokens.
+Both constructs were rebuilt to the literature's definitions on 2026-10-01 (`synthdict/PARAMETERS.md`); these rows stand until the rerun.
 
 - Absorption works through the encoder: it hands the parent's activation to the child's row and zeroes the parent on a growing share of the child's tokens, so an absorbed edge is lost once P(parent | child) falls below a check's bar.
   On the hierarchy toys only containment ever rejects (bar 0.5): with no silencing every absorbed edge survives up to a parent weight of 0.75, and none survives silencing of 0.6 or more; the two geometries differ only within noise.
@@ -335,10 +337,11 @@ A criterion that fails stops the run and gets debugged; it is not relaxed to fit
 The run is 124 dial points per seed at 50k tokens: seed 0 at the oracle and undamaged points first, then seeds 1 to 3.
 The `dense`, `frequency` and `topical` toys were rebuilt after the first run (Section 4); the lines below that name their sizes were updated on 2026-09-27, before those three toys were rerun.
 On 2026-09-29, after the run, one damage kind whose 5 points per seed were never run was taken out of this study, so the declared count is 124 points per seed rather than 129.
+The rerun under the rebuilt split and absorption constructs uses a new tag and 120 points per seed: 5 oracle, 5 undamaged, 30 absorption (beta 0, 0.25, 0.5, 0.75, 1 at eta 0, and beta 1 at eta 1), 50 split (k 1, 2, 3, 4, 6 on every candidate-parent role, under both readouts) and 30 composition.
 
 Instrument checks, which must all hold or the read is not trustworthy:
 
-- Every declared point is written: 10 on seed 0, 124 on each of seeds 1 to 3.
+- Every declared point is written: 10 on seed 0, 124 on each of seeds 1 to 3 (120 under the rebuilt constructs).
 - On seed 0 each hierarchy toy's arrays equal the ruleset-1 seed-0 arrays of the same world in `MATRIX-P3` (`only_isa`, `only_firing`) bit for bit, at the oracle and undamaged reads, on every gate except `gate_sres_rank`, which k moves, and `gate_contains` and `gate_pmi_positive`, which that run did not store.
   The rebuilt `dense`, `frequency` and `topical` have no earlier twin.
 - Each designated rule's oracle recall is 1.00 within 0.05 on the toys built for its target: `rule_hierarchy` on `hierarchy_overlap` and on `hierarchy_orthogonal`, `rule_dense_endpoint` on `dense`, `rule_frequency_driven` on `frequency`.
@@ -348,6 +351,7 @@ Instrument checks, which must all hold or the read is not trustworthy:
 - Absorption at `beta = 0, eta = 0` reproduces that toy's undamaged cell exactly.
   These are the same dictionary, so any difference is a bug in the damage path, not a result.
 - Composition at `pi = 0` under the `union` readout reproduces that toy's undamaged cell exactly, per the invariant recorded in `synthdict/PARAMETERS.md`.
+- Under the rebuilt constructs, split at `k = 1` reproduces that toy's undamaged cell exactly under both readouts.
 - Every damage cell has a non-empty intact arm.
   Coverage is 0.5 precisely to guarantee this; a cell that arrives without one is reported as uncontrolled rather than compared.
 

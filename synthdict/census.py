@@ -19,6 +19,7 @@ from scoring.core.pathologies import classify_dictionary, tree_edges_and_sibling
 from synthdict.corruptions import Corruption
 from synthdict.planted import resolve_map
 from synthdict.read import synth_encode
+from synthdict.subgroups import plant_subgroups
 
 CAVEAT = ("annotation only: shares definitions with the planted pathology (manipulation "
           "check, not validation); eps is span-calibrated, so counts at edge_fraction~1.0 "
@@ -39,7 +40,8 @@ def run_census(rc: dict, corruption: Corruption | None, seed: int, n_tokens: int
     """Classify the synthetic dictionary against ground truth on the in-sample draw
     (`sample_seed = seed`)."""
     sample_seed = int(seed)
-    inw = regenerate_world(rc, sample_seed=sample_seed, n_tokens=n_tokens)
+    inw = plant_subgroups(regenerate_world(rc, sample_seed=sample_seed, n_tokens=n_tokens),
+                          corruption, int(seed), sample_seed)
     acts, _support, _holed = synth_encode(inw, corruption, seed, sample_seed)
     W_raw = corruption.W_raw if corruption is not None else inw.g.double()
     oriented = signed_normalized_decoder(W_raw, acts, inw.h)

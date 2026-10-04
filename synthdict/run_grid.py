@@ -18,8 +18,8 @@ import time
 from pathlib import Path
 
 from synthdict.planted import READOUTS
-from synthdict.run_synth import (DIALS_BY_KIND, acts_mode_of, dial_dirname, point_dir,
-                                 provenance_tuple)
+from synthdict.run_synth import (DIALS_BY_KIND, acts_mode_of, dial_dirname,
+                                 pathology_detection_applies, point_dir, provenance_tuple)
 
 
 def point_dials(point: dict):
@@ -59,6 +59,8 @@ def point_cmd(point: dict, args) -> list[str]:
         cmd.append("--no-probe")
     if args.no_census:
         cmd.append("--no-census")
+    if args.no_pathology_detection:
+        cmd.append("--no-pathology-detection")
     if args.force:
         cmd.append("--force")
     return cmd
@@ -135,6 +137,7 @@ def main() -> None:
                     help="shrink the world (cheap local dry runs)")
     ap.add_argument("--no-probe", action="store_true")
     ap.add_argument("--no-census", action="store_true")
+    ap.add_argument("--no-pathology-detection", action="store_true")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
@@ -172,7 +175,10 @@ def main() -> None:
         name = f"{i:03d}-{point['toy']}-{kind}-{dial_dirname(dials)}-{readout}"
         npz = resume_npz(args.out, args.tag, args.seed, point["toy"], dials, readout)
         census_missing = not args.no_census and not (npz.parent / "census.json").exists()
-        if not args.force and npz.exists() and not census_missing:
+        detection_missing = (not args.no_pathology_detection
+                             and pathology_detection_applies(kind, acts_mode_of(dials))
+                             and not (npz.parent / "pathology_detection.json").exists())
+        if not args.force and npz.exists() and not census_missing and not detection_missing:
             have = _artifact_provenance(npz)
             want = _requested_provenance(args, kind, readout, acts_mode_of(dials))
             if have == want:

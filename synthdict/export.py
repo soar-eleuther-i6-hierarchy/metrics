@@ -29,7 +29,8 @@ TARGET_CLASSES_BY_TOY = {"hierarchy_overlap": ("hierarchy_overlap",),
                          "hierarchy_orthogonal": ("hierarchy_orthogonal",),
                          "dense": ("dense_lookalike", "hierarchy_orthogonal"),
                          "frequency": ("frequency_lookalike",), "topical": ("topical_lookalike",)}
-DIALS = ("beta", "eta", "edge_fraction", "gamma_rel", "k", "roles", "skew", "fraction", "pi")
+DIALS = ("beta", "eta", "edge_fraction", "gamma_rel", "k", "roles", "subgroup_strength",
+         "fraction", "pi")
 METRICS = ("coverage_R", "G", "S_res")        # the firing, decoder and probe channels
 
 
