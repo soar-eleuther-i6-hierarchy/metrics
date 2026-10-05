@@ -1,0 +1,34 @@
+{
+ "funnel": {
+  "counts": [
+   1621,
+   1621,
+   1191,
+   1171,
+   555
+  ],
+  "unmeasurable": {
+   "3 survival \u2265 0.5": 323,
+   "5 probe rank": 239
+  },
+  "supporting": {
+   "n_edges": 555,
+   "multi_parented": 0.16455696202531644,
+   "dense_parents": 0.0,
+   "sibling_overlap": 0.08206109532971972,
+   "parent_coverage": 0.999992469879518,
+   "n_parents_with_2_children": 112
+  }
+ },
+ "rules": {
+  "counts": [
+   1511,
+   1511,
+   1085,
+   547
+  ],
+  "n_keep_edges": 1621,
+  "n_containment_rule": 1511
+ },
+ "source": "exp0_stats.pt of 2026-09-11 on the node, tokens 48571"
+}

@@ -4,9 +4,22 @@
   "2 PMI \u2265 0.5",
   "3 survival \u2265 0.5",
   "4 reconstruction",
-  "5 direction alignment"
+  "5 probe rank"
+ ],
+ "rule_stages": [
+  "1 support \u2227 strict containment",
+  "2 PMI > 0",
+  "3 survival \u2265 0.5",
+  "4 probe rank"
  ],
  "chance_pmi": 0.5,
+ "ruleset_version": 2,
+ "supporting": [
+  "multi_parented",
+  "dense_parents",
+  "sibling_overlap",
+  "parent_coverage"
+ ],
  "data": {
   "matryoshka_gemma": {
    "counts": [
@@ -18,36 +31,37 @@
    ],
    "unmeasurable": {
     "3 survival \u2265 0.5": 0,
-    "5 direction alignment": 0
+    "5 probe rank": 0
+   },
+   "supporting": {
+    "n_edges": 16,
+    "multi_parented": 0.07142857142857142,
+    "dense_parents": 0.0,
+    "sibling_overlap": 0.06434077842354806,
+    "parent_coverage": 0.9999653595676874,
+    "n_parents_with_2_children": 2
    }
   },
   "tsae_gemma": {
    "counts": [
     1621,
     1621,
-    null,
-    null,
-    null
+    1191,
+    1171,
+    555
    ],
-   "interval": {
-    "3 survival \u2265 0.5": [
-     1191,
-     1191
-    ],
-    "4 reconstruction": [
-     1168,
-     1191
-    ],
-    "5 direction alignment": [
-     317,
-     770
-    ]
-   },
    "unmeasurable": {
     "3 survival \u2265 0.5": 323,
-    "5 direction alignment": 303
+    "5 probe rank": 239
    },
-   "note": "stages 3 and 4 bounded from the report; statistics file not on disk"
+   "supporting": {
+    "n_edges": 555,
+    "multi_parented": 0.16455696202531644,
+    "dense_parents": 0.0,
+    "sibling_overlap": 0.08206109532971972,
+    "parent_coverage": 0.999992469879518,
+    "n_parents_with_2_children": 112
+   }
   },
   "matryoshka_toy": {
    "counts": [
@@ -59,7 +73,15 @@
    ],
    "unmeasurable": {
     "3 survival \u2265 0.5": 0,
-    "5 direction alignment": 0
+    "5 probe rank": 0
+   },
+   "supporting": {
+    "n_edges": 9,
+    "multi_parented": 0.0,
+    "dense_parents": 1.0,
+    "sibling_overlap": 0.0,
+    "parent_coverage": 0.6705036470765986,
+    "n_parents_with_2_children": 3
    }
   },
   "tsae_toy": {
@@ -74,6 +96,14 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0
+     },
+     "supporting": {
+      "n_edges": 9,
+      "multi_parented": 0.0,
+      "dense_parents": 1.0,
+      "sibling_overlap": 0.0,
+      "parent_coverage": 0.6705036470765987,
+      "n_parents_with_2_children": 3
      }
     },
     {
@@ -86,6 +116,14 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0
+     },
+     "supporting": {
+      "n_edges": 9,
+      "multi_parented": 0.0,
+      "dense_parents": 1.0,
+      "sibling_overlap": 0.0,
+      "parent_coverage": 0.6705036470765987,
+      "n_parents_with_2_children": 3
      }
     },
     {
@@ -98,6 +136,14 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0
+     },
+     "supporting": {
+      "n_edges": 10,
+      "multi_parented": 0.25,
+      "dense_parents": 1.0,
+      "sibling_overlap": 0.16141393611781416,
+      "parent_coverage": 0.6705036470765987,
+      "n_parents_with_2_children": 3
      }
     }
    ]
@@ -114,7 +160,14 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "multi_parented": null,
+      "dense_parents": null,
+      "sibling_overlap": null,
+      "parent_coverage": null,
+      "n_edges": 0
      }
     },
     {
@@ -127,7 +180,15 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "n_edges": 3,
+      "multi_parented": 0.5,
+      "dense_parents": 0.0,
+      "sibling_overlap": null,
+      "parent_coverage": 0.9887758831886959,
+      "n_parents_with_2_children": 0
      }
     },
     {
@@ -140,7 +201,15 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "n_edges": 8,
+      "multi_parented": 0.75,
+      "dense_parents": 0.0,
+      "sibling_overlap": 0.2263313590588824,
+      "parent_coverage": 0.9495130131817019,
+      "n_parents_with_2_children": 2
      }
     },
     {
@@ -153,7 +222,15 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "n_edges": 3,
+      "multi_parented": 0.5,
+      "dense_parents": 0.0,
+      "sibling_overlap": 0.00010671789125446881,
+      "parent_coverage": 0.9971602484409721,
+      "n_parents_with_2_children": 1
      }
     },
     {
@@ -166,7 +243,15 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "n_edges": 1,
+      "multi_parented": 0.0,
+      "dense_parents": 0.0,
+      "sibling_overlap": null,
+      "parent_coverage": 0.9989265852850829,
+      "n_parents_with_2_children": 0
      }
     },
     {
@@ -179,7 +264,15 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "n_edges": 1,
+      "multi_parented": 0.0,
+      "dense_parents": 0.0,
+      "sibling_overlap": null,
+      "parent_coverage": 0.9995827018954119,
+      "n_parents_with_2_children": 0
      }
     },
     {
@@ -192,7 +285,15 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "n_edges": 4,
+      "multi_parented": 0.3333333333333333,
+      "dense_parents": 0.0,
+      "sibling_overlap": 0.24138456846599574,
+      "parent_coverage": 0.7768009576760528,
+      "n_parents_with_2_children": 1
      }
     },
     {
@@ -205,7 +306,15 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "n_edges": 4,
+      "multi_parented": 0.3333333333333333,
+      "dense_parents": 0.0,
+      "sibling_overlap": null,
+      "parent_coverage": 0.8080004262075369,
+      "n_parents_with_2_children": 0
      }
     },
     {
@@ -218,7 +327,15 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 0,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "n_edges": 1,
+      "multi_parented": 0.0,
+      "dense_parents": 0.0,
+      "sibling_overlap": null,
+      "parent_coverage": 0.9907685121447537,
+      "n_parents_with_2_children": 0
      }
     },
     {
@@ -231,7 +348,15 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 10,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "n_edges": 4,
+      "multi_parented": 0.3333333333333333,
+      "dense_parents": 0.0,
+      "sibling_overlap": null,
+      "parent_coverage": 0.9981349949763928,
+      "n_parents_with_2_children": 0
      }
     },
     {
@@ -244,7 +369,15 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 22,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "n_edges": 6,
+      "multi_parented": 0.5,
+      "dense_parents": 0.0,
+      "sibling_overlap": null,
+      "parent_coverage": 0.9976209418364451,
+      "n_parents_with_2_children": 0
      }
     },
     {
@@ -257,10 +390,477 @@
      ],
      "unmeasurable": {
       "3 survival \u2265 0.5": 19,
-      "5 direction alignment": 0
+      "5 probe rank": 0
+     },
+     "supporting": {
+      "n_edges": 15,
+      "multi_parented": 0.18181818181818182,
+      "dense_parents": 0.0,
+      "sibling_overlap": 0.16147887751806853,
+      "parent_coverage": 0.9794106572518515,
+      "n_parents_with_2_children": 2
      }
     }
    ]
+  },
+  "_pcfg_by_density": {
+   "0.00": {
+    "runs": [
+     {
+      "counts": [
+       30,
+       25,
+       25,
+       21,
+       0
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 0,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "multi_parented": null,
+       "dense_parents": null,
+       "sibling_overlap": null,
+       "parent_coverage": null,
+       "n_edges": 0
+      }
+     },
+     {
+      "counts": [
+       75,
+       49,
+       49,
+       46,
+       3
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 0,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "n_edges": 3,
+       "multi_parented": 0.5,
+       "dense_parents": 0.0,
+       "sibling_overlap": null,
+       "parent_coverage": 0.9887758831886959,
+       "n_parents_with_2_children": 0
+      }
+     },
+     {
+      "counts": [
+       184,
+       82,
+       82,
+       82,
+       8
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 0,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "n_edges": 8,
+       "multi_parented": 0.75,
+       "dense_parents": 0.0,
+       "sibling_overlap": 0.2263313590588824,
+       "parent_coverage": 0.9495130131817019,
+       "n_parents_with_2_children": 2
+      }
+     }
+    ]
+   },
+   "0.17": {
+    "runs": [
+     {
+      "counts": [
+       91,
+       26,
+       26,
+       26,
+       3
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 0,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "n_edges": 3,
+       "multi_parented": 0.5,
+       "dense_parents": 0.0,
+       "sibling_overlap": 0.00010671789125446881,
+       "parent_coverage": 0.9971602484409721,
+       "n_parents_with_2_children": 1
+      }
+     },
+     {
+      "counts": [
+       33,
+       32,
+       32,
+       32,
+       1
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 0,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "n_edges": 1,
+       "multi_parented": 0.0,
+       "dense_parents": 0.0,
+       "sibling_overlap": null,
+       "parent_coverage": 0.9989265852850829,
+       "n_parents_with_2_children": 0
+      }
+     },
+     {
+      "counts": [
+       125,
+       47,
+       47,
+       38,
+       1
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 0,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "n_edges": 1,
+       "multi_parented": 0.0,
+       "dense_parents": 0.0,
+       "sibling_overlap": null,
+       "parent_coverage": 0.9995827018954119,
+       "n_parents_with_2_children": 0
+      }
+     }
+    ]
+   },
+   "0.23": {
+    "runs": [
+     {
+      "counts": [
+       53,
+       53,
+       48,
+       44,
+       4
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 0,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "n_edges": 4,
+       "multi_parented": 0.3333333333333333,
+       "dense_parents": 0.0,
+       "sibling_overlap": 0.24138456846599574,
+       "parent_coverage": 0.7768009576760528,
+       "n_parents_with_2_children": 1
+      }
+     },
+     {
+      "counts": [
+       27,
+       27,
+       27,
+       27,
+       4
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 0,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "n_edges": 4,
+       "multi_parented": 0.3333333333333333,
+       "dense_parents": 0.0,
+       "sibling_overlap": null,
+       "parent_coverage": 0.8080004262075369,
+       "n_parents_with_2_children": 0
+      }
+     },
+     {
+      "counts": [
+       64,
+       29,
+       27,
+       27,
+       1
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 0,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "n_edges": 1,
+       "multi_parented": 0.0,
+       "dense_parents": 0.0,
+       "sibling_overlap": null,
+       "parent_coverage": 0.9907685121447537,
+       "n_parents_with_2_children": 0
+      }
+     }
+    ]
+   },
+   "0.24": {
+    "runs": [
+     {
+      "counts": [
+       493,
+       241,
+       96,
+       92,
+       4
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 10,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "n_edges": 4,
+       "multi_parented": 0.3333333333333333,
+       "dense_parents": 0.0,
+       "sibling_overlap": null,
+       "parent_coverage": 0.9981349949763928,
+       "n_parents_with_2_children": 0
+      }
+     },
+     {
+      "counts": [
+       71,
+       57,
+       30,
+       29,
+       6
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 22,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "n_edges": 6,
+       "multi_parented": 0.5,
+       "dense_parents": 0.0,
+       "sibling_overlap": null,
+       "parent_coverage": 0.9976209418364451,
+       "n_parents_with_2_children": 0
+      }
+     },
+     {
+      "counts": [
+       647,
+       500,
+       414,
+       399,
+       15
+      ],
+      "unmeasurable": {
+       "3 survival \u2265 0.5": 19,
+       "5 probe rank": 0
+      },
+      "supporting": {
+       "n_edges": 15,
+       "multi_parented": 0.18181818181818182,
+       "dense_parents": 0.0,
+       "sibling_overlap": 0.16147887751806853,
+       "parent_coverage": 0.9794106572518515,
+       "n_parents_with_2_children": 2
+      }
+     }
+    ]
+   }
+  },
+  "_rules": {
+   "matryoshka_gemma": {
+    "counts": [
+     1472,
+     1110,
+     1084,
+     20
+    ],
+    "n_keep_edges": 1473,
+    "n_containment_rule": 1472
+   },
+   "tsae_gemma": {
+    "counts": [
+     1511,
+     1511,
+     1085,
+     547
+    ],
+    "n_keep_edges": 1621,
+    "n_containment_rule": 1511
+   },
+   "matryoshka_toy": {
+    "counts": [
+     9,
+     9,
+     9,
+     9
+    ],
+    "n_keep_edges": 9,
+    "n_containment_rule": 9
+   },
+   "tsae_toy": {
+    "runs": [
+     {
+      "counts": [
+       9,
+       9,
+       9,
+       null
+      ],
+      "n_keep_edges": 9,
+      "n_containment_rule": 9
+     },
+     {
+      "counts": [
+       9,
+       9,
+       9,
+       null
+      ],
+      "n_keep_edges": 9,
+      "n_containment_rule": 9
+     },
+     {
+      "counts": [
+       10,
+       10,
+       10,
+       null
+      ],
+      "n_keep_edges": 10,
+      "n_containment_rule": 10
+     }
+    ]
+   },
+   "matryoshka_pcfg": {
+    "runs": [
+     {
+      "counts": [
+       30,
+       30,
+       30,
+       2
+      ],
+      "n_keep_edges": 30,
+      "n_containment_rule": 30
+     },
+     {
+      "counts": [
+       75,
+       75,
+       75,
+       4
+      ],
+      "n_keep_edges": 75,
+      "n_containment_rule": 75
+     },
+     {
+      "counts": [
+       184,
+       116,
+       116,
+       8
+      ],
+      "n_keep_edges": 184,
+      "n_containment_rule": 184
+     },
+     {
+      "counts": [
+       91,
+       91,
+       91,
+       3
+      ],
+      "n_keep_edges": 91,
+      "n_containment_rule": 91
+     },
+     {
+      "counts": [
+       33,
+       33,
+       33,
+       1
+      ],
+      "n_keep_edges": 33,
+      "n_containment_rule": 33
+     },
+     {
+      "counts": [
+       125,
+       125,
+       125,
+       1
+      ],
+      "n_keep_edges": 125,
+      "n_containment_rule": 125
+     },
+     {
+      "counts": [
+       49,
+       49,
+       44,
+       4
+      ],
+      "n_keep_edges": 53,
+      "n_containment_rule": 49
+     },
+     {
+      "counts": [
+       27,
+       27,
+       27,
+       4
+      ],
+      "n_keep_edges": 27,
+      "n_containment_rule": 27
+     },
+     {
+      "counts": [
+       64,
+       64,
+       62,
+       1
+      ],
+      "n_keep_edges": 64,
+      "n_containment_rule": 64
+     },
+     {
+      "counts": [
+       489,
+       396,
+       250,
+       3
+      ],
+      "n_keep_edges": 493,
+      "n_containment_rule": 489
+     },
+     {
+      "counts": [
+       69,
+       69,
+       42,
+       5
+      ],
+      "n_keep_edges": 71,
+      "n_containment_rule": 69
+     },
+     {
+      "counts": [
+       631,
+       596,
+       512,
+       13
+      ],
+      "n_keep_edges": 647,
+      "n_containment_rule": 631
+     }
+    ]
+   }
   }
  }
 }

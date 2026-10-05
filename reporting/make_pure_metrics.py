@@ -50,19 +50,19 @@ SOURCES = [
 # Table 1; `quantity` is which number of that metric is reported. kind: "count", "value",
 # "rate_small" or "rate". Rates are drawn; the rest are table-only. Order follows Section 3.
 METRICS = [
-    ("n_edges", "1 Containment", "candidate edges", "count"),
-    ("density", "1 Containment", "edge density (edges / P x C)", "rate_small"),
-    ("chance", "2 Co-firing above chance", "share at chance level (PMI < 0.5)", "rate"),
-    ("mean_pmi", "2 Co-firing above chance", "mean PMI over edges", "value"),
-    ("freq_driven", "3 Survival on rare tokens", "frequency-driven share (survival < 0.5)", "rate"),
-    ("survival", "3 Survival on rare tokens", "mean survival on rare tokens", "rate"),
+    ("n_edges", "1 Activation coverage", "candidate edges", "count"),
+    ("density", "1 Activation coverage", "edge density (edges / P x C)", "rate_small"),
+    ("chance", "2 Independence null", "share at chance level (PMI < 0.5)", "rate"),
+    ("mean_pmi", "2 Independence null", "mean PMI over edges", "value"),
+    ("freq_driven", "3 Token-frequency control", "frequency-driven share (survival < 0.5)", "rate"),
+    ("survival", "3 Token-frequency control", "mean survival on rare tokens", "rate"),
     ("recon_pass", "4 Reconstruction contribution", "pass share", "rate"),
-    ("probe_pass", "5 Direction alignment", "pass share", "rate"),
-    ("superparents", "6 Dense parents, multi-parenting", "dense parents", "count"),
-    ("poly", "6 Dense parents, multi-parenting", "multi-parenting share", "rate"),
-    ("gini", "6 Dense parents, multi-parenting", "out-degree Gini", "rate"),
-    ("sibling", "7 Sibling overlap", "mean pairwise Jaccard", "rate"),
-    ("joint_cov", "9 Parent coverage by children", "mean support coverage", "rate"),
+    ("probe_pass", "5 Probe rank", "pass share", "rate"),
+    ("superparents", "6 Out-degree", "dense parents", "count"),
+    ("poly", "6 Out-degree", "multi-parenting share", "rate"),
+    ("gini", "6 Out-degree", "out-degree Gini", "rate"),
+    ("sibling", "7 Sibling redundancy", "mean pairwise Jaccard", "rate"),
+    ("joint_cov", "9 Joint-child coverage", "mean support coverage", "rate"),
 ]
 
 
@@ -73,11 +73,11 @@ PANEL = {
     "freq_driven": "(3) frequency-driven",
     "survival": "(3) survival on rare tokens",
     "recon_pass": "(4) reconstruction pass",
-    "probe_pass": "(5) direction alignment pass",
+    "probe_pass": "(5) probe rank pass",
     "poly": "(6) multi-parenting",
     "gini": "(6) out-degree Gini",
-    "sibling": "(7) sibling overlap",
-    "joint_cov": "(9) parent coverage",
+    "sibling": "(7) sibling redundancy",
+    "joint_cov": "(9) joint-child coverage",
 }
 SOURCE_SHORT = {
     "matryoshka_gemma": "Matryoshka, gemma",
