@@ -131,12 +131,7 @@ def extremes(edges: list[dict], labels, n=8) -> dict:
 
 
 def to_md(report) -> str:
-    md_path = C.RUN_DIR / "edge_activation_magnitudes.md"
-    nav = C.nav_html(depth=C.page_depth(md_path),
-                     layer=(report["config"] or {}).get("layer", C.LAYER)
-                     if C.IS_LAYER_RUN else None,
-                     current=f"outputs/{C.RUN_NAME}/edge_activation_magnitudes.html")
-    L = [nav, "", "# Edge activation magnitudes", "",
+    L = ["# Edge activation magnitudes", "",
          C.scope_line(report["total_tokens"], n_docs=report.get("n_docs"),
                       config=report.get("config")), "",
          "Per kept edge: endpoint mean activations on the tokens both fire on. "

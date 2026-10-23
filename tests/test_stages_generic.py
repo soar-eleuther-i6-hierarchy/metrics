@@ -1,25 +1,22 @@
-"""Prove the REPORTING stages are source-agnostic too, not just collect().
+"""Prove the grading stages are source-agnostic too, not just collect().
 
 tests/test_collect_generic.py guards stage 01: the accumulation reads its block
-structure from the cfg it is handed. Stages 03 and 04 did not. They sliced
+structure from the cfg it is handed. Stage 03 once did not. It sliced
 `config.BLOCK_RANGES` -- gemma's 32768 latents in 5 blocks -- so a dictionary
 with a different shape came back wrong in the worst available way: the first
 four pairs are in range, so the numbers are plausible and nothing raises until
 the fifth pair, if there is one.
 
-That made the dashboards the last gemma-only link in a chain whose whole claim is
-"the same battery across every source". This test runs a PCFG-SHAPED file (8
-blocks, not 5) through 02 -> 03 -> 04 and asserts the pages describe the file
-they were built from:
+This test runs a PCFG-SHAPED file (8 blocks, not 5) through 02 -> 03 and asserts
+the reports describe the file they were built from:
 
     - every block pair is graded, including the ones past gemma's fifth block
-    - the page header names the run's own model and dictionary, not gemma's
+    - the report header names the run's own dictionary, not gemma's
     - S_res (stage 03) runs off the run's own decoder, not the released SAE's
-    - the page sits under EXP0_RUN and still shares OUT_DIR's one plotly bundle
 
 Stub model, stub SAE, no network, no GPU.
 
-    python3 -m tests.test_dashboards_generic
+    python3 -m tests.test_stages_generic
 """
 
 from __future__ import annotations
@@ -143,7 +140,6 @@ def main() -> int:
         # not exist in gemma's structure at all, so it is the one worth probing.
         ran &= stage([sys.executable, "run_token_metrics.py",
                       "--pairs", "6->7", "--device", "cpu"], env, failures)
-        ran &= stage([sys.executable, "-m", "reporting.visualize"], env, failures)
 
         def check(cond, msg):
             if not cond:
@@ -160,30 +156,22 @@ def main() -> int:
             check(any("sres" in v for v in second.values()),
                   "stage 03 produced no S_res column (it needs the run's own decoder)")
 
-            dash = run_dir / "metrics_dashboard.html"
-            check(dash.exists(), "no metrics_dashboard.html")
-            check((run_dir / "superparent_sankey.html").exists(), "no superparent_sankey.html")
-            if dash.exists():
-                html = dash.read_text()
-                # The nav bar links to every source, so the scope line is the
-                # target: it should identify the model from the run's own config,
-                # not gemma's defaults. The scope line renders as
-                # `model / sae_source`, so checking for that separator avoids
-                # false positives from the nav bar's gemma-2-2b href.
-                check("gemma-2-2b /" not in html, "the page header still says gemma-2-2b")
-                check(f"{STEPS[-1]} latents in {len(STEPS)} blocks" in html,
-                      "the page header does not state this dictionary's shape")
-                check('src="../assets/plotly.min.js"' in html,
-                      "the page does not link OUT_DIR's shared plotly bundle")
-                check('class="pill on"' not in html,
-                      "a non-layer run marked one of gemma's layer pills as current")
+            md_path = run_dir / "metrics_report.md"
+            check(md_path.exists(), "no metrics_report.md")
+            if md_path.exists():
+                md = md_path.read_text()
+                # The scope line renders as `model / sae_source`; it should come
+                # from the run's own config, not gemma's defaults.
+                check("gemma-2-2b /" not in md, "the report header still says gemma-2-2b")
+                check(f"{STEPS[-1]} latents in {len(STEPS)} blocks" in md,
+                      "the report header does not state this dictionary's shape")
 
         for f in failures:
             print(f"FAIL {f}")
         if failures:
             print(f"\n{len(failures)} failure(s)")
             return 1
-        print(f"reporting is source-agnostic: {N_PAIRS} pairs from a "
+        print(f"grading is source-agnostic: {N_PAIRS} pairs from a "
               f"{STEPS[-1]}-feature, {len(STEPS)}-block stub, not gemma")
         return 0
 

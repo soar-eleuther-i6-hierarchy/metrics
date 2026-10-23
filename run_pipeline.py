@@ -69,9 +69,6 @@ def stages() -> list[Stage]:
               "S_res probes, parent-conditioned siblings, kept-children union",
               needs=(C.METRICS_JSON_PATH, C.TOKEN_CACHE_DIR),
               produces=(run / "second_pass.json",)),
-        Stage("04", [sys.executable, "-m", "reporting.visualize"],
-              "rebuild the dashboards",
-              needs=(C.METRICS_JSON_PATH,), produces=()),
     ]
 
 

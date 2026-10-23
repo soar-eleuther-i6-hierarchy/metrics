@@ -49,7 +49,7 @@ from metrics import (
 def blocks(stats, *blks):
     """(start, end) per requested block, read off the file being graded.
 
-    Same rule as run_metrics and the dashboards: config.BLOCK_RANGES is gemma's
+    Same rule as run_metrics: config.BLOCK_RANGES is gemma's
     32768 in 5 blocks, and a PCFG cache (1792 in 8) sliced there yields probes
     trained on the wrong features -- with no error, because every index is in
     range for the first four blocks and the numbers stay plausible.
