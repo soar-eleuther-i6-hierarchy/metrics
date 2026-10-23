@@ -1,0 +1,364 @@
+{
+  "config": {
+    "layer": 0,
+    "sae_release": "matryoshka-toy",
+    "sae_source": "trained_toy",
+    "sae_id": "toy_trained",
+    "matryoshka_steps": null,
+    "block_ranges": null,
+    "fire_threshold": 0.001,
+    "context_size": 128,
+    "sibling_blocks": [
+      1
+    ],
+    "freq_high_mass": 0.5,
+    "freq_mid_mass": 0.4,
+    "bos_excluded": true,
+    "min_joint": 20,
+    "local_freq_buckets": false,
+    "block_indices": [
+      [
+        0,
+        1,
+        2
+      ],
+      [
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ]
+    ],
+    "source": "trained_toy",
+    "n_samples": 200000,
+    "true_edges": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        2
+      ],
+      [
+        0,
+        3
+      ],
+      [
+        4,
+        5
+      ],
+      [
+        4,
+        6
+      ],
+      [
+        4,
+        7
+      ],
+      [
+        8,
+        9
+      ],
+      [
+        8,
+        10
+      ],
+      [
+        8,
+        11
+      ]
+    ],
+    "match": [
+      4,
+      8,
+      0,
+      18,
+      16,
+      12,
+      14,
+      15,
+      13,
+      17,
+      19,
+      6,
+      10,
+      2,
+      7,
+      11,
+      3,
+      9,
+      5,
+      1
+    ],
+    "parent_latents": [
+      0,
+      1,
+      2
+    ],
+    "child_latents": [
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19
+    ]
+  },
+  "total_tokens": 199936,
+  "pairs": [
+    {
+      "pair": "0->1",
+      "n_candidate_edges": 9,
+      "n_dropped_min_joint": 0,
+      "n_pairs_below_min_joint": 0,
+      "independence_null": {
+        "mean_edge_pmi": 1.8981809871129487,
+        "n_chance_level": 0,
+        "frac_chance_level": 0.0
+      },
+      "joint_child": {
+        "r_supp_mean": 0.6705036470765986,
+        "r_mass_mean": 0.7386506698791532,
+        "n_share_energy_ge_09": 0
+      },
+      "degree": {
+        "n_parents_with_children": 3,
+        "n_children_with_parent": 9,
+        "n_multi_parented": 0,
+        "poly_frac": 0.0,
+        "top1_edge_share": 0.3333333333333333,
+        "outdeg_gini": 0.0,
+        "max_outdeg": 3
+      },
+      "joint_child_cov_mean": 0.6012080298317586,
+      "reconstruction": {
+        "n_pass": 9,
+        "frac_pass": 1.0
+      },
+      "freq_control": {
+        "n_testable": 9,
+        "mean_survival": 1.0,
+        "n_freq_driven": 0,
+        "frac_freq_driven": 0.0
+      },
+      "freq_control_local": null,
+      "sibling_redundancy": {
+        "method": "global_jaccard_confounded",
+        "n_parents_scored": 3,
+        "mean_redundancy": 0.0,
+        "n_over_global_threshold": 0
+      },
+      "n_superparents": 3,
+      "n_superparents_strict": 3,
+      "superparents": [
+        {
+          "parent_local": 0,
+          "outdeg": 3,
+          "outdeg_frac": 0.3333333333333333,
+          "fire_frac": 0.15026308418693982,
+          "strict": true,
+          "parent_global": 0,
+          "label": "conjunctions and relational words that suggest connections or similarities",
+          "url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/0"
+        },
+        {
+          "parent_local": 1,
+          "outdeg": 3,
+          "outdeg_frac": 0.3333333333333333,
+          "fire_frac": 0.14947783290653008,
+          "strict": true,
+          "parent_global": 1,
+          "label": "geographic locations and names associated with specific places or regions",
+          "url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/1"
+        },
+        {
+          "parent_local": 2,
+          "outdeg": 3,
+          "outdeg_frac": 0.3333333333333333,
+          "fire_frac": 0.14978293053777209,
+          "strict": true,
+          "parent_global": 2,
+          "label": "mathematical terminology and concepts related to gauge theory and its applications in abstract algebraic structures",
+          "url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/2"
+        }
+      ],
+      "top_edges": [
+        {
+          "parent": 0,
+          "child": 11,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.19841560430050262,
+          "pmi": 1.895367626583331,
+          "recon_parent_gain": 85.90785594685748,
+          "recon_child_gain": 15.287057458578037,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "conjunctions and relational words that suggest connections or similarities",
+          "child_label": "programmatic structures and error handling related to Just-In-Time (JIT) compilation in code",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/0",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/11"
+        },
+        {
+          "parent": 0,
+          "child": 14,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.20547215657557502,
+          "pmi": 1.895367626583331,
+          "recon_parent_gain": 65.41869240273175,
+          "recon_child_gain": 18.12716971628363,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "conjunctions and relational words that suggest connections or similarities",
+          "child_label": "phrases indicating progression or continuation in a text",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/0",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/14"
+        },
+        {
+          "parent": 0,
+          "child": 18,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.19718403621475886,
+          "pmi": 1.8953676265833308,
+          "recon_parent_gain": 29.049352697004355,
+          "recon_child_gain": 9.251651219698179,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "conjunctions and relational words that suggest connections or similarities",
+          "child_label": "references to legal context or terminology, particularly related to cases involving sexual conduct",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/0",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/18"
+        },
+        {
+          "parent": 1,
+          "child": 12,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.2029378304222713,
+          "pmi": 1.90060717201791,
+          "recon_parent_gain": 32.6661568763919,
+          "recon_child_gain": 4.673111551333372,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "geographic locations and names associated with specific places or regions",
+          "child_label": "mathematical expressions and notations",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/1",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/12"
+        },
+        {
+          "parent": 1,
+          "child": 15,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.1985879676102523,
+          "pmi": 1.90060717201791,
+          "recon_parent_gain": 26.1526652742412,
+          "recon_child_gain": 3.1257170887369052,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "geographic locations and names associated with specific places or regions",
+          "child_label": "references to specific entities or important subjects in a discussion",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/1",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/15"
+        },
+        {
+          "parent": 1,
+          "child": 17,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.20230208124205312,
+          "pmi": 1.90060717201791,
+          "recon_parent_gain": 33.93248520315047,
+          "recon_child_gain": 4.399441856009687,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "geographic locations and names associated with specific places or regions",
+          "child_label": "the presence of various types of file extensions and formats in a document",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/1",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/17"
+        },
+        {
+          "parent": 2,
+          "child": 13,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.19658062577219754,
+          "pmi": 1.8985681627376048,
+          "recon_parent_gain": 94.42318286068148,
+          "recon_child_gain": 20.679199593063558,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "mathematical terminology and concepts related to gauge theory and its applications in abstract algebraic structures",
+          "child_label": "scientific terms and concepts related to mathematical and quantum mechanics",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/2",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/13"
+        },
+        {
+          "parent": 2,
+          "child": 16,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.20215714428824255,
+          "pmi": 1.8985681627376048,
+          "recon_parent_gain": 84.49888022421716,
+          "recon_child_gain": 15.00313901622245,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "mathematical terminology and concepts related to gauge theory and its applications in abstract algebraic structures",
+          "child_label": "terms related to errors or exceptions in programming contexts",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/2",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/16"
+        },
+        {
+          "parent": 2,
+          "child": 19,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.19998664306942265,
+          "pmi": 1.8985681627376045,
+          "recon_parent_gain": 46.446195796908206,
+          "recon_child_gain": 16.278846409496715,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "mathematical terminology and concepts related to gauge theory and its applications in abstract algebraic structures",
+          "child_label": "function definitions and calls in programming contexts",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/2",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/19"
+        }
+      ]
+    }
+  ],
+  "block_ranges": [
+    [
+      0,
+      128
+    ],
+    [
+      128,
+      512
+    ],
+    [
+      512,
+      2048
+    ],
+    [
+      2048,
+      8192
+    ],
+    [
+      8192,
+      32768
+    ]
+  ]
+}

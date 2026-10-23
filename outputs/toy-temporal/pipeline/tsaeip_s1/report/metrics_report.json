@@ -1,0 +1,367 @@
+{
+  "config": {
+    "layer": 0,
+    "sae_release": "matryoshka-toy",
+    "sae_source": "trained_toy",
+    "sae_id": "toy_trained",
+    "matryoshka_steps": [
+      4,
+      20
+    ],
+    "block_ranges": null,
+    "fire_threshold": 0.001,
+    "context_size": 128,
+    "sibling_blocks": [
+      1
+    ],
+    "freq_high_mass": 0.5,
+    "freq_mid_mass": 0.4,
+    "bos_excluded": true,
+    "min_joint": 20,
+    "local_freq_buckets": false,
+    "block_indices": [
+      [
+        1,
+        2,
+        3
+      ],
+      [
+        4,
+        5,
+        6,
+        8,
+        11,
+        12,
+        16,
+        17,
+        18
+      ]
+    ],
+    "source": "trained_toy",
+    "n_samples": 200000,
+    "true_edges": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        2
+      ],
+      [
+        0,
+        3
+      ],
+      [
+        4,
+        5
+      ],
+      [
+        4,
+        6
+      ],
+      [
+        4,
+        7
+      ],
+      [
+        8,
+        9
+      ],
+      [
+        8,
+        10
+      ],
+      [
+        8,
+        11
+      ]
+    ],
+    "match": [
+      15,
+      8,
+      4,
+      0,
+      5,
+      6,
+      11,
+      16,
+      7,
+      13,
+      18,
+      1,
+      2,
+      14,
+      17,
+      12,
+      3,
+      9,
+      10,
+      19
+    ],
+    "parent_latents": [
+      1,
+      2,
+      3
+    ],
+    "child_latents": [
+      4,
+      5,
+      6,
+      8,
+      11,
+      12,
+      16,
+      17,
+      18
+    ]
+  },
+  "total_tokens": 199936,
+  "pairs": [
+    {
+      "pair": "0->1",
+      "n_candidate_edges": 9,
+      "n_dropped_min_joint": 0,
+      "n_pairs_below_min_joint": 0,
+      "independence_null": {
+        "mean_edge_pmi": 1.8981809871129487,
+        "n_chance_level": 0,
+        "frac_chance_level": 0.0
+      },
+      "joint_child": {
+        "r_supp_mean": 0.6705036470765987,
+        "r_mass_mean": 0.682235319542869,
+        "n_share_energy_ge_09": 0
+      },
+      "degree": {
+        "n_parents_with_children": 3,
+        "n_children_with_parent": 9,
+        "n_multi_parented": 0,
+        "poly_frac": 0.0,
+        "top1_edge_share": 0.3333333333333333,
+        "outdeg_gini": 0.0,
+        "max_outdeg": 3
+      },
+      "joint_child_cov_mean": 0.6012080298317587,
+      "reconstruction": {
+        "n_pass": 9,
+        "frac_pass": 1.0
+      },
+      "freq_control": {
+        "n_testable": 9,
+        "mean_survival": 1.0,
+        "n_freq_driven": 0,
+        "frac_freq_driven": 0.0
+      },
+      "freq_control_local": null,
+      "sibling_redundancy": {
+        "method": "global_jaccard_confounded",
+        "n_parents_scored": 3,
+        "mean_redundancy": 0.0,
+        "n_over_global_threshold": 0
+      },
+      "n_superparents": 3,
+      "n_superparents_strict": 3,
+      "superparents": [
+        {
+          "parent_local": 0,
+          "outdeg": 3,
+          "outdeg_frac": 0.3333333333333333,
+          "fire_frac": 0.14947783290653008,
+          "strict": true,
+          "parent_global": 1,
+          "label": "geographic locations and names associated with specific places or regions",
+          "url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/1"
+        },
+        {
+          "parent_local": 1,
+          "outdeg": 3,
+          "outdeg_frac": 0.3333333333333333,
+          "fire_frac": 0.15026308418693982,
+          "strict": true,
+          "parent_global": 2,
+          "label": "mathematical terminology and concepts related to gauge theory and its applications in abstract algebraic structures",
+          "url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/2"
+        },
+        {
+          "parent_local": 2,
+          "outdeg": 3,
+          "outdeg_frac": 0.3333333333333333,
+          "fire_frac": 0.14978293053777209,
+          "strict": true,
+          "parent_global": 3,
+          "label": "instances of the verb \"to be\" in various forms",
+          "url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/3"
+        }
+      ],
+      "top_edges": [
+        {
+          "parent": 1,
+          "child": 6,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.1985879676102523,
+          "pmi": 1.90060717201791,
+          "recon_parent_gain": 72.1462587022906,
+          "recon_child_gain": 49.910226724831645,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "geographic locations and names associated with specific places or regions",
+          "child_label": "references to numerical data or statistics in a legal context",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/1",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/6"
+        },
+        {
+          "parent": 1,
+          "child": 17,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.20230208124205312,
+          "pmi": 1.90060717201791,
+          "recon_parent_gain": 70.16629882257536,
+          "recon_child_gain": 48.233809067121264,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "geographic locations and names associated with specific places or regions",
+          "child_label": "the presence of various types of file extensions and formats in a document",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/1",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/17"
+        },
+        {
+          "parent": 1,
+          "child": 18,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.2029378304222713,
+          "pmi": 1.90060717201791,
+          "recon_parent_gain": 66.95415928153578,
+          "recon_child_gain": 47.0400933603709,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "geographic locations and names associated with specific places or regions",
+          "child_label": "references to legal context or terminology, particularly related to cases involving sexual conduct",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/1",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/18"
+        },
+        {
+          "parent": 2,
+          "child": 4,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.19718403621475886,
+          "pmi": 1.8953676265833308,
+          "recon_parent_gain": 69.42035296980362,
+          "recon_child_gain": 47.31537247108123,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "mathematical terminology and concepts related to gauge theory and its applications in abstract algebraic structures",
+          "child_label": "terms related to data management and database operations",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/2",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/4"
+        },
+        {
+          "parent": 2,
+          "child": 5,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.19841560430050262,
+          "pmi": 1.895367626583331,
+          "recon_parent_gain": 70.63087091073294,
+          "recon_child_gain": 49.71111866596796,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "mathematical terminology and concepts related to gauge theory and its applications in abstract algebraic structures",
+          "child_label": "phrases and concepts related to finality and conclusion in discussions",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/2",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/5"
+        },
+        {
+          "parent": 2,
+          "child": 8,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.20547215657557502,
+          "pmi": 1.895367626583331,
+          "recon_parent_gain": 70.37579615567687,
+          "recon_child_gain": 49.804573207150426,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "mathematical terminology and concepts related to gauge theory and its applications in abstract algebraic structures",
+          "child_label": "articles and determiners in the text",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/2",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/8"
+        },
+        {
+          "parent": 3,
+          "child": 11,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.19998664306942265,
+          "pmi": 1.8985681627376045,
+          "recon_parent_gain": 73.67022801008258,
+          "recon_child_gain": 50.984184588467244,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "instances of the verb \"to be\" in various forms",
+          "child_label": "programmatic structures and error handling related to Just-In-Time (JIT) compilation in code",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/3",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/11"
+        },
+        {
+          "parent": 3,
+          "child": 12,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.19658062577219754,
+          "pmi": 1.8985681627376048,
+          "recon_parent_gain": 69.99049769402981,
+          "recon_child_gain": 47.84088095734936,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "instances of the verb \"to be\" in various forms",
+          "child_label": "mathematical expressions and notations",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/3",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/12"
+        },
+        {
+          "parent": 3,
+          "child": 16,
+          "reverse_cov": 1.0,
+          "forward_cov": 0.20215714428824255,
+          "pmi": 1.8985681627376048,
+          "recon_parent_gain": 68.54730310540204,
+          "recon_child_gain": 46.83475388172668,
+          "recon_pass": true,
+          "freq_survival": 1.0,
+          "parent_redundancy": 0.0,
+          "parent_label": "instances of the verb \"to be\" in various forms",
+          "child_label": "terms related to errors or exceptions in programming contexts",
+          "parent_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/3",
+          "child_url": "https://www.neuronpedia.org/gemma-2-2b/12-res-matryoshka-dc/16"
+        }
+      ]
+    }
+  ],
+  "block_ranges": [
+    [
+      0,
+      128
+    ],
+    [
+      128,
+      512
+    ],
+    [
+      512,
+      2048
+    ],
+    [
+      2048,
+      8192
+    ],
+    [
+      8192,
+      32768
+    ]
+  ]
+}

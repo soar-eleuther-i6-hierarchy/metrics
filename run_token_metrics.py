@@ -106,7 +106,8 @@ def sres_for_pair(cache, W_dec, stats, p_blk, c_blk, device):
         probe = train_probe(resid, pos, seed=gc,
                             neg_ratio=C.SRES_NEG_RATIO,
                             max_tokens=C.SRES_MAX_PROBE_TOKENS,
-                            min_neg=C.SRES_MIN_NEG)
+                            min_neg=C.SRES_MIN_NEG,
+                            steps=C.SRES_STEPS, lr=C.SRES_LR)
         if probe is None:                                 # too few negatives -> untestable
             n_untestable_children += 1
             continue
