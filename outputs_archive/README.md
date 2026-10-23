@@ -54,22 +54,21 @@ The five gemma-2-2b layers as they read before BOS was excluded from the co-firi
 Distinguishable at a glance by the token count: **48,971** here, **48,571** in `outputs/`. The
 difference is exactly 400 — one BOS position per document, 400 documents.
 
-### `kill_rates__v1__*.html`, `cross_depth_comparison__v1__*.html`
+These are the only files kept here, because the paper still reads them:
+`reporting/make_report_figures.py` builds `shared_input_moved_every_metric.png` from them, and
+`reporting/make_report_tables.py` builds the BOS table.
 
-Two hand-built pages with no generator, withdrawn rather than updated. Both were built to display the
-fractions that the BOS exclusion inverted. Each carries a banner at the top stating that its numbers
-are withdrawn and why.
+## Removed on 23 Oct 2026
+
+The repo cleanup removed everything else that used to sit here: the dated snapshots of 9 and 16
+August (`layer_NN__2026-08-09T…`, `layer_NN__2026-08-16T…`) and the two withdrawn hand-built pages
+(`kill_rates__v1__*.html`, `cross_depth_comparison__v1__*.html`). No code read them. They are still in
+git history and on the `backup` branch.
 
 ## What was touched, and what was not
 
-The numbers, tables and figures in every archived file are exactly as they were published. Two kinds
-of edit were made, both to the chrome around them:
-
-- **Nav links.** Every archived page's nav pointed at `outputs/kill_rates.html` and
-  `outputs/cross_depth_comparison.html`, which no longer exist there. Those links were repointed at
-  the archived copies in this directory, so navigating inside the archive still works. Nothing was
-  removed — a dead link loses more than it preserves.
-- **Banners.** The two withdrawn pages got a banner at the top saying their numbers are withdrawn.
+The numbers, tables and figures in every archived file are exactly as they were published. Only the
+nav bar around them was edited, so that navigating inside the archive still works.
 
 Two file kinds are deliberately *not* archived, via `config.ARCHIVE_SKIP`. `exp0_stats.pt`,
 `token_cache/` and `figures/` are too large — the cache lives on the Hub. `feature_labels.json` and

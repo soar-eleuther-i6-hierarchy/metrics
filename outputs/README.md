@@ -105,9 +105,10 @@ generator, and both were written against caches that counted the BOS token. BOS 
 so every feature fires on it: with 400 documents every pair in the dictionary collected 400 joint
 firings and sailed past the `MIN_JOINT = 30` support guard. Excluding it inverted the very numbers
 those two pages existed to display — deep-pair reconstruction, the frequency-driven share, the death
-rate. They sit in [`../outputs_archive/`](../outputs_archive/) with a banner saying so.
+rate. They were kept in `outputs_archive/` with a banner until 23 Oct 2026, when they were removed in
+the repo cleanup. They are still in git history and on the `backup` branch.
 
-They are archived rather than fixed on purpose. Editing the numbers by hand would leave two pages
+They were withdrawn rather than fixed on purpose. Editing the numbers by hand would leave two pages
 that no rerun can reproduce and no rerun can invalidate — which is how they went stale in the first
 place. If the cross-depth view is wanted back, it should come back as a generator under `reporting/`.
 
