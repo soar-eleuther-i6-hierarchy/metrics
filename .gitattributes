@@ -1,15 +1,3 @@
 # Tensor caches (outputs/**/*.pt, ~700 MB each) are NOT tracked here — they live on
 # the Hub: huggingface.co/datasets/soar-eleuther-i6-hierarchy/experiment_0-stats
 # See .gitignore; the old git-LFS rule was dropped so they never re-enter the repo.
-
-# HTML dashboards are deliberately NOT in LFS: GitHub Pages does not resolve
-# LFS objects and would serve the pointer stub instead of the page.
-outputs/**/*.html -filter -diff -merge text
-outputs/*.html -filter -diff -merge text
-
-# The single shared plotly bundle every dashboard links to (outputs/assets/,
-# written by reporting.visualize). Same reasoning: Pages must serve the real
-# file. It is vendored, minified and never hand-edited, so keep it out of diffs
-# and out of the language stats.
-outputs/assets/*.js -filter -diff -merge text
-outputs/assets/*.js linguist-vendored

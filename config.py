@@ -219,7 +219,7 @@ FREQ_SURVIVAL_MIN = _GATES.freq_survival_min
 # ---------------------------------------------------------------------------
 HERE = Path(__file__).resolve().parent
 # EXP0_OUT redirects ALL outputs to a directory of your choice, so a scratch run
-# never touches the git-tracked outputs/ published on GitHub Pages. Default: unchanged.
+# never touches the git-tracked outputs/. Default: unchanged.
 OUT_DIR = Path(os.environ.get("EXP0_OUT", HERE / "outputs"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -244,29 +244,11 @@ RUN_DIR.mkdir(parents=True, exist_ok=True)
 IS_LAYER_RUN = Path(RUN_NAME).name.startswith("layer_")
 
 
-def page_depth(path) -> int:
-    """Levels from a generated page's directory up to the site root.
-
-    The site root is the repo root, so the answer is simply how deep the file sits
-    inside it -- which also covers the pages that are NOT under outputs/ at all:
-    the package READMEs, and outputs_archive/. Derived rather than passed, because
-    the depth changed for 25 published pages the day results were grouped by
-    source, and every caller that had hardcoded 2 was then wrong.
-
-    A page written under EXP0_OUT is outside the repo; there OUT_DIR stands in for
-    `outputs/`, so a scratch run produces the same bar as the published page.
-    """
-    p = Path(path).resolve()
-    try:
-        return len(p.relative_to(HERE.resolve()).parts) - 1
-    except ValueError:
-        return len(p.relative_to(OUT_DIR.resolve()).parts)
-
 def scope_line(total_tokens=None, bold=("**", "**"), sep="　·　", n_docs=None, config=None):
     """Which layer, and the knobs a reader needs to interpret the numbers.
 
-    Single source for the context line shown on every page and report, so the
-    dashboards and the markdown digests can never drift apart. `bold` selects the
+    Single source for the context line shown on every report, so the reports
+    can never drift apart. `bold` selects the
     emphasis syntax: ("**", "**") for markdown, ("<b>", "</b>") for HTML.
 
     `config` is the stats file's own config block. Pass it and the line describes
@@ -300,287 +282,20 @@ def scope_line(total_tokens=None, bold=("**", "**"), sep="　·　", n_docs=None
     return sep.join(bits)
 
 
-# --- site navigation --------------------------------------------------------
-# Every page is reachable only by a deep link, so each carries its own nav bar.
-# Emitted into the markdown reports too: Jekyll passes raw HTML through when it
-# renders them (and serves them as .html, which is why the report links below
-# end in .html, not .md). All hrefs are relative to the site root, so the bar
-# works on GitHub Pages and when a file is opened straight off disk.
-#
-# It is `sticky`, not `fixed`: sticky occupies layout space, so the bar can
-# never cover the top of a plot the way the old floating back-button did.
+# --- gemma layers -----------------------------------------------------------
+# The gemma-2-2b layers graded with the Matryoshka SAE. The reporting scripts
+# iterate over this list.
 NAV_LAYERS = [1, 3, 6, 12, 18, 24]
 
-# (file, label) for the five pages every layer_NN/ has. `file` doubles as the
-# identity of "which page am I on", so switching layer lands on the same kind.
-NAV_PAGES = [
-    ("metrics_dashboard.html", "Dashboard"),
-    ("superparent_sankey.html", "Superparents"),
-    ("in_block_dashboard.html", "In-block"),
-    ("qualitative_dashboard.html", "Qualitative"),
-    ("metrics_report.html", "Metrics report"),
-    ("in_block_edges.html", "In-block report"),
-    ("qualitative_check.html", "Qualitative report"),
-]
-
-# Global links: (path from site root, label). "" is the repo README = the index.
-# No "Overview" entry: the brand on the left already links to the site root, and
-# two adjacent links to the same place is noise. No "Per layer" either: it went
-# to the layer *table*, while the pills in the second row open each layer
-# directly, which is strictly better.
-# kill_rates.html and cross_depth_comparison.html are gone from this list. Both
-# were hand-built with no generator, so neither could be rebuilt by rerunning a
-# stage, and both were written against caches that counted BOS. BOS is an
-# attention sink -- every feature fires there -- so it manufactured 400 joint
-# firings for every pair in the dictionary and defeated the joint-support guard.
-# Excluding it inverted the numbers those two pages were built to display: the
-# deep-pair reconstruction share, the frequency-driven share, the death rate.
-# They now sit in outputs_archive/ carrying a banner. A page that states a
-# withdrawn result next to regenerated ones is worse than no page; put them back
-# only behind a generator, so a rerun can never leave them stale again.
-# Each SOURCE is a directory of layers under outputs/, and one entry in the nav's
-# global row. Clicking it opens that source; its own layer pills then appear.
-# Nothing here is gemma-specific any more: the PCFG SAE has one layer trained so
-# far and gets a one-pill row, which is the honest picture of that sweep.
-#
-# `pages` differs per source because Neuronpedia labels exist for gemma's
-# dictionary and no other, so the two qualitative pages exist only there. Listing
-# a page a source does not have would put a 404 in its own nav bar.
-SOURCES = {
-    "pcfg-matryoshka": {
-        "label": "pcfg-matryoshka",
-        # All four residual streams of the base transformer (it has four layers,
-        # 0-3, so gemma's 6/12/18/24 do not exist here and never will) -- the
-        # zipf run's SAEs on every one of them.
-        "layers": [0, 1, 2, 3],
-        # The formatting sweep (Exp 2, axis b): four densities x three seeds,
-        # every one trained and graded at layer 2 of its own base model. Same
-        # density + different seed is a different run, not a different layer,
-        # so they get their own pill group rather than rows in "layers".
-        # (dirname under outputs/pcfg-matryoshka/, pill label)
-        "runs": [(f"fmt_{code}_s{seed}", f"{label}-s{seed}")
-                 for code, label in [("0000", "0.00"), ("1667", "0.17"),
-                                     ("2308", "0.23"), ("2400", "0.24")]
-                 for seed in (0, 1, 2)],
-        "pages": [p for p in NAV_PAGES if not p[0].startswith("qualitative")],
-    },
-    SOURCE_NAME: {
-        "label": "gemma-2-2b",
-        # NAV_LAYERS, not a second literal: the reporting scripts iterate
-        # NAV_LAYERS and the nav bar reads this entry — one list, one truth.
-        "layers": NAV_LAYERS,
-        "pages": NAV_PAGES,
-    },
-}
-
-# Global links: (path from site root, label).
-NAV_GLOBAL = [
-    ("outputs/", "Results"),
-    # Both tiers are named "<which> Toy Calibration" so the bar reads as two
-    # rungs of one ladder. "Toy calibration" beside "Trained toy" implied the
-    # first was THE toy calibration and the second was a different kind of
-    # thing, when they are the same calibration on hand-built and on learned
-    # statistics. The file names are unchanged: they are published URLs.
-    ("outputs/synthetic_toy_calibration.html", "Synthetic Toy Calibration"),
-    ("outputs/trained_toy_calibration.html", "Trained Toy Calibration"),
-] + [(f"outputs/{name}/", cfg["label"]) for name, cfg in SOURCES.items()]
-
-
-def source_of(current: str | None) -> str | None:
-    """Which source a page belongs to, from its path under the site root.
-
-    Derived rather than passed: the answer is already in the path, and a second
-    place to state it is a second place for it to be wrong.
-    """
-    for name in SOURCES:
-        if (current or "").startswith(f"outputs/{name}/"):
-            return name
-    return None
-
-# Inlined rather than linked: every page must render identically offline and on
-# Pages, and one <img> to an external host would be the only request any of
-# these pages makes.
-GITHUB_MARK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>'
-
-NAV_CSS = """<style>
-.x0nav{position:sticky;top:0;z-index:999;background:#fff;border-bottom:1px solid #E3DAFB;
-font:500 13px/1.15 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0 0 14px;}
-.x0nav .row{display:flex;flex-wrap:wrap;align-items:center;gap:13px;padding:9px 18px;}
-.x0nav .row+.row{border-top:1px solid #F1ECFD;}
-.x0nav a{text-decoration:none;color:#5A6B7B;}
-.x0nav a:hover{color:#7C22CE;}
-.x0nav .brand{font-weight:700;color:#7C22CE;letter-spacing:.2px;}
-.x0nav .on{color:#7C22CE;font-weight:700;}
-.x0nav .lbl{color:#9AA7B3;font-size:11px;text-transform:uppercase;letter-spacing:.7px;}
-.x0nav .pill{border:1px solid #E3DAFB;border-radius:7px;padding:5px 10px;background:#F6F3FE;}
-.x0nav .pill.on{background:#7C22CE;color:#fff;border-color:#7C22CE;}
-.x0nav .sep{width:1px;height:17px;background:#E3DAFB;}
-.x0nav .gh{display:inline-flex;align-items:center;gap:5px;margin-left:auto;}
-.x0nav .gh svg{width:15px;height:15px;fill:currentColor;display:block;}
-.x0nav details.dens{flex:1 1 100%;}
-.x0nav details.dens summary{cursor:pointer;list-style:none;user-select:none;display:inline-block;}
-.x0nav details.dens summary::-webkit-details-marker{display:none;}
-.x0nav details.dens summary::after{content:"▸";margin-left:4px;}
-.x0nav details.dens[open] summary::after{content:"▾";}
-.x0nav details.dens summary:hover{color:#7C22CE;}
-.x0nav .drow{display:flex;flex-wrap:wrap;align-items:center;gap:13px;padding-top:9px;}
-@media (prefers-color-scheme:dark){
-.x0nav{background:#141414;border-bottom-color:#2E2E2E;}
-.x0nav .row+.row{border-top-color:#242424;}
-.x0nav a{color:#A9B4BF;}
-.x0nav .brand,.x0nav a:hover,.x0nav .on{color:#C79BF2;}
-.x0nav .pill{background:#1E1830;border-color:#3A2B57;}
-.x0nav .pill.on{background:#7C22CE;color:#fff;border-color:#7C22CE;}
-.x0nav .sep{background:#2E2E2E;}
-.x0nav details.dens summary:hover{color:#C79BF2;}}
-</style>"""
-
-
-def nav_html(depth: int = 2, layer: int | None = None, page: str | None = None,
-             current: str | None = None) -> str:
-    """The site nav bar for one page.
-
-    depth    levels from this page's directory up to the site root
-             (1 for outputs/x.html, 3 for outputs/gemma-2-2b/layer_NN/x.html);
-             `page_depth(path)` computes it, and callers should use that rather
-             than count by hand
-    layer    the layer this page describes, or None for a site-wide page
-    page     which of NAV_PAGES this is, so the row can mark it current
-    current  this page's own path from the site root, used to highlight its
-             entry in the global row (site-wide pages only)
-
-    The second row belongs to a SOURCE and appears only inside one, carrying that
-    source's layers. Within a layer page it also carries that source's pages, and
-    those two groups are what make navigation two-dimensional — change the layer
-    and stay on the same page, or change the page and stay on the same layer.
-
-    Which source is read off `current`, so a page that passes no `current` gets
-    the single row. That is why every generator now passes one.
-    """
-    # depth 0 is the site root itself (the repo README): "" is not a usable href.
-    root = "../" * depth or "./"
-
-    top = [f'<a class="brand" href="{root}">SOAR I-6 · metrics</a>']
-    for href, label in NAV_GLOBAL:
-        # A directory entry owns every page under it, so a run that publishes a
-        # whole directory (outputs/pcfg-matryoshka/) lights up its own nav entry from any of
-        # its pages, not only from the index. `outputs/` itself is excluded --
-        # it is the site index and prefixes every page there is, so it would be
-        # permanently lit next to the entry that is actually current.
-        owns = href.endswith("/") and href.count("/") > 1
-        here = current is not None and (href == current or
-                                        (owns and current.startswith(href)))
-        on = "on" if here else ""
-        top.append(f'<a class="{on}" href="{root}{href}">{label}</a>')
-    # Right end, past everything else: it is the one link that leaves the site,
-    # so it does not belong in the sequence of places within it. `margin-left:auto`
-    # does the pushing, which keeps it last in the DOM too -- it should also be
-    # last for a keyboard or a screen reader, not first.
-    top.append(f'<a class="gh" href="{REPO_URL}" title="Browse the code on GitHub">'
-               f'{GITHUB_MARK}Code</a>')
-    rows = ['<div class="row">' + "".join(top) + "</div>"]
-
-    # The layer row belongs to ONE source, so it appears only inside that source:
-    # on a gemma layer page, and on the source's own index. It used to be on every
-    # page, from when gemma was the only thing here -- which put five gemma pills
-    # on the PCFG dashboard, offering to "switch layer" to a different model.
-    # Reaching a layer from elsewhere is now one hop through the source entry.
-    #
-    # The "Page" group needs a layer to stay within, so it is the narrower case:
-    # a layer page only. A pill keeps the current page kind when there is one;
-    # from the source index it opens that layer's index, which is why every
-    # layer_NN/ has a README.
-    source = source_of(current)
-    if source is None:
-        return NAV_CSS + '<nav class="x0nav">' + "".join(rows) + "</nav>"
-    cfg = SOURCES[source]
-
-    def has_page(dirname: str, f: str) -> bool:
-        d = OUT_DIR / source / dirname
-        return (d / f).exists() or (d / f.replace(".html", ".md")).exists()
-
-    def pill_href(dirname: str) -> str:
-        """Keep the page kind when the target directory has that page; land on
-        its index when it does not. Not every run produced every page (a Sankey
-        needs a superparent to exist), and a 404 in the site's own chrome is
-        worse than arriving at the directory."""
-        if page and has_page(dirname, page):
-            return f"{root}outputs/{source}/{dirname}/{page}"
-        return f"{root}outputs/{source}/{dirname}/"
-
-    second = ['<span class="lbl">Layer</span>']
-    for L in cfg["layers"]:
-        on = " on" if L == layer else ""
-        second.append(
-            f'<a class="pill{on}" href="{pill_href(f"layer_{L:02d}")}">{L}</a>'
-        )
-
-    # Which directory under the source this page is inside, read off `current`
-    # exactly as source_of reads the source: for layer pages it repeats `layer`,
-    # for a sweep run it is the run's dirname, and on the source index it is "".
-    runs = cfg.get("runs", ())
-    here = (current or "")[len(f"outputs/{source}/"):].split("/")[0] \
-        if (current or "").startswith(f"outputs/{source}/") else ""
-    in_run = any(d == here for d, _ in runs)
-
-    # The Page group needs a directory to stay within: a layer page's layer_NN,
-    # or a sweep run's own dirname. On a run page it lives in the sweep row
-    # below, next to the pills that place the run.
-    in_dir = f"layer_{layer:02d}" if layer is not None else (here if in_run else None)
-    if in_dir and not in_run:
-        second.append('<span class="sep"></span><span class="lbl">Page</span>')
-        for f, label in cfg["pages"]:
-            if not has_page(in_dir, f):     # pages-on-disk only, like the indexes
-                continue
-            on = " on" if f == page else ""     # page=None -> the layer index, nothing marked
-            second.append(
-                f'<a class="{on.strip()}" href="{root}outputs/{source}/{in_dir}/{f}">{label}</a>'
-            )
-    rows.append('<div class="row">' + "".join(second) + "</div>")
-
-    # The formatting sweep gets a row of its own, folded behind the word
-    # "Density": twelve pills on every page of the source would drown the four
-    # layer pills that place the zipf run. <details> keeps it dependency-free --
-    # it renders identically on Pages, on github.com and straight off disk --
-    # and it starts open exactly when the reader is inside a sweep run, so the
-    # lit pill that answers "where am I" is never hidden.
-    if runs:
-        # The flex row is an inner <div>, never <details> itself: Safari does
-        # not lay out details' slotted content as flex children, and the pills
-        # end up overlapping the Page group. A plain block child avoids the
-        # slot entirely and renders identically everywhere.
-        third = [f'<details class="dens"{" open" if in_run else ""}>',
-                 '<summary class="lbl">Density</summary>', '<div class="drow">']
-        for dirname, label in runs:
-            on = " on" if dirname == here else ""
-            third.append(
-                f'<a class="pill{on}" href="{pill_href(dirname)}">{label}</a>'
-            )
-        if in_run:
-            third.append('<span class="sep"></span><span class="lbl">Page</span>')
-            for f, label in cfg["pages"]:
-                if not has_page(in_dir, f):
-                    continue
-                on = " on" if f == page else ""
-                third.append(
-                    f'<a class="{on.strip()}" href="{root}outputs/{source}/{in_dir}/{f}">{label}</a>'
-                )
-        third.append('</div></details>')
-        rows.append('<div class="row">' + "".join(third) + "</div>")
-
-    return NAV_CSS + '<nav class="x0nav">' + "".join(rows) + "</nav>"
-
 # --- keeping previous runs -------------------------------------------------
-# A run writes into a FIXED path (outputs/<source>/layer_NN/) because the published site
-# links to it by name -- timestamping that directory would 404 every page. So a
+# A run writes into a FIXED path (outputs/<source>/layer_NN/) because the reports and
+# figures find it by name. So a
 # rerun would otherwise replace the previous run's numbers with no trace. This
-# takes a dated copy first. Copy, not move, so the site stays whole even if the
+# takes a dated copy first. Copy, not move, so the outputs stay whole even if the
 # run dies.
 #
-# Tracked, not gitignored, on purpose. A superseded run is evidence: when a number
-# changes, the version it replaced has to stay citable rather than sit in one
-# person's working copy. outputs_local/ was the old home and is ignored, so an
-# archive there vanished on a fresh clone -- the one case you need it.
+# Gitignored since 23 Oct 2026: it is a local safety copy, not a result. Old
+# versions of tracked outputs are in git history (and on the `backup` branch).
 ARCHIVE_DIR = HERE / "outputs_archive"
 
 # Never archived. Two different reasons, both worth stating.
@@ -592,8 +307,6 @@ ARCHIVE_DIR = HERE / "outputs_archive"
 # Neuronpedia's labels for this layer's SAE, a property of the dictionary, and
 # nothing we compute touches them -- so an archived copy is byte-identical to the
 # live one and archives nothing. Left in, they were 9.8 MB of the archive's 11 MB.
-# Safe to drop because the dashboards inline their labels at generation time; no
-# archived page reads these files when it is opened.
 ARCHIVE_SKIP = ("*.pt", "token_cache", "figures",
                 "feature_labels.json", "npedia_labels_cache.json")
 

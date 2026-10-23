@@ -52,7 +52,7 @@ def _f(x) -> float:
 
 def json_safe(obj):
     """Recursively replace NaN/inf floats with None so json.dumps emits valid
-    JSON (bare NaN tokens break strict parsers, e.g. JS on the Pages site).
+    JSON (bare NaN tokens break strict parsers).
     Applied at serialization time only — markdown rendering happens before."""
     if isinstance(obj, float) and not math.isfinite(obj):
         return None
@@ -335,18 +335,7 @@ def analyse_pair(stats, p_blk, c_blk, labels=None, legacy_guards=False):
 
 
 def to_markdown(report) -> str:
-    # Jekyll renders this file to .html on GitHub Pages; the raw HTML passes
-    # through and gives the report the same nav bar as the generated dashboards,
-    # so navigation is consistent across the site.
-    # A run that is not a gemma layer takes the site-wide nav, same rule the
-    # dashboards use: marking a layer here would point the "Page" row at
-    # outputs/layer_NN/ files that describe a different SAE entirely.
-    is_layer = C.IS_LAYER_RUN
-    nav = C.nav_html(depth=C.page_depth(C.METRICS_MD_PATH),
-                     layer=report["config"].get("layer", C.LAYER) if is_layer else None,
-                     page="metrics_report.html",
-                     current=f"outputs/{C.RUN_NAME}/metrics_report.html")
-    L = [nav, "", "# Exp 0 - metrics report", ""]
+    L = ["# Exp 0 - metrics report", ""]
     L.append(C.scope_line(report["total_tokens"], n_docs=report["config"].get("n_docs"),
                           config=report["config"]))
     L.append("")

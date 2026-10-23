@@ -57,8 +57,7 @@ def toy_pit() -> dict:
 # anything written after: BOS is an attention sink, so with 400 documents every feature
 # pair in the dictionary collected 400 joint firings from that one position and cleared
 # MIN_JOINT on its own. Such a file was used as the Matryoshka baseline for a day and
-# inflated the T-SAE edge-density ratio from 794x to 1,760x. See
-# outputs/gemma-2-2b/layer_12/withdrawn/README.md and ERROR_LOG 2026-09-11.
+# inflated the T-SAE edge-density ratio from 794x to 1,760x. See ERROR_LOG 2026-09-11.
 #
 # The check is on absence, not value: these keys entered the config block together with
 # the guards they name, so a report that omits one predates it.
@@ -82,8 +81,7 @@ def read(path: Path, *, require_guards: bool = True):
                 f"{path} is a metrics report whose config omits {missing}, so it was "
                 f"graded before those guards existed and cannot be compared with a "
                 f"current report. It records {d.get('total_tokens')} tokens; current "
-                f"gemma runs record 48,571. See "
-                f"outputs/gemma-2-2b/layer_12/withdrawn/README.md."
+                f"gemma runs record 48,571."
             )
     return d
 

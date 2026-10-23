@@ -40,7 +40,7 @@ toygen/*.html
 toygen/DESIGN.md
 tests_local/
 outputs_local/
-outputs_archive/pilot_seed0
+outputs_archive/
 design_studies/
 synthdict/tests
 

@@ -413,7 +413,7 @@ def main():
             print(f"  {r['edge']:<10} untestable — {r['why']}")
     print(f"parent-conditioned sibling redundancy: {pt['parent_conditioned_redundancy']}")
 
-    # per-edge verdict rows for the dashboard, ordered parent then child
+    # per-edge verdict rows for the report, ordered parent then child
     def edge_row(e):
         p, c = e
         cat = "recovered" if e in found else ("missed: child not learned"

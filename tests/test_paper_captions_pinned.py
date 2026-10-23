@@ -1,10 +1,7 @@
 """The paper captions cannot be checked for truth, so their INPUTS are pinned.
 
-`test_captions_match_panels.py` guards the dashboards in `reporting/visualize.py`
-against the panel moving under a caption that still describes the old one. This is
-the other half of the same problem, for `reporting/make_report_figures.py`, and it
-guards the opposite direction: the panel stays exactly where it was and the DATA
-underneath it changes.
+This test is for `reporting/make_report_figures.py`. It guards one direction: the
+panel stays exactly where it was and the DATA underneath it changes.
 
 That is not hypothetical. Switching the reference toy checkpoint left two captions
 asserting a world that had stopped existing:
@@ -19,7 +16,7 @@ sentences around them were hand-written English and did not.
 What this test does is narrow, and worth stating plainly: **it does not check that any
 caption is correct.** It cannot. It fails when the data a caption is written against is
 regenerated, which sends whoever regenerated it back to the caption. A tripwire, not a
-proof -- the same bargain the dashboard test makes.
+proof.
 
 Only inputs whose captions carry hand-written claims are pinned. Adding a file here
 costs nothing; leaving one out costs a caption that quietly goes stale.
